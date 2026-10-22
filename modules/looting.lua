@@ -29,6 +29,8 @@ local LastBackpackDropTime = 0
 local RecentlyAutoLootedToolNames = {}
 local LastDesiredEquippedTool = nil
 local IsHandlingBackpackEquip = false
+local IsDroppingBackpack = false
+local LastUnloadTime = 0
 
 local TouchAndFlyItemToBase
 local ThrowGasToGenerator
@@ -81,7 +83,7 @@ local function SetupCharacterNoEquipGuard(char)
     if not char then return end
     Hub.AddConnection(char.ChildAdded:Connect(function(child)
         if not child:IsA("Tool") then return end
-        if IsHandlingBackpackEquip or child.Name == "Backpack" or child:GetAttribute("ToolType") == "Backpack" then
+        if IsHandlingBackpackEquip or IsDroppingBackpack or child.Name == "Backpack" or child:GetAttribute("ToolType") == "Backpack" then
             return
         end
         local now = os.clock()
@@ -96,7 +98,7 @@ local function SetupCharacterNoEquipGuard(char)
                         if child.Parent == char then
                             child.Parent = bp
                         end
-                        if LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
+                        if LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp and not IsHandlingBackpackEquip and not IsDroppingBackpack then
                             hum:EquipTool(LastDesiredEquippedTool)
                         end
                     end)
@@ -110,9 +112,9 @@ local function SetupCharacterNoEquipGuard(char)
 
     Hub.AddConnection(char.ChildRemoved:Connect(function(child)
         if not child:IsA("Tool") then return end
-        if IsHandlingBackpackEquip then return end
+        if IsHandlingBackpackEquip or IsDroppingBackpack then return end
         task.defer(function()
-            if not IsHandlingBackpackEquip then
+            if not IsHandlingBackpackEquip and not IsDroppingBackpack then
                 local current = char:FindFirstChildOfClass("Tool")
                 if current and current.Name ~= "Backpack" and current:GetAttribute("ToolType") ~= "Backpack" then
                     LastDesiredEquippedTool = current
@@ -205,6 +207,45 @@ end
 -- ============================================================================
 -- PHÂN LOẠI NGAY TẠI THỜI ĐIỂM THẢ ĐỒ (DROPPED ITEMS INSTANT CLASSIFIER)
 -- ============================================================================
+local function TriggerGeneratorTouch(fuelPart)
+    local genPart = Utils.GetGeneratorMainPart()
+    if not (fuelPart and genPart) then return end
+    if firetouchinterest_fn then
+        pcall(firetouchinterest_fn, genPart, fuelPart, 0)
+        pcall(firetouchinterest_fn, genPart, fuelPart, 1)
+        local centre = genPart:FindFirstChild("Centre") or (genPart.Parent and genPart.Parent:FindFirstChild("Centre"))
+        if centre and centre:IsA("BasePart") then
+            pcall(firetouchinterest_fn, centre, fuelPart, 0)
+            pcall(firetouchinterest_fn, centre, fuelPart, 1)
+        end
+        if genPart.Parent and genPart.Parent.PrimaryPart and genPart.Parent.PrimaryPart ~= genPart then
+            pcall(firetouchinterest_fn, genPart.Parent.PrimaryPart, fuelPart, 0)
+            pcall(firetouchinterest_fn, genPart.Parent.PrimaryPart, fuelPart, 1)
+        end
+    end
+end
+
+local function TriggerShredderTouch(resourcePart)
+    local shredPart = Utils.GetShredderTargetPart()
+    if not (resourcePart and shredPart) then return end
+    if firetouchinterest_fn then
+        pcall(firetouchinterest_fn, shredPart, resourcePart, 0)
+        pcall(firetouchinterest_fn, shredPart, resourcePart, 1)
+        if shredPart.Parent then
+            local visual = shredPart.Parent:FindFirstChild("Visual")
+            if visual and visual:IsA("BasePart") and visual ~= shredPart then
+                pcall(firetouchinterest_fn, visual, resourcePart, 0)
+                pcall(firetouchinterest_fn, visual, resourcePart, 1)
+            end
+            local main = shredPart.Parent:FindFirstChild("MainPart")
+            if main and main:IsA("BasePart") and main ~= shredPart then
+                pcall(firetouchinterest_fn, main, resourcePart, 0)
+                pcall(firetouchinterest_fn, main, resourcePart, 1)
+            end
+        end
+    end
+end
+
 local function SetupDroppedItemsWatcher()
     local droppedFolder = Workspace:FindFirstChild("DroppedItems")
     if not droppedFolder then
@@ -226,7 +267,7 @@ local function SetupDroppedItemsWatcher()
         local dropTime = RecentlyDroppedTime[item]
         if dropTime and (now - dropTime) < 30 then return end
 
-        local isFromBackpack = IsHandlingBackpackEquip or ((now - LastBackpackDropTime) <= 3.0)
+        local isFromBackpack = IsHandlingBackpackEquip or IsDroppingBackpack or ((now - LastBackpackDropTime) <= 4.0)
 
         local genPart = Utils.GetGeneratorMainPart()
         local shredPart = Utils.GetShredderTargetPart()
@@ -236,7 +277,6 @@ local function SetupDroppedItemsWatcher()
         if not basePos then return end
 
         local itemPos = item:GetPivot().Position
-        local distToPlayer = root and (itemPos - root.Position).Magnitude or 9999
         local distToBase = (itemPos - basePos).Magnitude
 
         -- CHỈ XỬ LÝ KHI VẬT PHẨM ĐƯỢC THẢ RA TỪ BACKPACK HOẶC ĐÃ NẰM TRONG KHUÔN VIÊN BASE (BÁN KÍNH 75 STUDS)
@@ -262,14 +302,10 @@ local function SetupDroppedItemsWatcher()
                         end)
                     end
 
-                    if firetouchinterest_fn then
-                        if cat == "Fuel" and genPart then
-                            pcall(firetouchinterest_fn, genPart, part, 0)
-                            pcall(firetouchinterest_fn, genPart, part, 1)
-                        elseif cat == "Resource" and shredPart then
-                            pcall(firetouchinterest_fn, shredPart, part, 0)
-                            pcall(firetouchinterest_fn, shredPart, part, 1)
-                        end
+                    if cat == "Fuel" then
+                        TriggerGeneratorTouch(part)
+                    elseif cat == "Resource" then
+                        TriggerShredderTouch(part)
                     end
                 end
             end
@@ -448,7 +484,7 @@ end
 
 -- Kéo vật phẩm lại gần và nhét trực tiếp vào Backpack Sack, sau đó trả về slot trước đó ngay tức thì
 local function StoreCandidatesToBackpack(candidates)
-    if IsHandlingBackpackEquip then return false end
+    if IsHandlingBackpackEquip or IsDroppingBackpack then return false end
     if not candidates or #candidates == 0 then return false end
 
     local char = Utils.GetCharacter()
@@ -467,7 +503,7 @@ local function StoreCandidatesToBackpack(candidates)
     -- 1. Lưu lại tool hiện tại đang cầm để đổi lại slot trước đó NGAY TỨC THÌ
     local currentHeld = char:FindFirstChildOfClass("Tool")
     local restoreTool = nil
-    if currentHeld and currentHeld ~= bpTool then
+    if currentHeld and currentHeld ~= bpTool and currentHeld.Name ~= "Backpack" and currentHeld:GetAttribute("ToolType") ~= "Backpack" then
         restoreTool = currentHeld
         LastDesiredEquippedTool = currentHeld
     elseif LastDesiredEquippedTool and (LastDesiredEquippedTool.Parent == bp or LastDesiredEquippedTool.Parent == char) then
@@ -476,17 +512,17 @@ local function StoreCandidatesToBackpack(candidates)
 
     IsHandlingBackpackEquip = true
 
-    -- 2. Trang bị Backpack lên
+    -- 2. Trang bị Backpack lên và đợi xác nhận đã cầm trên tay
     if bpTool.Parent ~= char then
         hum:EquipTool(bpTool)
-        Services.RunService.Heartbeat:Wait()
+        local t0 = os.clock()
+        while bpTool.Parent ~= char and (os.clock() - t0) < 0.4 and Utils.IsCharacterAlive(char) do
+            Services.RunService.Heartbeat:Wait()
+        end
     end
 
-    local genPart = Utils.GetGeneratorMainPart()
-    local shredPart = Utils.GetShredderTargetPart()
-
     -- 3. Hút từng candidate vào Backpack sack và BẮT BUỘC ĐỢI XÁC NHẬN ĐÃ VÀO SACK
-    local successfullyStored = {}
+    local storedCount = 0
     for _, item in ipairs(candidates) do
         if not item or not item.Parent or not item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
             continue
@@ -498,9 +534,6 @@ local function StoreCandidatesToBackpack(candidates)
 
         local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
         if part then
-            local cat = Utils.ClassifyItem(item)
-            local dropCF = GetTargetCFrameForCategory(cat, genPart, shredPart)
-
             pcall(function()
                 for _, d in ipairs(item:GetDescendants()) do
                     if d:IsA("BasePart") then
@@ -536,45 +569,17 @@ local function StoreCandidatesToBackpack(candidates)
             end
 
             -- BẮT BUỘC ĐỢI XÁC NHẬN: Item biến mất khỏi DroppedItems -> ĐÃ THỰC SỰ VÀO SACK!
-            local stored = false
             for _ = 1, 8 do
                 Services.RunService.Heartbeat:Wait()
                 if not item.Parent or not item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
-                    stored = true
+                    storedCount = storedCount + 1
                     break
                 end
             end
-
-            -- CHỈ KHI NÀO ĐÃ VÀO SACK THÀNH CÔNG MỚI ĐƯA VÀO DANH SÁCH XẢ RA BASE
-            if stored then
-                table.insert(successfullyStored, {
-                    Item = item,
-                    Category = cat,
-                    DropCF = dropCF,
-                })
-            end
         end
     end
 
-    -- 4. KHI ĐỒ ĐÃ NẰM TRONG SACK: THẢ RA TỪ SACK ĐẾN ĐÚNG TOẠ ĐỘ ĐÍCH TẠI BASE
-    if AdjustBackpackRemote and #successfullyStored > 0 then
-        LastBackpackDropTime = os.clock()
-        for _, entry in ipairs(successfullyStored) do
-            local dropCF = entry.DropCF
-            local itm = entry.Item
-
-            -- ĐÁNH DẤU ĐÃ GIAO / ĐÃ THẢ -> TUYỆT ĐỐI KHÔNG HÚT LẠI!
-            DeliveredItems[itm] = true
-            RecentlyDroppedTime[itm] = os.clock()
-
-            pcall(function()
-                AdjustBackpackRemote:FireServer(nil, dropCF)
-            end)
-            Services.RunService.Heartbeat:Wait()
-        end
-    end
-
-    -- 6. ĐỔI LẠI ĐÚNG SLOT VŨ KHÍ TRƯỚC ĐÓ NGAY TỨC THÌ (KHÔNG DELAY)
+    -- 4. ĐỔI LẠI ĐÚNG SLOT VŨ KHÍ TRƯỚC ĐÓ NGAY TỨC THÌ (KHÔNG DELAY)
     if restoreTool and restoreTool.Parent == bp then
         hum:EquipTool(restoreTool)
     elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
@@ -593,12 +598,15 @@ local function StoreCandidatesToBackpack(candidates)
         IsHandlingBackpackEquip = false
     end)
 
-    return #successfullyStored > 0
+    return storedCount > 0
 end
 
 -- Tự động xả toàn bộ vật phẩm trong Backpack sack khi về đến Base
 local function UnloadBackpackAtBase(genPart, shredPart, root)
-    if IsHandlingBackpackEquip then return false end
+    if IsDroppingBackpack or IsHandlingBackpackEquip then return false end
+    local now = os.clock()
+    if (now - LastUnloadTime) < 1.0 then return false end
+
     local char = Utils.GetCharacter()
     local hum = Utils.GetHumanoid(char)
     local bp = LocalPlayer:FindFirstChild("Backpack")
@@ -612,45 +620,94 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
 
     local currentHeld = char:FindFirstChildOfClass("Tool")
     local restoreTool = nil
-    if currentHeld and currentHeld ~= bpTool then
+    if currentHeld and currentHeld ~= bpTool and currentHeld.Name ~= "Backpack" and currentHeld:GetAttribute("ToolType") ~= "Backpack" then
         restoreTool = currentHeld
         LastDesiredEquippedTool = currentHeld
     elseif LastDesiredEquippedTool and (LastDesiredEquippedTool.Parent == bp or LastDesiredEquippedTool.Parent == char) then
         restoreTool = LastDesiredEquippedTool
     end
 
+    IsDroppingBackpack = true
     IsHandlingBackpackEquip = true
+    LastUnloadTime = now
 
-    if bpTool.Parent ~= char then
-        hum:EquipTool(bpTool)
-        Services.RunService.Heartbeat:Wait()
-    end
-
-    local defaultDropCF = shredPart and (shredPart.CFrame * CFrame.new(0, 4.8, 0))
-        or (genPart and genPart.CFrame * CFrame.new(0, 2.2, 0))
-        or (root and root.CFrame * CFrame.new(0, 1, -3))
-
-    LastBackpackDropTime = os.clock()
-    if AdjustBackpackRemote then
-        for i = 1, math.max(count, 1) do
-            pcall(function()
-                AdjustBackpackRemote:FireServer(nil, defaultDropCF)
-            end)
+    task.spawn(function()
+        -- 1. Chuyển sang Backpack và ĐỢI BACKPACK ĐƯỢC CẦM TRÊN TAY
+        if bpTool.Parent ~= char then
+            hum:EquipTool(bpTool)
+            local waitTicks = 0
+            while bpTool.Parent ~= char and waitTicks < 20 and Utils.IsCharacterAlive(char) do
+                task.wait(0.04)
+                waitTicks = waitTicks + 1
+            end
         end
-    end
 
-    -- Đổi lại slot trước đó ngay tức thì
-    if restoreTool and restoreTool.Parent == bp then
-        hum:EquipTool(restoreTool)
-    elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
-        hum:EquipTool(LastDesiredEquippedTool)
-    elseif not currentHeld then
-        hum:UnequipTools()
-    end
+        if not Utils.IsCharacterAlive(char) or bpTool.Parent ~= char then
+            IsDroppingBackpack = false
+            IsHandlingBackpackEquip = false
+            return
+        end
 
-    task.defer(function()
+        local defaultDropCF = shredPart and (shredPart.CFrame * CFrame.new(0, 4.8, 0))
+            or (genPart and genPart.CFrame * CFrame.new(0, 2.2, 0))
+            or (root and root.CFrame * CFrame.new(0, 1, -3))
+
+        LastBackpackDropTime = os.clock()
+
+        -- 2. Giữ nguyên Backpack trên tay và thả từng món đồ ra, cho server thời gian xử lý từng item
+        local dropsLeft = math.min(count, 30)
+        local attempts = 0
+        while dropsLeft > 0 and attempts < (count + 5) and Utils.IsCharacterAlive(char) and bpTool.Parent == char do
+            attempts = attempts + 1
+            if AdjustBackpackRemote then
+                pcall(function()
+                    AdjustBackpackRemote:FireServer(nil, defaultDropCF)
+                end)
+            end
+            task.wait(0.08)
+            local currentCount = GetBackpackItemCount()
+            if currentCount < dropsLeft then
+                dropsLeft = currentCount
+            else
+                dropsLeft = dropsLeft - 1
+            end
+            if dropsLeft <= 0 or currentCount <= 0 then
+                break
+            end
+        end
+
+        -- Xả các đồ vật trong Backpack mặc định của Roblox: Fuel -> Generator, Food -> 10 studs away, Resource -> Scraper
+        for _, child in ipairs(bp:GetChildren()) do
+            if child:IsA("Tool") and child.Name ~= "Backpack" and child:GetAttribute("ToolType") ~= "Backpack" then
+                local toolCat = Utils.ClassifyItem(child)
+                if toolCat == "Fuel" or toolCat == "Food" or toolCat == "Resource" then
+                    local dropCF = GetTargetCFrameForCategory(toolCat, genPart, shredPart)
+                    if dropCF and Hub.Remotes and Hub.Remotes.DropTool then
+                        pcall(function()
+                            Hub.Remotes.DropTool:InvokeServer(child, dropCF)
+                        end)
+                        task.wait(0.05)
+                    end
+                end
+            end
+        end
+
+        task.wait(0.12)
+
+        -- 3. CHỈ KHI NÀO DROP XONG TOÀN BỘ MỚI ĐỔI LẠI SLOT VŨ KHÍ TRƯỚC ĐÓ!
+        if restoreTool and restoreTool.Parent == bp then
+            hum:EquipTool(restoreTool)
+        elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
+            hum:EquipTool(LastDesiredEquippedTool)
+        elseif not currentHeld then
+            hum:UnequipTools()
+        end
+
+        task.wait(0.15)
+        IsDroppingBackpack = false
         IsHandlingBackpackEquip = false
     end)
+
     return true
 end
 
@@ -672,10 +729,7 @@ ThrowGasToGenerator = function(item, part, shredPart, genPart)
         part.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
         part.AssemblyAngularVelocity = Vector3.zero
     end)
-    if firetouchinterest_fn then
-        pcall(firetouchinterest_fn, genPart, part, 0)
-        pcall(firetouchinterest_fn, genPart, part, 1)
-    end
+    TriggerGeneratorTouch(part)
 end
 
 -- Tự động phân loại và định vị tức thời vật phẩm tại Base theo đúng chủng loại (Không kéo vật lý):
@@ -702,10 +756,7 @@ local function AutoSortBaseItems(genPart, shredPart, root)
                         if (part.Position - targetCF.Position).Magnitude > 1.8 then
                             ThrowGasToGenerator(item, part, shredPart, genPart)
                         else
-                            if firetouchinterest_fn then
-                                pcall(firetouchinterest_fn, genPart, part, 0)
-                                pcall(firetouchinterest_fn, genPart, part, 1)
-                            end
+                            TriggerGeneratorTouch(part)
                         end
                         DeliveredItems[item] = true
                         RecentlyDroppedTime[item] = os.clock()
@@ -728,10 +779,7 @@ local function AutoSortBaseItems(genPart, shredPart, root)
                                 part.AssemblyAngularVelocity = Vector3.zero
                             end)
                         end
-                        if firetouchinterest_fn then
-                            pcall(firetouchinterest_fn, shredPart, part, 0)
-                            pcall(firetouchinterest_fn, shredPart, part, 1)
-                        end
+                        TriggerShredderTouch(part)
                         DeliveredItems[item] = true
                         RecentlyDroppedTime[item] = os.clock()
                     elseif cat == "Food" and genPart then
@@ -928,6 +976,132 @@ local function GetPlayerHungerPercent(char)
     return 100
 end
 
+-- ============================================================================
+-- TỰ ĐỘNG FIX VÀ TƯƠNG TÁC TRẠM PHÁT ĐIỆN, MÁY PHÁT ĐIỆN, RADIO TOWER & MÁY NGHIỀN
+-- (Remote + Trigger vật lý TouchInterest + ProximityPrompt tự động hoàn thành)
+-- ============================================================================
+local LastObjectiveActionTime = 0
+
+local function TriggerPhysicalAndRemoteComplete(targetObj, root)
+    if not (targetObj and root) then return end
+
+    -- 1. ProximityPrompts: Kích hoạt tức thì kể cả HoldDuration (fireproximityprompt bypass hold hoàn toàn)
+    for _, desc in ipairs(targetObj:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local pName = (desc.Parent and desc.Parent.Name or ""):lower()
+            local ppName = (desc.Parent and desc.Parent.Parent and desc.Parent.Parent.Name or ""):lower()
+            local isGasPump = pName:find("pump") or ppName:find("pump")
+            -- Bỏ qua Gas Pump nếu người chơi chưa bật AutoInteractObjectives; còn Trạm phát điện, Máy phát điện, Radio Tower -> FIX NGAY!
+            if not isGasPump or Config.AutoInteractObjectives then
+                if fireproximityprompt_fn then
+                    pcall(fireproximityprompt_fn, desc)
+                else
+                    Utils.SafeTriggerPrompt(desc)
+                end
+            end
+        end
+    end
+
+    -- 2. Physical Touched Trigger: firetouchinterest giữa HumanoidRootPart và các bộ phận kích hoạt
+    if firetouchinterest_fn then
+        for _, desc in ipairs(targetObj:GetDescendants()) do
+            if desc:IsA("BasePart") then
+                local dName = desc.Name:lower()
+                local hasTouch = desc:FindFirstChildWhichIsA("TouchTransmitter") ~= nil
+                local isTriggerPart = hasTouch or dName:find("main") or dName:find("centre") or dName:find("center")
+                    or dName:find("hitbox") or dName:find("trigger") or dName:find("repair") or dName:find("touch")
+                    or dName:find("core") or dName:find("switch") or dName:find("console") or dName:find("terminal")
+                if isTriggerPart then
+                    pcall(firetouchinterest_fn, desc, root, 0)
+                    pcall(firetouchinterest_fn, desc, root, 1)
+                end
+            end
+        end
+    end
+
+    -- 3. Remotes: Nếu trong trạm có RemoteEvent / RemoteFunction về Repair / Fix / Activate -> Bắn server ngay
+    for _, desc in ipairs(targetObj:GetDescendants()) do
+        if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+            local rName = desc.Name:lower()
+            if rName:find("repair") or rName:find("fix") or rName:find("interact") or rName:find("activate") or rName:find("trigger") or rName:find("complete") then
+                pcall(function()
+                    if desc:IsA("RemoteEvent") then
+                        desc:FireServer()
+                    else
+                        desc:InvokeServer()
+                    end
+                end)
+            end
+        end
+    end
+end
+
+local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
+    if not root then return end
+    local now = os.clock()
+    if (now - LastObjectiveActionTime) < 0.20 then return end
+    LastObjectiveActionTime = now
+
+    -- A. Trạm phát điện (Power Plant / Big Power Plant / Radio Tower) trên bản đồ (workspace.Map.Tiles)
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
+    if tilesFolder then
+        for _, tile in ipairs(tilesFolder:GetChildren()) do
+            local dist = (tile:GetPivot().Position - root.Position).Magnitude
+            if dist <= 45 then
+                local tName = tile.Name
+                local isPowerPlant = (tName == "Power Plant" or tName == "Big Power Plant" or tName:lower():find("power"))
+                local isRadioTower = (tName == "Radio Tower" or tName:lower():find("radio"))
+                local needsRepair = (tile:GetAttribute("Repaired") ~= true) or (isRadioTower and Workspace:GetAttribute("RadioTowerFixed") ~= true)
+
+                if isPowerPlant or isRadioTower or needsRepair or Config.AutoInteractObjectives then
+                    TriggerPhysicalAndRemoteComplete(tile, root)
+                end
+            end
+        end
+    end
+
+    -- B. Máy phát điện ở Base (Workspace.Structures.Generator):
+    if genPart and (genPart.Position - root.Position).Magnitude <= 40 then
+        local genModel = genPart:FindFirstAncestor("Generator") or genPart.Parent
+        if genModel then
+            TriggerPhysicalAndRemoteComplete(genModel, root)
+        end
+        -- Chạm nhiên liệu với Generator
+        local droppedFolder = Workspace:FindFirstChild("DroppedItems")
+        if droppedFolder then
+            for _, item in ipairs(droppedFolder:GetChildren()) do
+                if Utils.ClassifyItem(item) == "Fuel" then
+                    local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
+                    if part and (part.Position - genPart.Position).Magnitude <= 45 then
+                        TriggerGeneratorTouch(part)
+                    end
+                end
+            end
+        end
+    end
+
+    -- C. Máy nghiền Scraper / Shredder ở Base (Workspace.Crafting.Shredder):
+    if shredPart and (shredPart.Position - root.Position).Magnitude <= 40 then
+        local shredModel = shredPart:FindFirstAncestor("Shredder") or shredPart:FindFirstAncestor("Scraper") or shredPart.Parent
+        if shredModel then
+            TriggerPhysicalAndRemoteComplete(shredModel, root)
+        end
+        -- Chạm tài nguyên với Scraper
+        local droppedFolder = Workspace:FindFirstChild("DroppedItems")
+        if droppedFolder then
+            for _, item in ipairs(droppedFolder:GetChildren()) do
+                if Utils.ClassifyItem(item) == "Resource" then
+                    local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
+                    if part and (part.Position - shredPart.Position).Magnitude <= 45 then
+                        TriggerShredderTouch(part)
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function RunLootingAndSurvivalStep()
     local char = Utils.GetCharacter()
     local root = Utils.GetRootPart(char)
@@ -948,28 +1122,16 @@ local function RunLootingAndSurvivalStep()
     local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
     local isAtBase = (distToGen <= 75 or distToShred <= 75)
 
+    -- Tự động hoàn thành / sửa chữa Trạm phát điện, Máy phát điện, Radio Tower & Máy nghiền
+    AutoCompleteObjectivesAndStations(root, genPart, shredPart)
+
     -- Tự động phân loại tất cả vật phẩm ở base vào đúng vị trí: Scrap/Battery rơi trên Scraper xuống, Gas & Food trên Generator
     AutoSortBaseItems(genPart, shredPart, root)
 
     -- 0. Nếu về đến Base -> Tự động xả Backpack sack và các đồ vật trong Backpack mặc định của Roblox
     if isAtBase then
-        if Config.AutoEmptyBackpackAtBase then
+        if Config.AutoEmptyBackpackAtBase and not IsDroppingBackpack and not IsHandlingBackpackEquip then
             UnloadBackpackAtBase(genPart, shredPart, root)
-
-            -- Xả các đồ vật trong Backpack mặc định của Roblox: Fuel -> Generator, Food -> 10 studs away, Resource -> Scraper
-            for _, child in ipairs(bp:GetChildren()) do
-                if child:IsA("Tool") and child.Name ~= "Backpack" and child:GetAttribute("ToolType") ~= "Backpack" then
-                    local toolCat = Utils.ClassifyItem(child)
-                    if toolCat == "Fuel" or toolCat == "Food" or toolCat == "Resource" then
-                        local dropCF = GetTargetCFrameForCategory(toolCat, genPart, shredPart)
-                        if dropCF and Hub.Remotes and Hub.Remotes.DropTool then
-                            pcall(function()
-                                Hub.Remotes.DropTool:InvokeServer(child, dropCF)
-                            end)
-                        end
-                    end
-                end
-            end
         end
     end
 
@@ -1108,7 +1270,7 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- 7. Tự động tương tác: Bỏ qua Gas Pump và các Prompt cần đè giữ E để người chơi thao tác bình thường
+    -- 7. Tự động kích hoạt ProximityPrompts chung (nhưng không can thiệp vòi bơm xăng gas pump)
     if Config.AutoInteractObjectives then
         local mapFolder = Workspace:FindFirstChild("Map")
         local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
@@ -1119,11 +1281,13 @@ local function RunLootingAndSurvivalStep()
                         if desc:IsA("ProximityPrompt") and desc.Enabled then
                             local pName = (desc.Parent and desc.Parent.Name or ""):lower()
                             local ppName = (desc.Parent and desc.Parent.Parent and desc.Parent.Parent.Name or ""):lower()
-                            local isGasPump = pName:find("pump") or pName:find("gas") or ppName:find("pump") or ppName:find("gas")
-                            local isHoldPrompt = desc.HoldDuration and desc.HoldDuration > 0
-                            -- Tuyệt đối không can thiệp Gas Pump hoặc prompt cần đè giữ E
-                            if not isGasPump and not isHoldPrompt then
-                                Utils.SafeTriggerPrompt(desc)
+                            local isGasPump = pName:find("pump") or ppName:find("pump")
+                            if not isGasPump then
+                                if fireproximityprompt_fn then
+                                    pcall(fireproximityprompt_fn, desc)
+                                else
+                                    Utils.SafeTriggerPrompt(desc)
+                                end
                             end
                         end
                     end

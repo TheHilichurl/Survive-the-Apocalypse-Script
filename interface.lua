@@ -265,7 +265,7 @@ TabLooting:AddToggle("No Slowdown While Using Bandage / Medical", "NoSlowOnMedic
 TabLooting:AddToggle("Auto Open Loot Crates (Direct Safe Remote)", "AutoOpenCrates")
 TabLooting:AddSlider("Auto Open Crates Range (Studs)", "AutoOpenCratesRange", 8, 35, 1)
 TabLooting:AddToggle("Instant ProximityPrompts (0s Hold Duration Only)", "InstantInteract")
-TabLooting:AddToggle("Auto Interact Instant Objectives (Leaves Hold E to Player)", "AutoInteractObjectives")
+TabLooting:AddToggle("Auto Complete / Fix Power Plants & Objectives", "AutoInteractObjectives")
 
 -- ============================================================================
 -- TAB 5: BASE, STRUCTURES, CRAFTING & SHOP

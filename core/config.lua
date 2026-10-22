@@ -134,7 +134,7 @@ local Config = {
     AutoOpenCrates = true,
     AutoOpenCratesRange = 22,
     InstantInteract = false,
-    AutoInteractObjectives = false,    -- Disabled by default to prevent interrupting player's E-hold on Gas Pumps
+    AutoInteractObjectives = true,    -- Tự động hoàn thành/sửa chữa Trạm phát điện (Power Plant), Radio Tower & Objectives
 
     -- Base, Structures, Crafting & Shop
     RepairAura = false,
