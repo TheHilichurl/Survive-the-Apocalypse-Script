@@ -239,51 +239,37 @@ local function SetupDroppedItemsWatcher()
         local distToPlayer = root and (itemPos - root.Position).Magnitude or 9999
         local distToBase = (itemPos - basePos).Magnitude
 
-        -- Ngay tại thời điểm thả đồ: nếu vật phẩm rơi từ backpack hoặc gần người chơi hoặc trong Base
-        if isFromBackpack or distToPlayer <= 35 or distToBase <= 75 then
+        -- CHỈ XỬ LÝ KHI VẬT PHẨM ĐƯỢC THẢ RA TỪ BACKPACK HOẶC ĐÃ NẰM TRONG KHUÔN VIÊN BASE (BÁN KÍNH 75 STUDS)
+        -- TUYỆT ĐỐI KHÔNG TỰ Ý DỊCH CHUYỂN ĐỒ NGOÀI MAP KHI CHƯA NHẶT VÀO BACKPACK!
+        if isFromBackpack or distToBase <= 75 then
             DeliveredItems[item] = true
             RecentlyDroppedTime[item] = now
 
-            local cat = Utils.ClassifyItem(item)
-            local targetCF = GetTargetCFrameForCategory(cat, genPart, shredPart, basePos)
-            local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
+            -- Nếu vật phẩm đang ở trong Base và rơi gần mục tiêu, có thể căn chỉnh rơi vào máy
+            if distToBase <= 75 then
+                local cat = Utils.ClassifyItem(item)
+                local targetCF = GetTargetCFrameForCategory(cat, genPart, shredPart, basePos)
+                local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
 
-            if targetCF and part then
-                local itemDragFolder = item:FindFirstChild("ItemDrag")
-                local reqNetRemote = itemDragFolder and itemDragFolder:FindFirstChild("RequestNetworkOwnership")
-                if reqNetRemote then
-                    pcall(function() reqNetRemote:FireServer(part) end)
-                end
+                if targetCF and part then
+                    local distToTarget = (part.Position - targetCF.Position).Magnitude
+                    if distToTarget > 2.0 then
+                        pcall(function()
+                            part.Anchored = false
+                            part.CanCollide = false
+                            item:PivotTo(targetCF)
+                            part.CFrame = targetCF
+                        end)
+                    end
 
-                local distToTarget = (part.Position - targetCF.Position).Magnitude
-                if distToTarget > 2.0 then
-                    pcall(function()
-                        for _, d in ipairs(item:GetDescendants()) do
-                            if d:IsA("BasePart") then
-                                d.Anchored = false
-                                d.CanCollide = false
-                            end
+                    if firetouchinterest_fn then
+                        if cat == "Fuel" and genPart then
+                            pcall(firetouchinterest_fn, genPart, part, 0)
+                            pcall(firetouchinterest_fn, genPart, part, 1)
+                        elseif cat == "Resource" and shredPart then
+                            pcall(firetouchinterest_fn, shredPart, part, 0)
+                            pcall(firetouchinterest_fn, shredPart, part, 1)
                         end
-                        part.Anchored = false
-                        part.CanCollide = false
-                        item:PivotTo(targetCF)
-                        part.CFrame = targetCF
-                        if cat == "Resource" then
-                            part.AssemblyLinearVelocity = Vector3.new(0, -14, 0)
-                        else
-                            part.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
-                        end
-                        part.AssemblyAngularVelocity = Vector3.zero
-                    end)
-                end
-
-                if firetouchinterest_fn then
-                    if cat == "Fuel" and genPart then
-                        pcall(firetouchinterest_fn, genPart, part, 0)
-                        pcall(firetouchinterest_fn, genPart, part, 1)
-                    elseif cat == "Resource" and shredPart then
-                        pcall(firetouchinterest_fn, shredPart, part, 0)
-                        pcall(firetouchinterest_fn, shredPart, part, 1)
                     end
                 end
             end
@@ -499,8 +485,8 @@ local function StoreCandidatesToBackpack(candidates)
     local genPart = Utils.GetGeneratorMainPart()
     local shredPart = Utils.GetShredderTargetPart()
 
-    -- 3. Hút từng candidate vào Backpack sack
-    local storedItems = {}
+    -- 3. Hút từng candidate vào Backpack sack và BẮT BUỘC ĐỢI XÁC NHẬN ĐÃ VÀO SACK
+    local successfullyStored = {}
     for _, item in ipairs(candidates) do
         if not item or not item.Parent or not item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
             continue
@@ -544,32 +530,38 @@ local function StoreCandidatesToBackpack(candidates)
                 pcall(firetouchinterest_fn, root, part, 1)
             end
 
+            -- Gửi lệnh nhặt vào Backpack sack
             if AdjustBackpackRemote then
                 pcall(function() AdjustBackpackRemote:FireServer(item) end)
             end
 
-            table.insert(storedItems, {
-                Item = item,
-                Part = part,
-                Category = cat,
-                DropCF = dropCF,
-            })
+            -- BẮT BUỘC ĐỢI XÁC NHẬN: Item biến mất khỏi DroppedItems -> ĐÃ THỰC SỰ VÀO SACK!
+            local stored = false
+            for _ = 1, 8 do
+                Services.RunService.Heartbeat:Wait()
+                if not item.Parent or not item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
+                    stored = true
+                    break
+                end
+            end
+
+            -- CHỈ KHI NÀO ĐÃ VÀO SACK THÀNH CÔNG MỚI ĐƯA VÀO DANH SÁCH XẢ RA BASE
+            if stored then
+                table.insert(successfullyStored, {
+                    Item = item,
+                    Category = cat,
+                    DropCF = dropCF,
+                })
+            end
         end
     end
 
-    -- 4. Đợi 1 frame ngắn để server ghi nhận item vào sack trước khi thả
-    if #storedItems > 0 then
-        Services.RunService.Heartbeat:Wait()
-    end
-
-    -- 5. THẢ RA NGAY TẠI ĐÚNG VỊ TRÍ TOẠ ĐỘ ĐÍCH THEO TYPE (GỬI THẲNG VỀ BASE)
-    if AdjustBackpackRemote and #storedItems > 0 then
+    -- 4. KHI ĐỒ ĐÃ NẰM TRONG SACK: THẢ RA TỪ SACK ĐẾN ĐÚNG TOẠ ĐỘ ĐÍCH TẠI BASE
+    if AdjustBackpackRemote and #successfullyStored > 0 then
         LastBackpackDropTime = os.clock()
-        for _, entry in ipairs(storedItems) do
+        for _, entry in ipairs(successfullyStored) do
             local dropCF = entry.DropCF
             local itm = entry.Item
-            local part = entry.Part
-            local cat = entry.Category
 
             -- ĐÁNH DẤU ĐÃ GIAO / ĐÃ THẢ -> TUYỆT ĐỐI KHÔNG HÚT LẠI!
             DeliveredItems[itm] = true
@@ -578,38 +570,7 @@ local function StoreCandidatesToBackpack(candidates)
             pcall(function()
                 AdjustBackpackRemote:FireServer(nil, dropCF)
             end)
-
-            -- Dịch chuyển tức thời model/part đến đúng toạ độ đích
-            if part and part.Parent and dropCF then
-                pcall(function()
-                    for _, d in ipairs(itm:GetDescendants()) do
-                        if d:IsA("BasePart") then
-                            d.Anchored = false
-                            d.CanCollide = false
-                        end
-                    end
-                    part.Anchored = false
-                    part.CanCollide = false
-                    itm:PivotTo(dropCF)
-                    part.CFrame = dropCF
-                    if cat == "Resource" then
-                        part.AssemblyLinearVelocity = Vector3.new(0, -14, 0)
-                    else
-                        part.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
-                    end
-                    part.AssemblyAngularVelocity = Vector3.zero
-                end)
-
-                if firetouchinterest_fn then
-                    if cat == "Fuel" and genPart then
-                        pcall(firetouchinterest_fn, genPart, part, 0)
-                        pcall(firetouchinterest_fn, genPart, part, 1)
-                    elseif cat == "Resource" and shredPart then
-                        pcall(firetouchinterest_fn, shredPart, part, 0)
-                        pcall(firetouchinterest_fn, shredPart, part, 1)
-                    end
-                end
-            end
+            Services.RunService.Heartbeat:Wait()
         end
     end
 
@@ -632,7 +593,7 @@ local function StoreCandidatesToBackpack(candidates)
         IsHandlingBackpackEquip = false
     end)
 
-    return #storedItems > 0
+    return #successfullyStored > 0
 end
 
 -- Tự động xả toàn bộ vật phẩm trong Backpack sack khi về đến Base
@@ -1026,30 +987,9 @@ local function RunLootingAndSurvivalStep()
                             end
                             hungerPct = GetPlayerHungerPercent(char)
                         else
-                            -- Nếu đầy hoặc chưa đủ đói (hoặc AutoEat tắt): Gửi về base và đặt cách xa generator tầm 10 studs!
-                            if genPart then
-                                local foodDropCF = genPart.CFrame * CFrame.new(-10, 1.8, 0)
-                                pcall(function()
-                                    for _, d in ipairs(item:GetDescendants()) do
-                                        if d:IsA("BasePart") then
-                                            d.Anchored = false
-                                            d.CanCollide = false
-                                        end
-                                    end
-                                    local p = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
-                                    if p then
-                                        p.Anchored = false
-                                        p.CanCollide = false
-                                        item:PivotTo(foodDropCF)
-                                        p.CFrame = foodDropCF
-                                        p.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
-                                        p.AssemblyAngularVelocity = Vector3.zero
-                                    end
-                                end)
-                                DeliveredItems[item] = true
-                            else
-                                LootItemToBackpackNoEquip(item)
-                            end
+                            -- Nếu đầy hoặc chưa đủ đói (hoặc AutoEat tắt): Nhặt vào Roblox Backpack mặc định!
+                            -- Khi về Base, hệ thống sẽ tự động thả đồ ăn xuống khu vực lưu trữ đồ ăn trong Base.
+                            LootItemToBackpackNoEquip(item)
                         end
                     end
                 end

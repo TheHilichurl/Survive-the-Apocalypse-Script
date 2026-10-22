@@ -900,12 +900,20 @@ local function RunKillAuraAndBreakAuraStep()
         return
     end
 
-    local meleeTool = GetEquippedOrBestMelee()
-    if not meleeTool then
+    -- CHỈ HOẠT ĐỘNG KHI NGƯỜI CHƠI ĐANG THỰC SỰ CẦM VŨ KHÍ CẬN CHIẾN (MELEE)!
+    -- Tuyệt đối KHÔNG tự ý đổi sang melee khi người chơi đang cầm súng, balo, đồ hồi máu hoặc vũ khí khác!
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if not currentTool then
         KillAuraHighlight.Enabled = false
         return
     end
 
+    if Utils.ClassifyItem(currentTool) ~= "Melee" then
+        KillAuraHighlight.Enabled = false
+        return
+    end
+
+    local meleeTool = currentTool
     local stats = meleeTool:FindFirstChild("Stats")
     local baseRange = stats and (stats:GetAttribute("Range") or stats:GetAttribute("Radius")) or 10
     local maxRange = math.max(Config.KillAuraRange or 16, baseRange + (Config.KillAuraExtendedRange and 2 or 0))
@@ -987,13 +995,6 @@ local function RunKillAuraAndBreakAuraStep()
         KillAuraHighlight.Enabled = true
     else
         KillAuraHighlight.Enabled = false
-    end
-
-    -- Luôn đảm bảo trang bị vũ khí cận chiến khi có mục tiêu trong tầm
-    if meleeTool.Parent ~= char then
-        pcall(function()
-            hum:EquipTool(meleeTool)
-        end)
     end
 
     if IsMeleeSwinging then
