@@ -246,80 +246,59 @@ local function TriggerShredderTouch(resourcePart)
     end
 end
 
-local function SetupDroppedItemsWatcher()
-    local droppedFolder = Workspace:FindFirstChild("DroppedItems")
-    if not droppedFolder then
-        task.spawn(function()
-            droppedFolder = Workspace:WaitForChild("DroppedItems", 10)
-            if droppedFolder then
-                SetupDroppedItemsWatcher()
-            end
-        end)
-        return
-    end
+local function HandleDroppedItemInstantly(item)
+    if not item or not item.Parent then return end
+    if item:GetAttribute("OnShelf") then return end
+    if DeliveredItems[item] then return end
 
-    local function HandleDroppedItemInstantly(item)
-        if not item or not item.Parent then return end
-        if item:GetAttribute("OnShelf") then return end
-        if DeliveredItems[item] then return end
+    local now = os.clock()
+    local dropTime = RecentlyDroppedTime[item]
+    if dropTime and (now - dropTime) < 30 then return end
 
-        local now = os.clock()
-        local dropTime = RecentlyDroppedTime[item]
-        if dropTime and (now - dropTime) < 30 then return end
+    local isFromBackpack = IsHandlingBackpackEquip or IsDroppingBackpack or ((now - LastBackpackDropTime) <= 4.0)
 
-        local isFromBackpack = IsHandlingBackpackEquip or IsDroppingBackpack or ((now - LastBackpackDropTime) <= 4.0)
+    local genPart = Utils.GetGeneratorMainPart()
+    local shredPart = Utils.GetShredderTargetPart()
+    local char = Utils.GetCharacter()
+    local root = Utils.GetRootPart(char)
+    local basePos = (genPart and genPart.Position) or (shredPart and shredPart.Position)
+    if not basePos then return end
 
-        local genPart = Utils.GetGeneratorMainPart()
-        local shredPart = Utils.GetShredderTargetPart()
-        local char = Utils.GetCharacter()
-        local root = Utils.GetRootPart(char)
-        local basePos = (genPart and genPart.Position) or (shredPart and shredPart.Position)
-        if not basePos then return end
+    local itemPos = item:GetPivot().Position
+    local distToBase = (itemPos - basePos).Magnitude
 
-        local itemPos = item:GetPivot().Position
-        local distToBase = (itemPos - basePos).Magnitude
+    -- CHỈ XỬ LÝ KHI VẬT PHẨM ĐƯỢC THẢ RA TỪ BACKPACK HOẶC ĐÃ NẰM TRONG KHUÔN VIÊN BASE (BÁN KÍNH 75 STUDS)
+    -- TUYỆT ĐỐI KHÔNG TỰ Ý DỊCH CHUYỂN ĐỒ NGOÀI MAP KHI CHƯA NHẶT VÀO BACKPACK!
+    if isFromBackpack or distToBase <= 75 then
+        DeliveredItems[item] = true
+        RecentlyDroppedTime[item] = now
 
-        -- CHỈ XỬ LÝ KHI VẬT PHẨM ĐƯỢC THẢ RA TỪ BACKPACK HOẶC ĐÃ NẰM TRONG KHUÔN VIÊN BASE (BÁN KÍNH 75 STUDS)
-        -- TUYỆT ĐỐI KHÔNG TỰ Ý DỊCH CHUYỂN ĐỒ NGOÀI MAP KHI CHƯA NHẶT VÀO BACKPACK!
-        if isFromBackpack or distToBase <= 75 then
-            DeliveredItems[item] = true
-            RecentlyDroppedTime[item] = now
+        -- Nếu vật phẩm đang ở trong Base và rơi gần mục tiêu, có thể căn chỉnh rơi vào máy
+        if distToBase <= 75 then
+            local cat = Utils.ClassifyItem(item)
+            local targetCF = GetTargetCFrameForCategory(cat, genPart, shredPart, basePos)
+            local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
 
-            -- Nếu vật phẩm đang ở trong Base và rơi gần mục tiêu, có thể căn chỉnh rơi vào máy
-            if distToBase <= 75 then
-                local cat = Utils.ClassifyItem(item)
-                local targetCF = GetTargetCFrameForCategory(cat, genPart, shredPart, basePos)
-                local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
+            if targetCF and part then
+                local distToTarget = (part.Position - targetCF.Position).Magnitude
+                if distToTarget > 2.0 then
+                    pcall(function()
+                        part.Anchored = false
+                        part.CanCollide = false
+                        item:PivotTo(targetCF)
+                        part.CFrame = targetCF
+                    end)
+                end
 
-                if targetCF and part then
-                    local distToTarget = (part.Position - targetCF.Position).Magnitude
-                    if distToTarget > 2.0 then
-                        pcall(function()
-                            part.Anchored = false
-                            part.CanCollide = false
-                            item:PivotTo(targetCF)
-                            part.CFrame = targetCF
-                        end)
-                    end
-
-                    if cat == "Fuel" then
-                        TriggerGeneratorTouch(part)
-                    elseif cat == "Resource" then
-                        TriggerShredderTouch(part)
-                    end
+                if cat == "Fuel" then
+                    TriggerGeneratorTouch(part)
+                elseif cat == "Resource" then
+                    TriggerShredderTouch(part)
                 end
             end
         end
     end
-
-    Hub.AddConnection(droppedFolder.ChildAdded:Connect(function(child)
-        task.defer(function()
-            HandleDroppedItemInstantly(child)
-        end)
-    end))
 end
-
-SetupDroppedItemsWatcher()
 
 -- ============================================================================
 -- BACKPACK SACK ENGINE: AUTO-EQUIP, AUTO-LOOT & INSTANT WEAPON RESTORE
@@ -456,6 +435,55 @@ local function IsBackpackFull()
     return GetBackpackItemCount() >= GetBackpackMaxCapacity()
 end
 
+local function GetPlayerHungerPercent(char)
+    char = char or Utils.GetCharacter()
+
+    -- 1. Ưu tiên cao nhất: Thuộc tính "Hunger" trên Character (Chuẩn xác 100% từ Server của Game)
+    if char then
+        local rawHunger = char:GetAttribute("Hunger")
+        if type(rawHunger) == "number" then
+            if rawHunger <= 1.05 and rawHunger > 0 then
+                return math.clamp(rawHunger * 100, 0, 100)
+            end
+            return math.clamp(rawHunger, 0, 100)
+        end
+        local stats = char:FindFirstChild("Stats")
+        if stats then
+            local sHunger = stats:GetAttribute("Hunger")
+            if type(sHunger) == "number" then
+                if sHunger <= 1.05 and sHunger > 0 then
+                    return math.clamp(sHunger * 100, 0, 100)
+                end
+                return math.clamp(sHunger, 0, 100)
+            end
+        end
+    end
+
+    -- 2. Kiểm tra thuộc tính trên LocalPlayer
+    local lpHunger = LocalPlayer:GetAttribute("Hunger")
+    if type(lpHunger) == "number" then
+        if lpHunger <= 1.05 and lpHunger > 0 then
+            return math.clamp(lpHunger * 100, 0, 100)
+        end
+        return math.clamp(lpHunger, 0, 100)
+    end
+
+    -- 3. Kiểm tra GUI thanh đói của người chơi nếu thuộc tính chưa có (chỉ nhận khi scale > 0.01)
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local mainUI = pGui and pGui:FindFirstChild("MainUI")
+    local hBar = mainUI and mainUI:FindFirstChild("HungerBar")
+    local bar = hBar and hBar:FindFirstChild("Bar")
+    if bar and bar:IsA("GuiObject") then
+        local scale = bar.Size.X.Scale
+        if type(scale) == "number" and scale > 0.01 then
+            return math.clamp(scale * 100, 0, 100)
+        end
+    end
+
+    -- Mặc định an toàn là 100 (No bụng), TUYỆT ĐỐI không mặc định 0 để tránh spam ăn đồ ăn khi chưa load
+    return 100
+end
+
 local function IsBackpackSackItem(item)
     if not item or not item.Parent then return false end
     -- Tear Gas, Grenades, Molotovs, Flashbangs & tất cả Throwable đều là vật phẩm tiêu hao -> NHẶT VÀO TÚI ROBLOX, KHÔNG NHÉT SACK
@@ -463,13 +491,28 @@ local function IsBackpackSackItem(item)
         return false
     end
     local cat = Utils.ClassifyItem(item)
-    if cat == "Consumable" or cat == "Medical" or cat == "Food" or cat == "Gun" or cat == "Melee" or cat == "Ammo" or cat == "Armor" or cat == "Blueprint" then
+    if cat == "Consumable" or cat == "Medical" or cat == "Gun" or cat == "Melee" or cat == "Ammo" or cat == "Armor" or cat == "Blueprint" then
         return false
     end
     local name = item.Name:lower()
     if name:find("tear") or name:find("gas mask") or name:find("grenade") or name:find("molotov") or name:find("flashbang") then
         return false
     end
+
+    -- ĐỒ ĂN (Food):
+    -- Nếu đủ điều kiện tự động ăn (AutoEat bật VÀ người chơi bị đói < AutoEatThreshold) -> Ăn trực tiếp (không nhét sack)
+    -- Ngược lại (No bụng / chưa đủ đói / AutoEat tắt) -> CẤT VÀO BACKPACK TRÊN TAY (Backpack Sack)
+    if cat == "Food" then
+        local char = Utils.GetCharacter()
+        local hungerPct = GetPlayerHungerPercent(char)
+        local hungerThreshold = Config.AutoEatThreshold or 70
+        if Config.AutoEat and hungerPct < hungerThreshold then
+            return false -- Đủ điều kiện tự động ăn -> nhặt/ăn trực tiếp
+        else
+            return true  -- Đầy độ đói hoặc không cần ăn -> Cất vào backpack sack trên tay!
+        end
+    end
+
     if cat == "Fuel" or cat == "Resource" then
         return true
     end
@@ -948,33 +991,124 @@ local function LootItemToBackpackNoEquip(item)
     return true
 end
 
-local function GetPlayerHungerPercent(char)
-    char = char or Utils.GetCharacter()
+-- ============================================================================
+-- EVENT-DRIVEN AUTO LOOT & ITEM SPAWN WATCHER (ChildAdded Listener)
+-- Tự động lắng nghe và nhặt tức thì khi có item mới spawn trên bản đồ
+-- ============================================================================
 
-    -- Ưu tiên 1: Đọc chính xác từ GUI thanh đói thực tế của game
-    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local mainUI = pGui and pGui:FindFirstChild("MainUI")
-    local hBar = mainUI and mainUI:FindFirstChild("HungerBar")
-    local bar = hBar and hBar:FindFirstChild("Bar")
-    if bar and bar:IsA("GuiObject") then
-        local scale = bar.Size.X.Scale
-        if type(scale) == "number" and scale >= 0 then
-            return math.clamp(scale * 100, 0, 100)
+local NewlySpawnedQueue = {}
+local SpawnProcessingScheduled = false
+
+local function ProcessNewlySpawnedLoot()
+    SpawnProcessingScheduled = false
+    if #NewlySpawnedQueue == 0 then return end
+
+    local queue = NewlySpawnedQueue
+    NewlySpawnedQueue = {}
+
+    local char = Utils.GetCharacter()
+    local root = Utils.GetRootPart(char)
+    if not (char and root and Utils.IsCharacterAlive(char)) then return end
+
+    local genPart = Utils.GetGeneratorMainPart()
+    local shredPart = Utils.GetShredderTargetPart()
+    local distToGen = genPart and (genPart.Position - root.Position).Magnitude or 9999
+    local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
+    local isAtBase = (distToGen <= 75 or distToShred <= 75)
+
+    local maxInteractRange = 12 + (char:GetAttribute("DragRange") or 0)
+    local pickupRadius = math.max(Config.AutoPickupRadius or 18, maxInteractRange)
+    local sackRadius = math.max(pickupRadius, 28)
+
+    local hungerPct = GetPlayerHungerPercent(char)
+    local hungerThreshold = Config.AutoEatThreshold or 70
+
+    local sackCandidates = {}
+    local inventoryCandidates = {}
+
+    for _, item in ipairs(queue) do
+        if item and item.Parent and item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
+            if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemAlreadyAtBaseOrDelivered(item) then
+                local itemPos = item:GetPivot().Position
+                local dist = (itemPos - root.Position).Magnitude
+                local cat = Utils.ClassifyItem(item)
+
+                -- 1. Nếu là Food VÀ đủ điều kiện tự động ăn -> Ăn ngay lập tức!
+                if cat == "Food" and Config.AutoEat and hungerPct < hungerThreshold and dist <= pickupRadius then
+                    if PickUpItemRemote then
+                        pcall(function() PickUpItemRemote:FireServer(item) end)
+                    end
+                    hungerPct = GetPlayerHungerPercent(char)
+
+                -- 2. Nếu là vật phẩm cất vào Backpack Sack (Scrap, Fuel, Battery, Heart, Screws, hoặc Food khi no bụng):
+                -- Chỉ gom vào Backpack sack khi ở ngoài map (not isAtBase)
+                elseif IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) then
+                    if dist <= sackRadius and not IsBackpackFull() then
+                        table.insert(sackCandidates, item)
+                    end
+
+                -- 3. Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...)
+                elseif not IsBackpackSackItem(item) and Config.AutoPickup and ShouldPickupItem(item) then
+                    if dist <= pickupRadius then
+                        table.insert(inventoryCandidates, item)
+                    end
+                end
+            end
         end
     end
 
-    -- Ưu tiên 2: Đọc thuộc tính Hunger từ Character hoặc LocalPlayer
-    local rawHunger = (char and char:GetAttribute("Hunger")) or LocalPlayer:GetAttribute("Hunger")
-    if type(rawHunger) == "number" then
-        if rawHunger <= 1.05 and rawHunger >= 0 then
-            return math.clamp(rawHunger * 100, 0, 100)
-        else
-            return math.clamp(rawHunger, 0, 100)
-        end
+    -- Gom nhóm nhặt vào Backpack sack một lần duy nhất, tránh giật vũ khí
+    if #sackCandidates > 0 and not IsBackpackFull() and not isAtBase then
+        StoreCandidatesToBackpack(sackCandidates)
     end
 
-    return 100
+    -- Nhặt các vật phẩm vào túi đồ Roblox
+    for _, item in ipairs(inventoryCandidates) do
+        LootItemToBackpackNoEquip(item)
+    end
 end
+
+local function SetupDroppedItemsWatcher()
+    local droppedFolder = Workspace:FindFirstChild("DroppedItems")
+    if not droppedFolder then
+        task.spawn(function()
+            droppedFolder = Workspace:WaitForChild("DroppedItems", 10)
+            if droppedFolder then
+                SetupDroppedItemsWatcher()
+            end
+        end)
+        return
+    end
+
+    local function OnItemSpawned(child)
+        if not child then return end
+
+        -- A. Xử lý drop đồ tại base tức thì (nếu từ ba lô hoặc tại base)
+        task.defer(function()
+            HandleDroppedItemInstantly(child)
+        end)
+
+        -- B. Tự động lắng nghe và nhặt tức thì khi item mới spawn trên map (Listener)
+        if Config.AutoPickup or Config.AutoStoreBackpack or Config.AutoEat or Config.AutoFuelGenerator or Config.AutoShredResources then
+            table.insert(NewlySpawnedQueue, child)
+            if not SpawnProcessingScheduled then
+                SpawnProcessingScheduled = true
+                task.delay(0.04, ProcessNewlySpawnedLoot)
+            end
+        end
+    end
+
+    Hub.AddConnection(droppedFolder.ChildAdded:Connect(OnItemSpawned))
+
+    -- Kiểm tra sơ bộ các item đã có sẵn tại Base
+    for _, child in ipairs(droppedFolder:GetChildren()) do
+        task.defer(function()
+            HandleDroppedItemInstantly(child)
+        end)
+    end
+end
+
+SetupDroppedItemsWatcher()
 
 -- ============================================================================
 -- TỰ ĐỘNG FIX VÀ TƯƠNG TÁC TRẠM PHÁT ĐIỆN, MÁY PHÁT ĐIỆN, RADIO TOWER & MÁY NGHIỀN
@@ -1135,30 +1269,28 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- 1. Tự động ăn đồ ăn thông minh (< hungerThreshold -> Ăn; >= hungerThreshold -> Dịch chuyển về cách generator tầm 10 studs)
-    if Config.AutoEat or Config.AutoPickup then
+    -- 1. Tự động ăn đồ ăn thông minh:
+    -- CHỈ ĂN KHI: AutoEat được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
+    -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên mặt đất sẽ được gom vào danh sách cất vào Backpack Sack ở Mục 3!
+    if Config.AutoEat and hungerPct < hungerThreshold then
         if droppedFolder then
             for _, item in ipairs(droppedFolder:GetChildren()) do
                 if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemAlreadyAtBaseOrDelivered(item) then
                     local dist = (item:GetPivot().Position - root.Position).Magnitude
                     if dist <= pickupRadius then
-                        -- CHỈ ĂN KHI: AutoEat được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold)
-                        if Config.AutoEat and hungerPct < hungerThreshold then
-                            if PickUpItemRemote then
-                                pcall(function() PickUpItemRemote:FireServer(item) end)
-                            end
-                            hungerPct = GetPlayerHungerPercent(char)
-                        else
-                            -- Nếu đầy hoặc chưa đủ đói (hoặc AutoEat tắt): Nhặt vào Roblox Backpack mặc định!
-                            -- Khi về Base, hệ thống sẽ tự động thả đồ ăn xuống khu vực lưu trữ đồ ăn trong Base.
-                            LootItemToBackpackNoEquip(item)
+                        if PickUpItemRemote then
+                            pcall(function() PickUpItemRemote:FireServer(item) end)
+                        end
+                        hungerPct = GetPlayerHungerPercent(char)
+                        if hungerPct >= hungerThreshold then
+                            break
                         end
                     end
                 end
             end
         end
 
-        if Config.AutoEat and hungerPct < hungerThreshold then
+        if hungerPct < hungerThreshold then
             for _, tool in ipairs(bp:GetChildren()) do
                 if tool:IsA("Tool") and Utils.ClassifyItem(tool) == "Food" then
                     local prevTool = char:FindFirstChildOfClass("Tool")
@@ -1177,7 +1309,10 @@ local function RunLootingAndSurvivalStep()
                             pcall(function() hum:EquipTool(prevTool) end)
                         end)
                     end
-                    break
+                    hungerPct = GetPlayerHungerPercent(char)
+                    if hungerPct >= hungerThreshold then
+                        break
+                    end
                 end
             end
         end
@@ -1209,10 +1344,10 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- 3. Thu thập Gas, Scrap, Battery, Heart, Objective Items vào Backpack Sack
+    -- 3. Thu thập Gas, Scrap, Battery, Heart, Objective Items và Đồ ăn (khi no bụng) vào Backpack Sack
     -- Khi thu thập tự động trang bị lên, đầy thì thôi, sau khi thu xong trả về slot trước đó ngay lập tức!
     -- LƯU Ý: Chỉ thu thập khi ở ngoài map (not isAtBase), tuyệt đối KHÔNG hút đồ khi đang ở trong Base!
-    if (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources) and droppedFolder and not isAtBase then
+    if (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) and droppedFolder and not isAtBase then
         if not IsBackpackFull() then
             local candidates = {}
             local maxSlots = GetBackpackMaxCapacity() - GetBackpackItemCount()
