@@ -79,7 +79,6 @@ local function LoadModule(relativePath)
 end
 
 -- 3. Sequenced Modular Bootstrap
-print("[Hili Hub] Initializing Survive the Apocalypse - Anime Fantasy Edition...")
 
 -- Stage 1: Core Foundation & Configuration
 LoadModule("core/env.lua")
@@ -140,8 +139,4 @@ _G.STA_MasterHub_Cleanup = function()
     if Hub.Window and Hub.Window.ScreenGui then
         pcall(function() Hub.Window.ScreenGui:Destroy() end)
     end
-
-    print("[Hili Hub] Cleaned up previous instance successfully.")
 end
-
-print("[Hili Hub] All modules initialized and interface loaded successfully!")

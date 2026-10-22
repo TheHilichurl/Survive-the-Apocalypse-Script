@@ -253,7 +253,7 @@ end
 
 function UILib:CreateWindow(config)
     config = config or {}
-    local WindowTitle = config.Title or "Anime / RPG Fantasy Hub — Survive the Apocalypse"
+    local WindowTitle = config.Title or "Hilichurl Hub — Survive the Apocalypse"
     local ToggleKey = config.ToggleKey or Enum.KeyCode.RightShift
 
     local ScreenGui = Instance.new("ScreenGui")

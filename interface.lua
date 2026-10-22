@@ -39,7 +39,7 @@ local setfpscap_fn = Hub.Compatibility and Hub.Compatibility.setfpscap
 
 -- Create Window with Anime / RPG Fantasy Theme
 local Window = UILib:CreateWindow({
-    Title = "Hilichurl Hub — Survive the Apocalypse (Anime Fantasy Edition)",
+    Title = "Hilichurl Hub — Survive the Apocalypse",
     ToggleKey = Enum.KeyCode.RightShift,
     Config = Config,
     ScheduleAutoSave = Hub.ScheduleAutoSave,
@@ -612,6 +612,6 @@ task.spawn(function()
     end
 end)
 
-Utils.NotifyGame("Hilichurl Hub (Anime Fantasy Edition) Loaded! Settings: " .. tostring(Hub.ConfigFileName), Color3.fromRGB(74, 222, 128))
+Utils.NotifyGame("Hilichurl Hub Loaded! Settings: " .. tostring(Hub.ConfigFileName), Color3.fromRGB(74, 222, 128))
 
 return Window
