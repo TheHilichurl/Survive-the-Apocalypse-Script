@@ -783,6 +783,32 @@ local function GetEquippedOrBestMelee()
     return bestTool
 end
 
+local function IsBreakableStructure(st)
+    if not st or not st.Parent then return false end
+    if st:GetAttribute("Dead") == true or st:GetAttribute("Untouchable") == true then return false end
+    local sName = st.Name:lower()
+    if sName:find("generator") or sName:find("crafting") or sName:find("shredder")
+        or sName:find("scraper") or sName:find("turret") or sName:find("light")
+        or sName:find("shop") or sName:find("workbench") or sName:find("time") then
+        return false
+    end
+    local isNamedBreakable = sName:find("barrel") ~= nil or sName:find("scrap") ~= nil or sName:find("car") ~= nil or sName:find("trash") ~= nil
+    local mh = st:FindFirstChild("MockHumanoid") or st:FindFirstChildOfClass("Humanoid")
+    if not isNamedBreakable and not mh then
+        return false
+    end
+    if mh then
+        local hp = mh:GetAttribute("Health") or (mh:IsA("Humanoid") and mh.Health)
+        if type(hp) == "number" and hp <= 0 then
+            return false
+        end
+    end
+    return true
+end
+
+local IsMeleeSwinging = false
+local LastMeleeSwingTime = 0
+
 local function RunKillAuraAndBreakAuraStep()
     local char = Utils.GetCharacter()
     local root = Utils.GetRootPart(char)
@@ -804,10 +830,11 @@ local function RunKillAuraAndBreakAuraStep()
     end
 
     local stats = meleeTool:FindFirstChild("Stats")
-    local baseRange = stats and stats:GetAttribute("Range") or 10
+    local baseRange = stats and (stats:GetAttribute("Range") or stats:GetAttribute("Radius")) or 10
     local maxRange = math.max(Config.KillAuraRange or 16, baseRange + (Config.KillAuraExtendedRange and 2 or 0))
     local targets = {}
 
+    -- 1. Quét quái vật (PvE Mobs: Zombies, Bandits, Bosses)
     if Config.KillAura then
         local charsFolder = Workspace:FindFirstChild("Characters")
         if charsFolder then
@@ -851,20 +878,24 @@ local function RunKillAuraAndBreakAuraStep()
         table.insert(finalModels, entry.Model)
     end
 
-    if Config.BreakAura then
+    -- 2. Quét công trình / vật thể phá huỷ (Barrel, Scrap Pile, Crashed Car)
+    -- Hỗ trợ cả khi bật KillAura hoặc BreakAura
+    if Config.BreakAura or Config.KillAura then
         local structsFolder = Workspace:FindFirstChild("Structures")
         if structsFolder then
+            local breakRange = math.max(Config.BreakAuraRange or 16, baseRange + 2)
+            local structCandidates = {}
             for _, st in ipairs(structsFolder:GetChildren()) do
-                if (st.Name == "Barrel" or st.Name == "Scrap Pile" or string.find(st.Name, "Crashed Car")) and not st:GetAttribute("Dead") then
-                    local mh = st:FindFirstChild("MockHumanoid")
-                    local hp = mh and mh:GetAttribute("Health") or 100
-                    if hp > 0 then
-                        local dist = (st:GetPivot().Position - root.Position).Magnitude
-                        if dist <= (Config.BreakAuraRange or 16) then
-                            table.insert(finalModels, st)
-                        end
+                if IsBreakableStructure(st) then
+                    local dist = (st:GetPivot().Position - root.Position).Magnitude
+                    if dist <= breakRange then
+                        table.insert(structCandidates, { Model = st, Dist = dist })
                     end
                 end
+            end
+            table.sort(structCandidates, function(a, b) return a.Dist < b.Dist end)
+            for _, entry in ipairs(structCandidates) do
+                table.insert(finalModels, entry.Model)
             end
         end
     end
@@ -881,49 +912,80 @@ local function RunKillAuraAndBreakAuraStep()
         KillAuraHighlight.Enabled = false
     end
 
-    if Config.KillAuraAutoEquip and meleeTool.Parent ~= char then
+    -- Luôn đảm bảo trang bị vũ khí cận chiến khi có mục tiêu trong tầm
+    if meleeTool.Parent ~= char then
         pcall(function()
             hum:EquipTool(meleeTool)
         end)
     end
 
+    if IsMeleeSwinging then
+        return
+    end
+
     local swingRemote = meleeTool:FindFirstChild("Swing")
     local hitTargetsRemote = meleeTool:FindFirstChild("HitTargets")
 
-    if Config.AutoPowerMelee then
-        if meleeTool.Name == "Power Hammer" then
-            local reloadRem = meleeTool:FindFirstChild("Reload")
-            local powerSwingRem = meleeTool:FindFirstChild("PowerSwingRemote")
-            if not meleeTool:GetAttribute("Loaded") and reloadRem and (char:GetAttribute("AlienEnergy") or 0) >= (stats and stats:GetAttribute("LoadedEnergyUse") or 20) then
-                pcall(function() reloadRem:FireServer() end)
-            end
-            if meleeTool:GetAttribute("Loaded") and powerSwingRem then
-                local mults = {}
-                for i = 1, #finalModels do mults[i] = 1 end
-                pcall(function()
-                    powerSwingRem:FireServer(finalModels, mults, root.CFrame)
-                end)
-            end
-        elseif meleeTool.Name == "Scorchblade" and meleeTool:GetAttribute("Loaded") then
-            local strikeRem = meleeTool:FindFirstChild("StrikeRemote")
-            if strikeRem then
-                pcall(function()
-                    strikeRem:FireServer(root.CFrame)
-                end)
-            end
-        elseif meleeTool.Name == "Bloodthirster" and char:GetAttribute("StalkActive") and swingRemote then
-            pcall(function()
-                swingRemote:FireServer(root.CFrame)
-            end)
-        end
+    local windUp = (stats and stats:GetAttribute("WindUp")) or 0.08
+    local endLag = (stats and stats:GetAttribute("Endlag")) or 0.18
+    local speedMult = 1 + (char:GetAttribute("MeleeAttackSpeed") or 0)
+    local animSpeed = math.max((stats and stats:GetAttribute("AnimSpeed")) or 1, 0.5) * speedMult
+
+    local now = os.clock()
+    local minSwingCooldown = math.clamp((windUp + endLag) / animSpeed, 0.12, 0.5)
+    if (now - LastMeleeSwingTime) < minSwingCooldown then
+        return
     end
 
-    if swingRemote then
-        pcall(function() swingRemote:FireServer() end)
-    end
-    if hitTargetsRemote then
-        pcall(function() hitTargetsRemote:FireServer(finalModels) end)
-    end
+    IsMeleeSwinging = true
+    LastMeleeSwingTime = now
+
+    task.spawn(function()
+        if Config.AutoPowerMelee then
+            if meleeTool.Name == "Power Hammer" then
+                local reloadRem = meleeTool:FindFirstChild("Reload")
+                local powerSwingRem = meleeTool:FindFirstChild("PowerSwingRemote")
+                if not meleeTool:GetAttribute("Loaded") and reloadRem and (char:GetAttribute("AlienEnergy") or 0) >= (stats and stats:GetAttribute("LoadedEnergyUse") or 20) then
+                    pcall(function() reloadRem:FireServer() end)
+                end
+                if meleeTool:GetAttribute("Loaded") and powerSwingRem then
+                    local mults = {}
+                    for i = 1, #finalModels do mults[i] = 1 end
+                    pcall(function()
+                        powerSwingRem:FireServer(finalModels, mults, root.CFrame)
+                    end)
+                end
+            elseif meleeTool.Name == "Scorchblade" and meleeTool:GetAttribute("Loaded") then
+                local strikeRem = meleeTool:FindFirstChild("StrikeRemote")
+                if strikeRem then
+                    pcall(function() strikeRem:FireServer(root.CFrame) end)
+                end
+            elseif meleeTool.Name == "Bloodthirster" and char:GetAttribute("StalkActive") and swingRemote then
+                pcall(function() swingRemote:FireServer(root.CFrame) end)
+            end
+        end
+
+        -- 1. Báo Swing lên server và kích hoạt tool
+        if swingRemote then
+            pcall(function() swingRemote:FireServer() end)
+        end
+        pcall(function() meleeTool:Activate() end)
+
+        -- 2. Đợi Windup đúng theo cơ chế của game để mở hit window
+        local windupWait = math.clamp(windUp / animSpeed, 0.04, 0.15)
+        task.wait(windupWait)
+
+        -- 3. Gửi danh sách targets (quái + thùng barrel + scrap pile)
+        if hitTargetsRemote and meleeTool.Parent == char then
+            pcall(function() hitTargetsRemote:FireServer(finalModels) end)
+        end
+
+        -- 4. Đợi Endlag hoàn tất swing trước khi có thể swing tiếp
+        local endlagWait = math.clamp(endLag / animSpeed, 0.08, 0.35)
+        task.wait(endlagWait)
+
+        IsMeleeSwinging = false
+    end)
 end
 
 -- RenderStepped AutoShoot & Aim Loop

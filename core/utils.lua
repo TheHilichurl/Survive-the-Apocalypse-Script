@@ -44,25 +44,22 @@ function Utils.SafeTriggerPrompt(prompt)
     if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled then
         return false
     end
+    -- If prompt requires holding (e.g. Gas Pump, Crate, crafting), DO NOT fake hold/cancel to avoid interrupting player's hold E
+    if prompt.HoldDuration and prompt.HoldDuration > 0 then
+        if fireproximityprompt_fn then
+            pcall(fireproximityprompt_fn, prompt)
+            return true
+        end
+        return false
+    end
     if fireproximityprompt_fn then
         pcall(fireproximityprompt_fn, prompt)
         return true
     else
-        local origHold = prompt.HoldDuration
-        local origDist = prompt.MaxActivationDistance
-        local origLoS = prompt.RequiresLineOfSight
         pcall(function()
-            prompt.HoldDuration = 0
-            prompt.MaxActivationDistance = 50
-            prompt.RequiresLineOfSight = false
             prompt:InputHoldBegin()
             task.wait()
             prompt:InputHoldEnd()
-        end)
-        pcall(function()
-            prompt.HoldDuration = origHold
-            prompt.MaxActivationDistance = origDist
-            prompt.RequiresLineOfSight = origLoS
         end)
         return true
     end
@@ -158,7 +155,10 @@ function Utils.ClassifyItem(item)
     local toolType = item:GetAttribute("ToolType")
     local name = item.Name
 
-    if itemType == "Fuel" or name == "Fuel" or string.find(name, "Fuel") ~= nil or string.find(name, "Gas") ~= nil then
+    local sName = name:lower()
+    if itemType == "Blueprint" or toolType == "Blueprint" or string.find(sName, "blueprint") ~= nil or string.find(sName, "schematic") ~= nil or string.find(sName, "bản vẽ") ~= nil then
+        return "Blueprint"
+    elseif itemType == "Fuel" or name == "Fuel" or string.find(name, "Fuel") ~= nil or string.find(name, "Gas") ~= nil then
         return "Fuel"
     elseif itemType == "Resource" or name == "Scrap" or name == "Battery" or name == "Screws" or name == "Heart" or name == "Hearts"
         or string.find(name, "Scrap") ~= nil or string.find(name, "Battery") ~= nil or string.find(name, "Screw") ~= nil or string.find(name, "Heart") ~= nil

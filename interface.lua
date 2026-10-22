@@ -226,15 +226,16 @@ TabLooting:AddSlider("Auto Loot Radius (Studs)", "AutoPickupRadius", 5, 35, 1)
 TabLooting:AddToggle("Ignore Items Stored on Base Shelves (OnShelf)", "AutoPickupIgnoreShelf")
 TabLooting:AddToggle("Auto Empty Backpack into Shredder/Generator at Base", "AutoEmptyBackpackAtBase")
 
-TabLooting:AddSection("Touch & Fly Items to Base (Sorted by Item Type)")
-TabLooting:AddToggle("Auto Fly Nearby Fuel -> Base Generator", "AutoFuelGenerator")
+TabLooting:AddSection("Item Hover & Physics Carry Engine (Above Head)")
+TabLooting:AddToggle("Carry Items Above Player Head (Auto-Deposit at Base)", "ItemHoverCarry")
+TabLooting:AddToggle("Auto Collect Nearby Fuel (Gas Cans)", "AutoFuelGenerator")
 TabLooting:AddSlider("Fuel Generator When Below (%)", "AutoFuelThreshold", 20, 100, 5)
-TabLooting:AddToggle("Auto Fly Nearby Resources (Scrap/Bat/Hearts) -> Base Shredder", "AutoShredResources")
-TabLooting:AddToggle("Continuous Auto-Fly Nearby Items to Base by Type", "AutoBringItems")
+TabLooting:AddToggle("Auto Collect Nearby Resources (Scrap/Battery/Hearts)", "AutoShredResources")
+TabLooting:AddToggle("Continuous Auto-Fly Nearby Items to Base", "AutoBringItems")
 TabLooting:AddSlider("Item Flight Speed to Base (Studs/s)", "ItemFlightSpeed", 60, 250, 5)
 TabLooting:AddDropdown("Fly Destination Mode", "BringDestination", { "AutoByType", "BaseCenter", "Generator", "Shredder", "Player" })
 TabLooting:AddDropdown("Item Category Filter", "BringCategoryFilter", {
-    "All", "Fuel", "Resource", "Gun", "Melee", "Ammo", "Medical", "Food", "Armor", "Equipment"
+    "All", "Fuel", "Resource", "Gun", "Melee", "Ammo", "Medical", "Food", "Armor", "Blueprint", "Equipment"
 })
 TabLooting:AddDropdown("Item Sort Order", "BringSortOrder", {
     "Nearest First", "Farthest First", "Highest Tier", "Alphabetical"
@@ -250,16 +251,16 @@ TabLooting:AddButton("Collect & Fly Map Items to Base by Type", function()
     end)
 end)
 
-TabLooting:AddSection("Smart Food (<70% Eat / >=70% Backpack), Auto Heal & Crates")
-TabLooting:AddToggle("Smart Food: Eat if Hunger < Threshold, Store to Backpack if >=", "AutoEat")
+TabLooting:AddSection("Smart Food, Auto Heal, Crates & Safe Interacting")
+TabLooting:AddToggle("Smart Food: Eat if Hunger < Threshold, Collect/Carry if >=", "AutoEat")
 TabLooting:AddSlider("Smart Food Eat Threshold (%)", "AutoEatThreshold", 15, 95, 5)
 TabLooting:AddToggle("Auto Heal (Bandage / Medkit / Recovery Compound)", "AutoHeal")
 TabLooting:AddSlider("Auto Heal Health Threshold (%)", "AutoHealThreshold", 15, 90, 5)
 TabLooting:AddToggle("No Slowdown While Using Bandage / Medical", "NoSlowOnMedical")
-TabLooting:AddToggle("Auto Open Loot Crates (Map.Crates)", "AutoOpenCrates")
+TabLooting:AddToggle("Auto Open Loot Crates (Direct Safe Remote)", "AutoOpenCrates")
 TabLooting:AddSlider("Auto Open Crates Range (Studs)", "AutoOpenCratesRange", 8, 35, 1)
-TabLooting:AddToggle("Instant ProximityPrompts (0s Hold Duration)", "InstantInteract")
-TabLooting:AddToggle("Auto Interact Power Plants, Radio Tower, Gas Pumps & Survivors", "AutoInteractObjectives")
+TabLooting:AddToggle("Instant ProximityPrompts (0s Hold Duration Only)", "InstantInteract")
+TabLooting:AddToggle("Auto Interact Instant Objectives (Leaves Hold E to Player)", "AutoInteractObjectives")
 
 -- ============================================================================
 -- TAB 5: BASE, STRUCTURES, CRAFTING & SHOP

@@ -32,14 +32,14 @@ local Config = {
     KillAuraExtendedRange = true,
     KillAuraDelay = 0.12,
     KillAuraPriority = "Nearest", -- Nearest, LowestHP, HighestHP, SpecialsFirst
-    KillAuraAutoEquip = false,
+    KillAuraAutoEquip = true,
     KillAuraTargetIndicator = true,
     KillAuraAttackZombies = true,
     KillAuraAttackBandits = true,
     KillAuraAttackBosses = true,
     KillAuraIgnoreBloaters = true, -- Prevents fatal Bloater melee explosion
     AutoPowerMelee = true,        -- Power Hammer / Scorchblade / Bloodthirster specials
-    BreakAura = false,            -- Auto break Barrels, Scrap Piles, Crashed Cars
+    BreakAura = true,             -- Auto break Barrels, Scrap Piles, Crashed Cars
     BreakAuraRange = 16,
 
     -- Combat: Silent Aim (360 Omni-Lock PvE), Camera Aimbot & Auto Shoot
@@ -108,16 +108,18 @@ local Config = {
         Food = true,
         Resource = true,
         Fuel = true,
+        Blueprint = true,
         Equipment = true,
         Ability = true,
     },
     AutoStoreBackpack = true,
     AutoLootWithoutEquip = true,
-    AutoEmptyBackpackAtBase = false,
+    AutoEmptyBackpackAtBase = true,
     AutoFuelGenerator = true,
     AutoFuelThreshold = 95,
     AutoShredResources = true,
     AutoBringItems = false,
+    ItemHoverCarry = true,             -- Drag items physically and hover above player's head, deposit at Base
     ItemFlightSpeed = 145,             -- Studs/sec smooth physics flight to Base
     BringSortOrder = "Nearest First",  -- Nearest First, Farthest First, Highest Tier, Alphabetical
     BringDestination = "AutoByType",   -- AutoByType, BaseCenter, Generator, Shredder, Player
@@ -127,10 +129,10 @@ local Config = {
     AutoHeal = false,
     AutoHealThreshold = 55,
     NoSlowOnMedical = true,
-    AutoOpenCrates = false,
+    AutoOpenCrates = true,
     AutoOpenCratesRange = 22,
     InstantInteract = false,
-    AutoInteractObjectives = true,
+    AutoInteractObjectives = false,    -- Disabled by default to prevent interrupting player's E-hold on Gas Pumps
 
     -- Base, Structures, Crafting & Shop
     RepairAura = false,
