@@ -104,6 +104,7 @@ local Config = {
         Melee = true,
         Ammo = true,
         Medical = true,
+        Consumable = true,
         Armor = true,
         Food = true,
         Resource = true,
@@ -113,7 +114,8 @@ local Config = {
         Ability = true,
     },
     AutoStoreBackpack = true,           -- Auto loot Gas, Scrap, Battery, Heart into Backpack sack
-    BackpackCapacity = 4,              -- Max sack capacity fallback (auto detected from player attribute)
+    BackpackTierOverride = "Auto",     -- Auto (detects Tier 1/2/3 -> 10/20/30 slots), or manual override
+    BackpackCapacity = 10,             -- Max sack capacity fallback per tier
     AutoLootWithoutEquip = true,       -- Never equip looted weapons/ammo to hand (Roblox inventory)
     AutoEmptyBackpackAtBase = true,     -- Auto unstore and sort items by type at Base (Gas->Gen, Scrap->Shredder)
     AutoFuelGenerator = true,
@@ -123,7 +125,7 @@ local Config = {
     ItemFlightSpeed = 145,             -- Studs/sec smooth physics flight to Base
     BringSortOrder = "Nearest First",  -- Nearest First, Farthest First, Highest Tier, Alphabetical
     BringDestination = "AutoByType",   -- AutoByType, BaseCenter, Generator, Shredder, Player
-    BringCategoryFilter = "All",       -- All, Fuel, Resource, Gun, Melee, Ammo, Medical, Food, Equipment
+    BringCategoryFilter = "All",       -- All, Fuel, Resource, Gun, Melee, Ammo, Medical, Consumable, Food, Equipment
     AutoEat = false,
     AutoEatThreshold = 70,             -- Below 70% Hunger -> Eat immediately; >= 70% -> Store into Backpack
     AutoHeal = false,

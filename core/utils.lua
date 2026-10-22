@@ -100,10 +100,12 @@ Utils.ItemCategoryColors = {
     Melee = Color3.fromRGB(255, 165, 80),
     Ammo = Color3.fromRGB(255, 230, 90),
     Medical = Color3.fromRGB(110, 255, 140),
+    Consumable = Color3.fromRGB(255, 140, 200),
     Armor = Color3.fromRGB(100, 180, 255),
     Food = Color3.fromRGB(180, 255, 110),
     Resource = Color3.fromRGB(200, 160, 255),
     Fuel = Color3.fromRGB(255, 90, 40),
+    Blueprint = Color3.fromRGB(60, 200, 255),
     Equipment = Color3.fromRGB(120, 235, 255),
     Ability = Color3.fromRGB(255, 100, 255),
 }
@@ -132,10 +134,39 @@ Utils.KnownMedical = {
     ["Acid Potion"] = true, ["Ice Potion"] = true, ["Weakening Potion"] = true,
 }
 
+Utils.KnownThrowables = {
+    ["Tear Gas"] = true, ["Grenade"] = true, ["Molotov"] = true,
+    ["Flashbang"] = true, ["Smoke Grenade"] = true,
+}
+
 Utils.KnownArmor = {
     ["Light Armor"] = true, ["Heavy Armor"] = true, ["Riot Shield"] = true,
     ["Tactical Shield"] = true, ["Gas Mask"] = true,
 }
+
+function Utils.IsThrowableOrConsumable(item)
+    if not item then return false end
+    local itemType = item:GetAttribute("ItemType")
+    local toolType = item:GetAttribute("ToolType")
+    if itemType == "Throwable" or toolType == "Throwable" or itemType == "Consumable" or toolType == "Consumable" then
+        return true
+    end
+    local name = item.Name
+    if Utils.KnownThrowables and Utils.KnownThrowables[name] then
+        return true
+    end
+    local sName = name:lower()
+    if sName:find("tear gas") or sName:find("tear_gas") or sName:find("teargas") then
+        return true
+    end
+    if sName:find("grenade") or sName:find("molotov") or sName:find("flashbang") or sName:find("smoke") then
+        return true
+    end
+    if item:FindFirstChild("ThrownModel") or item:FindFirstChild("Throw") or item:FindFirstChild("Explode") then
+        return true
+    end
+    return false
+end
 
 function Utils.IsObjectiveItem(item)
     if not item then return false end
@@ -154,12 +185,18 @@ function Utils.ClassifyItem(item)
     local itemType = item:GetAttribute("ItemType")
     local toolType = item:GetAttribute("ToolType")
     local name = item.Name
-
     local sName = name:lower()
+
+    -- 1. Bản vẽ thiết kế (Blueprints / Schematics)
     if itemType == "Blueprint" or toolType == "Blueprint" or string.find(sName, "blueprint") ~= nil or string.find(sName, "schematic") ~= nil or string.find(sName, "bản vẽ") ~= nil then
         return "Blueprint"
-    elseif itemType == "Fuel" or name == "Fuel" or string.find(name, "Fuel") ~= nil or string.find(name, "Gas") ~= nil then
+    -- 2. Tear Gas & tất cả các vật phẩm Throwable đều là Tiêu hao (Consumable)
+    elseif Utils.IsThrowableOrConsumable(item) then
+        return "Consumable"
+    -- 3. Nhiên liệu máy phát điện (Fuel / Gas Can, loại trừ Tear Gas)
+    elseif (itemType == "Fuel" or name == "Fuel" or string.find(sName, "fuel") ~= nil or string.find(sName, "gas can") ~= nil or string.find(sName, "gas_can") ~= nil or sName == "gas") and not string.find(sName, "tear") then
         return "Fuel"
+    -- 4. Tài nguyên xây dựng / máy nghiền (Scrap, Battery, Screws, Heart)
     elseif itemType == "Resource" or name == "Scrap" or name == "Battery" or name == "Screws" or name == "Heart" or name == "Hearts"
         or string.find(name, "Scrap") ~= nil or string.find(name, "Battery") ~= nil or string.find(name, "Screw") ~= nil or string.find(name, "Heart") ~= nil
         or (item:FindFirstChild("Stats") and (item.Stats:GetAttribute("Scrap") or item.Stats:GetAttribute("Batteries") or item.Stats:GetAttribute("Hearts"))) then

@@ -109,7 +109,10 @@ task.spawn(function()
             local perk = LocalPlayer:GetAttribute("Perk") or "None"
             local gems = LocalPlayer:GetAttribute("Gems") or 0
             local skulls = LocalPlayer:GetAttribute("ZombieSkulls") or 0
-            StatusLabel3.Text = string.format("Class: %s (Lv.%d) | Perk: %s | Gems: %d | Skulls: %d", tostring(cls), clsLv, tostring(perk), gems, skulls)
+            local bpTier = Looting.GetBackpackTier and Looting.GetBackpackTier() or 1
+            local bpItems = Looting.GetBackpackItemCount and Looting.GetBackpackItemCount() or 0
+            local bpMax = Looting.GetBackpackMaxCapacity and Looting.GetBackpackMaxCapacity() or (bpTier * 10)
+            StatusLabel3.Text = string.format("Class: %s (Lv.%d) | Sack: [T%d] %d/%d | Gems: %d | Skulls: %d", tostring(cls), clsLv, bpTier, bpItems, bpMax, gems, skulls)
         end)
         task.wait(0.8)
     end
@@ -220,9 +223,11 @@ TabAbilities:AddToggle("Scavenger Lv3: Unlock Native Wall Highlight on Nearby It
 local TabLooting = CreateTab("4. Looting")
 TabLooting:AddSection("Backpack Sack Auto-Loot & Instant Weapon Restore")
 TabLooting:AddToggle("Auto Loot Gas, Scrap, Battery, Hearts into Backpack Sack", "AutoStoreBackpack")
-TabLooting:AddSlider("Backpack Sack Max Capacity", "BackpackCapacity", 2, 10, 1)
+TabLooting:AddDropdown("Backpack Tier & Slot Capacity", "BackpackTierOverride", {
+    "Auto", "Tier 1 (10 Slots)", "Tier 2 (20 Slots)", "Tier 3 (30 Slots)"
+})
 TabLooting:AddToggle("Never Equip Looted Weapons/Items to Hand (Roblox Bag)", "AutoLootWithoutEquip")
-TabLooting:AddToggle("Auto Loot All Other Items (Blueprints, Guns, Ammo, Meds)", "AutoPickup")
+TabLooting:AddToggle("Auto Loot All Other Items (Blueprints, Guns, Ammo, Meds, Throwables)", "AutoPickup")
 TabLooting:AddSlider("Auto Loot Radius (Studs)", "AutoPickupRadius", 5, 35, 1)
 TabLooting:AddToggle("Ignore Items Stored on Base Shelves (OnShelf)", "AutoPickupIgnoreShelf")
 
@@ -235,7 +240,7 @@ TabLooting:AddToggle("Auto Feed Shredder/Scraper at Base (Scrap/Battery/Hearts)"
 TabLooting:AddSection("Manual Item Bring to Base")
 TabLooting:AddDropdown("Fly Destination Mode", "BringDestination", { "AutoByType", "BaseCenter", "Generator", "Shredder", "Player" })
 TabLooting:AddDropdown("Item Category Filter", "BringCategoryFilter", {
-    "All", "Fuel", "Resource", "Gun", "Melee", "Ammo", "Medical", "Food", "Armor", "Blueprint", "Equipment"
+    "All", "Fuel", "Resource", "Gun", "Melee", "Ammo", "Medical", "Consumable", "Food", "Armor", "Blueprint", "Equipment"
 })
 TabLooting:AddDropdown("Item Sort Order", "BringSortOrder", {
     "Nearest First", "Farthest First", "Highest Tier", "Alphabetical"

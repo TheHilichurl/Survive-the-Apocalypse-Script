@@ -85,6 +85,7 @@ local CategoryBaseOffsets = {
     Melee = Vector3.new(8, 2.5, 6),
     Ammo = Vector3.new(4, 2.5, 6),
     Medical = Vector3.new(-6, 2.5, 6),
+    Consumable = Vector3.new(-6, 2.5, 8),
     Food = Vector3.new(-4, 2.5, 6),
     Armor = Vector3.new(-8, 2.5, 6),
     Blueprint = Vector3.new(-2, 2.5, 6),
@@ -167,19 +168,92 @@ local function GetBackpackItemCount()
     return 0
 end
 
-local function GetBackpackMaxCapacity()
-    local cap = LocalPlayer:GetAttribute("MaxItemsInBackpack")
-        or LocalPlayer:GetAttribute("MaxBackpack")
-        or LocalPlayer:GetAttribute("BackpackCapacity")
-    if typeof(cap) == "number" and cap > 0 then return cap end
-
-    local bpTool = GetBackpackTool()
-    if bpTool then
-        cap = bpTool:GetAttribute("MaxItems") or bpTool:GetAttribute("Capacity") or bpTool:GetAttribute("MaxCapacity")
-        if typeof(cap) == "number" and cap > 0 then return cap end
+local function GetBackpackTier()
+    -- 1. Ưu tiên cài đặt override của người dùng nếu có (Auto, 1, 2, 3)
+    if Config.BackpackTierOverride and Config.BackpackTierOverride ~= "Auto" then
+        if Config.BackpackTierOverride == "Tier 1 (10 Slots)" or Config.BackpackTierOverride == 1 then
+            return 1
+        elseif Config.BackpackTierOverride == "Tier 2 (20 Slots)" or Config.BackpackTierOverride == 2 then
+            return 2
+        elseif Config.BackpackTierOverride == "Tier 3 (30 Slots)" or Config.BackpackTierOverride == 3 then
+            return 3
+        end
     end
 
-    return Config.BackpackCapacity or 4
+    local bpTool = GetBackpackTool()
+    local char = Utils.GetCharacter()
+
+    -- 2. Tự động kiểm tra thuộc tính trên Backpack Tool
+    if bpTool then
+        local t = bpTool:GetAttribute("Tier") or bpTool:GetAttribute("Level") or bpTool:GetAttribute("BackpackTier") or bpTool:GetAttribute("BackpackLevel")
+        if typeof(t) == "number" and t >= 1 then
+            return math.clamp(math.floor(t), 1, 3)
+        end
+        local stats = bpTool:FindFirstChild("Stats")
+        if stats then
+            local st = stats:GetAttribute("Tier") or stats:GetAttribute("Level")
+            if typeof(st) == "number" and st >= 1 then
+                return math.clamp(math.floor(st), 1, 3)
+            end
+        end
+        local valObj = bpTool:FindFirstChild("Tier") or bpTool:FindFirstChild("Level")
+        if valObj and (valObj:IsA("IntValue") or valObj:IsA("NumberValue")) and valObj.Value >= 1 then
+            return math.clamp(math.floor(valObj.Value), 1, 3)
+        end
+        local toolMatch = bpTool.Name:match("%d+")
+        if toolMatch then
+            local tn = tonumber(toolMatch)
+            if tn and tn >= 1 and tn <= 3 then
+                return tn
+            end
+        end
+    end
+
+    -- 3. Tự động kiểm tra mô hình ba lô đeo trên lưng nhân vật (BackpackModel)
+    if char then
+        local ct = char:GetAttribute("BackpackTier") or char:GetAttribute("BackpackLevel") or char:GetAttribute("Tier")
+        if typeof(ct) == "number" and ct >= 1 then
+            return math.clamp(math.floor(ct), 1, 3)
+        end
+        for _, child in ipairs(char:GetChildren()) do
+            if child:GetAttribute("BackpackModel") or string.find(child.Name:lower(), "backpack") ~= nil then
+                local mt = child:GetAttribute("Tier") or child:GetAttribute("Level")
+                if typeof(mt) == "number" and mt >= 1 then
+                    return math.clamp(math.floor(mt), 1, 3)
+                end
+                local modelMatch = child.Name:match("%d+")
+                if modelMatch then
+                    local mn = tonumber(modelMatch)
+                    if mn and mn >= 1 and mn <= 3 then
+                        return mn
+                    end
+                end
+            end
+        end
+    end
+
+    -- 4. Tự động kiểm tra thuộc tính trên LocalPlayer
+    local pt = LocalPlayer:GetAttribute("BackpackTier") or LocalPlayer:GetAttribute("BackpackLevel") or LocalPlayer:GetAttribute("Backpack")
+    if typeof(pt) == "number" and pt >= 1 then
+        return math.clamp(math.floor(pt), 1, 3)
+    end
+
+    -- 5. Kiểm tra nếu game gán sẵn MaxItemsInBackpack (10, 20, 30)
+    local maxAttr = LocalPlayer:GetAttribute("MaxItemsInBackpack") or LocalPlayer:GetAttribute("MaxBackpack")
+    if typeof(maxAttr) == "number" and maxAttr > 0 then
+        local calculatedTier = math.clamp(math.floor(maxAttr / 10), 1, 3)
+        if calculatedTier >= 1 then
+            return calculatedTier
+        end
+    end
+
+    return 1
+end
+
+local function GetBackpackMaxCapacity()
+    local tier = GetBackpackTier()
+    -- Mỗi cấp mở rộng thêm 10 slot đồ (Tier 1 = 10, Tier 2 = 20, Tier 3 = 30)
+    return tier * 10
 end
 
 local function IsBackpackFull()
@@ -188,15 +262,25 @@ end
 
 local function IsBackpackSackItem(item)
     if not item or not item.Parent then return false end
+    -- Tear Gas, Grenades, Molotovs, Flashbangs & tất cả Throwable đều là vật phẩm tiêu hao -> NHẶT VÀO TÚI ROBLOX, KHÔNG NHÉT SACK
+    if Utils.IsThrowableOrConsumable and Utils.IsThrowableOrConsumable(item) then
+        return false
+    end
     local cat = Utils.ClassifyItem(item)
+    if cat == "Consumable" or cat == "Medical" or cat == "Food" or cat == "Gun" or cat == "Melee" or cat == "Ammo" or cat == "Armor" or cat == "Blueprint" then
+        return false
+    end
+    local name = item.Name:lower()
+    if name:find("tear") or name:find("gas mask") or name:find("grenade") or name:find("molotov") or name:find("flashbang") then
+        return false
+    end
     if cat == "Fuel" or cat == "Resource" then
         return true
     end
     if Utils.IsObjectiveItem and Utils.IsObjectiveItem(item) then
         return true
     end
-    local name = item.Name:lower()
-    if name:find("gas") or name:find("fuel") or name:find("scrap") or name:find("battery") or name:find("heart") or name:find("screw") then
+    if name:find("fuel") or name:find("gas can") or name:find("gas_can") or name:find("scrap") or name:find("battery") or name:find("heart") or name:find("screw") then
         return true
     end
     return false
@@ -905,6 +989,7 @@ Looting.LootItemToBackpackNoEquip = LootItemToBackpackNoEquip
 Looting.GetPlayerHungerPercent = GetPlayerHungerPercent
 Looting.GetBackpackTool = GetBackpackTool
 Looting.GetBackpackItemCount = GetBackpackItemCount
+Looting.GetBackpackTier = GetBackpackTier
 Looting.GetBackpackMaxCapacity = GetBackpackMaxCapacity
 Looting.IsBackpackFull = IsBackpackFull
 Looting.StoreCandidatesToBackpack = StoreCandidatesToBackpack
