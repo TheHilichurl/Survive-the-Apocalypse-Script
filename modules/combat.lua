@@ -295,7 +295,7 @@ local function SimulateVirtualBullet(originPos, targetPart, targetModel)
             local hitsList = type(simRes.HitData) == "table" and simRes.HitData or simRes
             for _, hEntry in ipairs(hitsList) do
                 if type(hEntry) == "table" and (hEntry.HitChar == targetModel or (hEntry.HitPart and hEntry.HitPart:IsDescendantOf(targetModel))) then
-                    return true, hEntry.HitPos or targetPos, simRes
+                    return true, hEntry.HitPos or targetPos, nil
                 end
             end
         end
@@ -460,6 +460,9 @@ local function EnsureBulletModuleHook()
 
                 hits = type(hits) == "table" and hits or {}
                 effects = type(effects) == "table" and effects or {}
+                if lockedModel and (not rayRes or not rayRes.Position) then
+                    rayRes = { Position = aimTargetPos }
+                end
 
                 -- Guarantee Silent Aim registers headshot on first hit
                 if lockedModel and lockedPart then
@@ -1215,34 +1218,59 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
                 pcall(function()
                     local pelletResults = {}
+                    local myChar = Utils.GetCharacter()
+                    local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
+
                     for pIdx = 1, pelletsCount do
-                        if latestSimRes and pIdx == 1 then
-                            latestSimRes.Target = hitPos
-                            if type(latestSimRes.HitData) == "table" and latestSimRes.HitData[1] then
-                                latestSimRes.HitData[1].HitChar = targetModel
-                                latestSimRes.HitData[1].HitPos = hitPos
-                                latestSimRes.HitData[1].HitPart = targetPart
+                        local pTargetPos = hitPos
+                        local hitsList = nil
+                        local effectsList = nil
+
+                        if BulletModule and BulletModule.BulletHitscan then
+                            local bHits, bRay, bHead, bEffects = BulletModule.BulletHitscan(fireOrigin, pTargetPos, {
+                                Attacker = char,
+                                Penetration = (Config.MaxPenetration and 10) or (isOutlaw and 3) or (stats and stats:GetAttribute("Penetration")) or 0,
+                                RicochetMax = (isOutlaw and 3) or 0,
+                                RicochetChance = (isOutlaw and 1) or 0,
+                                Range = (stats and stats:GetAttribute("BulletRange")) or 1000,
+                            })
+                            if type(bHits) == "table" and #bHits > 0 then
+                                hitsList = bHits
                             end
-                            pelletResults[pIdx] = latestSimRes
-                        else
-                            pelletResults[pIdx] = {
-                                Target = hitPos,
-                                HitData = {
-                                    {
-                                        HitChar = targetModel,
-                                        HitPos = hitPos,
-                                        HitPart = targetPart,
-                                    }
-                                },
-                                EffectResults = {
-                                    {
-                                        HitPos = hitPos,
-                                        HitNormal = Vector3.new(0, 1, 0),
-                                        HitMaterial = targetPart.Material,
-                                    }
+                            if type(bEffects) == "table" and #bEffects > 0 then
+                                effectsList = bEffects
+                            end
+                            if bRay and bRay.Position then
+                                pTargetPos = bRay.Position
+                            end
+                        end
+
+                        if not hitsList or #hitsList == 0 then
+                            hitsList = {
+                                {
+                                    HitChar = targetModel,
+                                    HitPos = hitPos,
+                                    HitPart = targetPart,
+                                    Ricochet = (isOutlaw and true) or nil,
                                 }
                             }
                         end
+
+                        if not effectsList or #effectsList == 0 then
+                            effectsList = {
+                                {
+                                    Origin = fireOrigin,
+                                    End = hitPos,
+                                    RayResult = { Position = hitPos },
+                                }
+                            }
+                        end
+
+                        pelletResults[pIdx] = {
+                            Target = pTargetPos,
+                            HitData = hitsList,
+                            EffectResults = effectsList,
+                        }
                     end
                     shootRem:FireServer(fireOrigin, pelletResults, 1, math.random(1, 99999))
                 end)

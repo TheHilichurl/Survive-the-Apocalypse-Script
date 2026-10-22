@@ -117,11 +117,11 @@ local function GetTargetCFrameForItemType(item, destMode)
     else
         -- AutoByType
         if cat == "Fuel" and genPart then
-            return genPart.CFrame * CFrame.new(0, 2.5, 0)
+            return genPart.CFrame * CFrame.new(0, 3.5, 0)
         elseif cat == "Resource" and shredPart then
-            return shredPart.CFrame * CFrame.new(0, 2.5, 0)
+            return shredPart.CFrame * CFrame.new(0, 4.8, 0)
         elseif cat == "Food" and genPart then
-            return genPart.CFrame * CFrame.new(-4, 2.5, 0)
+            return genPart.CFrame * CFrame.new(0, 3.5, 0)
         else
             local offset = CategoryBaseOffsets[cat] or Vector3.new(0, 2.5, 6)
             return CFrame.new(baseOrigin + offset)
@@ -378,28 +378,37 @@ local function StoreCandidatesToBackpack(candidates)
         pcall(function() dragRemote:FireServer(nil) end)
     end
 
-    -- 4. KHI NHẶT ĐỒ VÀO TÚI: TRỰC TIẾP TỪ TÚI CHUYỂN VỀ NHÀ LUÔN THẢ RA ĐÚNG Ở VỊ TRÍ TRÊN SCRAPER CHO NÓ TỰ RƠI XUỐNG!
+    -- 4. KHI NHẶT ĐỒ VÀO TÚI: TRỰC TIẾP TỪ TÚI CHUYỂN VỀ NHÀ LUÔN THẢ RA ĐÚNG Ở VỊ TRÍ TRÊN SCRAPER / GENERATOR THEO TYPE ĐỒ!
     local shredPart = Utils.GetShredderTargetPart()
     local genPart = Utils.GetGeneratorMainPart()
-    local scraperDropCF = shredPart and (shredPart.CFrame * CFrame.new(0, 4.8, 0))
-        or (genPart and genPart.CFrame * CFrame.new(3.5, 4.8, 0))
-        or (root and root.CFrame * CFrame.new(0, 3, 0))
+    local itemCat = Utils.ClassifyItem(item)
 
-    if AdjustBackpackRemote and scraperDropCF then
+    local targetDropCF
+    if (itemCat == "Fuel" or itemCat == "Food") and genPart then
+        targetDropCF = genPart.CFrame * CFrame.new(0, 3.5, 0)
+    elseif shredPart then
+        targetDropCF = shredPart.CFrame * CFrame.new(0, 4.8, 0)
+    elseif genPart then
+        targetDropCF = genPart.CFrame * CFrame.new(0, 3.5, 0)
+    else
+        targetDropCF = root and (root.CFrame * CFrame.new(0, 3, 0))
+    end
+
+    if AdjustBackpackRemote and targetDropCF then
         task.wait(0.03)
         local dumpAttempts = math.max(storedCount, 1)
         for i = 1, dumpAttempts do
             pcall(function()
-                AdjustBackpackRemote:FireServer(nil, scraperDropCF)
+                AdjustBackpackRemote:FireServer(nil, targetDropCF)
             end)
-            task.wait(0.06)
+            task.wait(0.05)
         end
         local dumpStart = os.clock()
         while (GetBackpackItemCount() > 0) and (os.clock() - dumpStart < 2.0) and Utils.IsCharacterAlive(char) do
             pcall(function()
-                AdjustBackpackRemote:FireServer(nil, scraperDropCF)
+                AdjustBackpackRemote:FireServer(nil, targetDropCF)
             end)
-            task.wait(0.07)
+            task.wait(0.06)
         end
     end
 
@@ -412,14 +421,34 @@ local function StoreCandidatesToBackpack(candidates)
         hum:EquipTool(LastDesiredEquippedTool)
     end
 
-    -- 6. Dự phòng: Nếu server giới hạn khoảng cách mà thả gần người chơi -> Tự động bay về Scraper!
+    -- 6. Dự phòng: Dịch chuyển tức thời (Instant Teleport, không kéo vật lý) nếu đồ xuất hiện gần người chơi
     local droppedFolder = Workspace:FindFirstChild("DroppedItems")
-    if droppedFolder and scraperDropCF and TouchAndFlyItemToBase then
+    if droppedFolder and targetDropCF then
         for _, itm in ipairs(droppedFolder:GetChildren()) do
             if not itm:GetAttribute("OnShelf") and not ActiveFlyingItems[itm] and IsBackpackSackItem(itm) then
                 local distP = (itm:GetPivot().Position - root.Position).Magnitude
-                if distP <= 16 then
-                    TouchAndFlyItemToBase(itm, scraperDropCF)
+                if distP <= 18 then
+                    local catI = Utils.ClassifyItem(itm)
+                    local destCF = ((catI == "Fuel" or catI == "Food") and genPart and (genPart.CFrame * CFrame.new(0, 3.5, 0)))
+                        or (shredPart and (shredPart.CFrame * CFrame.new(0, 4.8, 0)))
+                        or targetDropCF
+                    pcall(function()
+                        for _, d in ipairs(itm:GetDescendants()) do
+                            if d:IsA("BasePart") then
+                                d.Anchored = false
+                                d.CanCollide = false
+                            end
+                        end
+                        local p = itm.PrimaryPart or itm:FindFirstChild("Handle") or itm:FindFirstChildWhichIsA("BasePart", true)
+                        if p then
+                            p.Anchored = false
+                            p.CanCollide = false
+                            itm:PivotTo(destCF)
+                            p.CFrame = destCF
+                            p.AssemblyLinearVelocity = Vector3.new(0, -8, 0)
+                            p.AssemblyAngularVelocity = Vector3.zero
+                        end
+                    end)
                 end
             end
         end
@@ -493,74 +522,34 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
     return true
 end
 
--- Di chuyển / ném Gas can từ Scraper qua Generator theo quỹ đạo vòng cung đẹp mắt và nạp nhiên liệu
+-- Dịch chuyển tức thời Gas can qua Generator và nạp nhiên liệu
 ThrowGasToGenerator = function(item, part, shredPart, genPart)
     if not (item and item.Parent and part and part.Parent and genPart) then return end
-    if GasThrowingInProgress[item] or ActiveFlyingItems[item] then return end
-    GasThrowingInProgress[item] = true
-
-    task.spawn(function()
-        local startPos = (shredPart and (shredPart.Position + Vector3.new(0, 3.8, 0))) or part.Position
-        local targetCF = genPart.CFrame * CFrame.new(0, 2.2, 0)
-        local targetPos = targetCF.Position
-        local delta = targetPos - startPos
-        local dist = delta.Magnitude
-
-        pcall(function()
-            for _, d in ipairs(item:GetDescendants()) do
-                if d:IsA("BasePart") then
-                    d.Anchored = false
-                    d.CanCollide = false
-                end
-            end
-            part.Anchored = false
-            part.CanCollide = false
-            item:PivotTo(CFrame.new(startPos))
-            part.CFrame = CFrame.new(startPos)
-        end)
-
-        -- Quỹ đạo ném vòng cung (Parabolic Arc) từ Scraper qua Generator
-        local flightTime = math.clamp(dist / 28, 0.28, 0.55)
-        local arcHeight = math.clamp(dist * 0.28, 3.0, 7.5)
-        local steps = math.floor(flightTime / 0.035)
-
-        for i = 1, steps do
-            if not (item and item.Parent and part and part.Parent) then break end
-            local alpha = i / steps
-            local currentPos = startPos:Lerp(targetPos, alpha) + Vector3.new(0, math.sin(alpha * math.pi) * arcHeight, 0)
-            local tangent = (targetPos - startPos).Unit * 22 + Vector3.new(0, math.cos(alpha * math.pi) * 12, 0)
-
-            pcall(function()
-                item:PivotTo(CFrame.new(currentPos, currentPos + tangent) * CFrame.Angles(alpha * math.pi, 0, alpha * math.pi * 0.5))
-                part.CFrame = CFrame.new(currentPos, currentPos + tangent)
-                part.AssemblyLinearVelocity = tangent
-            end)
-            task.wait(0.035)
-        end
-
-        -- Rơi thẳng vào miệng Generator và nạp nhiên liệu
-        if item and item.Parent and part and part.Parent then
-            pcall(function()
-                item:PivotTo(targetCF)
-                part.CFrame = targetCF
-                part.AssemblyLinearVelocity = Vector3.new(0, -8, 0)
-                part.AssemblyAngularVelocity = Vector3.zero
-            end)
-            if firetouchinterest_fn then
-                pcall(firetouchinterest_fn, genPart, part, 0)
-                pcall(firetouchinterest_fn, genPart, part, 1)
+    local targetCF = genPart.CFrame * CFrame.new(0, 2.2, 0)
+    pcall(function()
+        for _, d in ipairs(item:GetDescendants()) do
+            if d:IsA("BasePart") then
+                d.Anchored = false
+                d.CanCollide = false
             end
         end
-
-        task.wait(0.25)
-        GasThrowingInProgress[item] = nil
+        part.Anchored = false
+        part.CanCollide = false
+        item:PivotTo(targetCF)
+        part.CFrame = targetCF
+        part.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
+        part.AssemblyAngularVelocity = Vector3.zero
     end)
+    if firetouchinterest_fn then
+        pcall(firetouchinterest_fn, genPart, part, 0)
+        pcall(firetouchinterest_fn, genPart, part, 1)
+    end
 end
 
--- Tự động phân loại và định vị vật phẩm tại Base theo đúng chủng loại:
--- 1. Scrap, Battery, Heart, Screws: Rơi tự do từ trên Scraper xuống máy nghiền
--- 2. Gas (Fuel): Di chuyển / ném từ Scraper qua Generator để nạp nhiên liệu
--- 3. Food: Để cạnh bên Generator
+-- Tự động phân loại và định vị tức thời vật phẩm tại Base theo đúng chủng loại (Không kéo vật lý):
+-- 1. Scrap, Battery, Heart, Screws: Đặt trực tiếp phía trên Scraper rơi thẳng xuống máy nghiền
+-- 2. Gas (Fuel): Đặt trực tiếp phía trên Generator để nạp nhiên liệu
+-- 3. Food: Đặt trực tiếp phía trên Generator
 local function AutoSortBaseItems(genPart, shredPart, root)
     local droppedFolder = Workspace:FindFirstChild("DroppedItems")
     if not droppedFolder then return end
@@ -572,28 +561,24 @@ local function AutoSortBaseItems(genPart, shredPart, root)
         if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not GasThrowingInProgress[item] then
             local itemPos = item:GetPivot().Position
             local distToBase = (itemPos - basePos).Magnitude
-            if distToBase <= 40 then
+            if distToBase <= 45 then
                 local cat = Utils.ClassifyItem(item)
                 local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
                 if part then
                     if cat == "Fuel" and genPart then
                         local targetCF = genPart.CFrame * CFrame.new(0, 2.2, 0)
-                        local distToGen = (part.Position - targetCF.Position).Magnitude
-                        if distToGen > 2.0 then
-                            -- Từ Scraper di chuyển ném qua Generator!
+                        if (part.Position - targetCF.Position).Magnitude > 1.8 then
                             ThrowGasToGenerator(item, part, shredPart, genPart)
                         else
-                            -- Đã ở Generator, kích hoạt touch nạp nhiên liệu
                             if firetouchinterest_fn then
                                 pcall(firetouchinterest_fn, genPart, part, 0)
                                 pcall(firetouchinterest_fn, genPart, part, 1)
                             end
                         end
                     elseif cat == "Resource" and shredPart then
-                        local targetCF = shredPart.CFrame * CFrame.new(0, 4.2, 0)
+                        local targetCF = shredPart.CFrame * CFrame.new(0, 4.5, 0)
                         local distToShred = (part.Position - shredPart.Position).Magnitude
-                        -- Nếu chưa nằm đúng cột thả rơi trên scraper hoặc thấp hơn scraper -> đưa về vị trí trên Scraper cho tự rơi xuống
-                        if distToShred > 2.2 or part.Position.Y < (shredPart.Position.Y + 0.5) then
+                        if distToShred > 2.0 or part.Position.Y < (shredPart.Position.Y + 0.5) then
                             pcall(function()
                                 for _, d in ipairs(item:GetDescendants()) do
                                     if d:IsA("BasePart") then
@@ -605,7 +590,6 @@ local function AutoSortBaseItems(genPart, shredPart, root)
                                 part.CanCollide = false
                                 item:PivotTo(targetCF)
                                 part.CFrame = targetCF
-                                -- Vận tốc rơi tự nhiên thẳng xuống scraper
                                 part.AssemblyLinearVelocity = Vector3.new(0, -14, 0)
                                 part.AssemblyAngularVelocity = Vector3.zero
                             end)
@@ -615,12 +599,20 @@ local function AutoSortBaseItems(genPart, shredPart, root)
                             pcall(firetouchinterest_fn, shredPart, part, 1)
                         end
                     elseif cat == "Food" and genPart then
-                        local targetCF = genPart.CFrame * CFrame.new(-3.5, 2.2, 0)
-                        if (part.Position - targetCF.Position).Magnitude > 2.5 then
+                        local targetCF = genPart.CFrame * CFrame.new(0, 3.5, 0)
+                        if (part.Position - targetCF.Position).Magnitude > 2.0 then
                             pcall(function()
+                                for _, d in ipairs(item:GetDescendants()) do
+                                    if d:IsA("BasePart") then
+                                        d.Anchored = false
+                                        d.CanCollide = false
+                                    end
+                                end
+                                part.Anchored = false
+                                part.CanCollide = false
                                 item:PivotTo(targetCF)
                                 part.CFrame = targetCF
-                                part.AssemblyLinearVelocity = Vector3.zero
+                                part.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
                                 part.AssemblyAngularVelocity = Vector3.zero
                             end)
                         end
@@ -645,7 +637,6 @@ TouchAndFlyItemToBase = function(item, customTargetCFrame)
     if not part then return false end
 
     local targetCF = customTargetCFrame or GetTargetCFrameForItemType(item, Config.BringDestination)
-    local targetPos = targetCF.Position
 
     ActiveFlyingItems[item] = true
 
@@ -680,80 +671,26 @@ TouchAndFlyItemToBase = function(item, customTargetCFrame)
             pcall(function() reqNetRemote:FireServer(part) end)
         end
 
-        local bv = Instance.new("BodyVelocity")
-        bv.Name = "STA_ItemFlightBV"
-        bv.MaxForce = Vector3.new(1e7, 1e7, 1e7)
-        bv.Velocity = Vector3.zero
-        bv.Parent = part
-
-        local bp = Instance.new("BodyPosition")
-        bp.Name = "STA_ItemFlightBP"
-        bp.MaxForce = Vector3.new(1e7, 1e7, 1e7)
-        bp.D = 450
-        bp.P = 18000
-        bp.Position = part.Position + Vector3.new(0, 3, 0)
-        bp.Parent = part
-
-        local speed = math.clamp(Config.ItemFlightSpeed or 145, 50, 260)
-        local startTime = os.clock()
-        local lastNetSync = 0
-        local currentPos = part.Position + Vector3.new(0, 2.5, 0)
-
-        while item and item.Parent and part and part.Parent and (os.clock() - startTime) < 8.0 do
-            local now = os.clock()
-            local dt = task.wait(0.03)
-            if not (item and item.Parent and part and part.Parent) then break end
-
-            if (now - lastNetSync) >= 0.18 then
-                lastNetSync = now
-                if dragRemote then
-                    pcall(function() dragRemote:FireServer(item, part) end)
-                end
-                if reqNetRemote then
-                    pcall(function() reqNetRemote:FireServer(part) end)
-                end
-            end
-
-            if not customTargetCFrame then
-                targetCF = GetTargetCFrameForItemType(item, Config.BringDestination)
-                targetPos = targetCF.Position
-            end
-
-            local delta = targetPos - currentPos
-            local distRem = delta.Magnitude
-            if distRem <= 3.5 then
-                break
-            end
-
-            local stepDist = math.min(distRem, speed * dt)
-            local dirUnit = delta.Unit
-            local heightBoost = (distRem > 12) and Vector3.new(0, 0.35, 0) or Vector3.zero
-            currentPos = currentPos + (dirUnit * stepDist) + heightBoost
-
-            pcall(function()
-                bp.Position = currentPos
-                bv.Velocity = dirUnit * speed
-                item:PivotTo(CFrame.new(currentPos))
-                part.CFrame = CFrame.new(currentPos)
-                part.AssemblyLinearVelocity = dirUnit * speed
-            end)
-        end
-
+        -- Dịch chuyển tức thời về toạ độ đích (Không kéo vật lý)
         pcall(function()
-            if bp and bp.Parent then bp:Destroy() end
-            if bv and bv.Parent then bv:Destroy() end
+            item:PivotTo(targetCF)
+            part.CFrame = targetCF
+            part.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
+            part.AssemblyAngularVelocity = Vector3.zero
         end)
 
-        if item and item.Parent and part and part.Parent then
-            pcall(function()
-                item:PivotTo(targetCF)
-                part.CFrame = targetCF
-                part.AssemblyLinearVelocity = Vector3.zero
-                part.AssemblyAngularVelocity = Vector3.zero
-            end)
+        local cat = Utils.ClassifyItem(item)
+        local genPart = Utils.GetGeneratorMainPart()
+        local shredPart = Utils.GetShredderTargetPart()
+        if (cat == "Fuel" or cat == "Food") and genPart and firetouchinterest_fn then
+            pcall(firetouchinterest_fn, genPart, part, 0)
+            pcall(firetouchinterest_fn, genPart, part, 1)
+        elseif cat == "Resource" and shredPart and firetouchinterest_fn then
+            pcall(firetouchinterest_fn, shredPart, part, 0)
+            pcall(firetouchinterest_fn, shredPart, part, 1)
         end
 
-        task.wait(0.1)
+        task.wait(0.08)
         if dragRemote then
             pcall(function() dragRemote:FireServer(nil) end)
         end
@@ -826,10 +763,30 @@ end
 
 local function GetPlayerHungerPercent(char)
     char = char or Utils.GetCharacter()
-    if not char then return 100 end
-    local hunger = char:GetAttribute("Hunger") or LocalPlayer:GetAttribute("Hunger") or 100
-    local maxHunger = char:GetAttribute("MaxHunger") or LocalPlayer:GetAttribute("MaxHunger") or 100
-    return (hunger / math.max(maxHunger, 1)) * 100
+
+    -- Ưu tiên 1: Đọc chính xác từ GUI thanh đói thực tế của game
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local mainUI = pGui and pGui:FindFirstChild("MainUI")
+    local hBar = mainUI and mainUI:FindFirstChild("HungerBar")
+    local bar = hBar and hBar:FindFirstChild("Bar")
+    if bar and bar:IsA("GuiObject") then
+        local scale = bar.Size.X.Scale
+        if type(scale) == "number" and scale >= 0 then
+            return math.clamp(scale * 100, 0, 100)
+        end
+    end
+
+    -- Ưu tiên 2: Đọc thuộc tính Hunger từ Character hoặc LocalPlayer
+    local rawHunger = (char and char:GetAttribute("Hunger")) or LocalPlayer:GetAttribute("Hunger")
+    if type(rawHunger) == "number" then
+        if rawHunger <= 1.05 and rawHunger >= 0 then
+            return math.clamp(rawHunger * 100, 0, 100)
+        else
+            return math.clamp(rawHunger, 0, 100)
+        end
+    end
+
+    return 100
 end
 
 local function RunLootingAndSurvivalStep()
@@ -852,7 +809,7 @@ local function RunLootingAndSurvivalStep()
     local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
     local isAtBase = (distToGen <= 28 or distToShred <= 28)
 
-    -- Tự động phân loại tất cả vật phẩm ở base vào đúng vị trí: Scrap/Battery rơi trên Scraper xuống, Gas từ Scraper ném qua Generator
+    -- Tự động phân loại tất cả vật phẩm ở base vào đúng vị trí: Scrap/Battery rơi trên Scraper xuống, Gas & Food trên Generator
     AutoSortBaseItems(genPart, shredPart, root)
 
     -- 0. Nếu về đến Base -> Tự động xả Backpack sack và các đồ vật trong Backpack mặc định của Roblox
@@ -860,17 +817,20 @@ local function RunLootingAndSurvivalStep()
         if Config.AutoEmptyBackpackAtBase then
             UnloadBackpackAtBase(genPart, shredPart, root)
 
-            -- Xả các đồ vật trong Backpack mặc định của Roblox (Gas can thả ở scraper/generator, Scrap/Battery thả ở scraper)
+            -- Xả các đồ vật trong Backpack mặc định của Roblox (Gas can & Food thả ở generator, Scrap/Battery thả ở scraper)
             for _, child in ipairs(bp:GetChildren()) do
                 if child:IsA("Tool") then
                     local toolCat = Utils.ClassifyItem(child)
-                    if toolCat == "Fuel" and genPart then
+                    if (toolCat == "Fuel" or toolCat == "Food") and genPart then
                         pcall(function()
                             child.Parent = Workspace
                             local h = child:FindFirstChild("Handle") or child:FindFirstChildWhichIsA("BasePart")
                             if h then
-                                h.CFrame = shredPart and (shredPart.CFrame * CFrame.new(0, 4.5, 0)) or (genPart.CFrame * CFrame.new(0, 2, 0))
-                                h.AssemblyLinearVelocity = Vector3.zero
+                                local dropCF = genPart.CFrame * CFrame.new(0, 3.5, 0)
+                                child:PivotTo(dropCF)
+                                h.CFrame = dropCF
+                                h.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
+                                h.AssemblyAngularVelocity = Vector3.zero
                             end
                         end)
                     elseif toolCat == "Resource" and distToShred <= 28 and shredPart then
@@ -878,8 +838,11 @@ local function RunLootingAndSurvivalStep()
                             child.Parent = Workspace
                             local h = child:FindFirstChild("Handle") or child:FindFirstChildWhichIsA("BasePart")
                             if h then
-                                h.CFrame = shredPart.CFrame * CFrame.new(0, 4.5, 0)
-                                h.AssemblyLinearVelocity = Vector3.new(0, -12, 0)
+                                local dropCF = shredPart.CFrame * CFrame.new(0, 4.8, 0)
+                                child:PivotTo(dropCF)
+                                h.CFrame = dropCF
+                                h.AssemblyLinearVelocity = Vector3.new(0, -14, 0)
+                                h.AssemblyAngularVelocity = Vector3.zero
                             end
                         end)
                     end
@@ -888,20 +851,43 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- 1. Tự động ăn đồ ăn thông minh (< 70% Eat, >= 70% nhặt vào túi Roblox)
+    -- 1. Tự động ăn đồ ăn thông minh (< hungerThreshold -> Ăn; >= hungerThreshold -> Dịch chuyển về trên generator)
     if Config.AutoEat or Config.AutoPickup then
         if droppedFolder then
             for _, item in ipairs(droppedFolder:GetChildren()) do
                 if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
                     local dist = (item:GetPivot().Position - root.Position).Magnitude
                     if dist <= pickupRadius then
-                        if hungerPct < hungerThreshold then
+                        -- CHỈ ĂN KHI: AutoEat được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold)
+                        if Config.AutoEat and hungerPct < hungerThreshold then
                             if PickUpItemRemote then
                                 pcall(function() PickUpItemRemote:FireServer(item) end)
                             end
                             hungerPct = GetPlayerHungerPercent(char)
                         else
-                            LootItemToBackpackNoEquip(item)
+                            -- Nếu đầy hoặc chưa đủ đói (hoặc AutoEat tắt): Gửi về base và đặt ở phía trên Generator!
+                            if genPart then
+                                local foodDropCF = genPart.CFrame * CFrame.new(0, 3.5, 0)
+                                pcall(function()
+                                    for _, d in ipairs(item:GetDescendants()) do
+                                        if d:IsA("BasePart") then
+                                            d.Anchored = false
+                                            d.CanCollide = false
+                                        end
+                                    end
+                                    local p = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
+                                    if p then
+                                        p.Anchored = false
+                                        p.CanCollide = false
+                                        item:PivotTo(foodDropCF)
+                                        p.CFrame = foodDropCF
+                                        p.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
+                                        p.AssemblyAngularVelocity = Vector3.zero
+                                    end
+                                end)
+                            else
+                                LootItemToBackpackNoEquip(item)
+                            end
                         end
                     end
                 end
