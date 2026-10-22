@@ -291,9 +291,10 @@ local function SimulateVirtualBullet(originPos, targetPart, targetModel)
         end)
         BypassHitscanHook = false
 
-        if okSim and type(simRes) == "table" and type(simRes.HitData) == "table" and #simRes.HitData > 0 then
-            for _, hEntry in ipairs(simRes.HitData) do
-                if hEntry.HitChar == targetModel or (hEntry.HitPart and hEntry.HitPart:IsDescendantOf(targetModel)) then
+        if okSim and type(simRes) == "table" then
+            local hitsList = type(simRes.HitData) == "table" and simRes.HitData or simRes
+            for _, hEntry in ipairs(hitsList) do
+                if type(hEntry) == "table" and (hEntry.HitChar == targetModel or (hEntry.HitPart and hEntry.HitPart:IsDescendantOf(targetModel))) then
                     return true, hEntry.HitPos or targetPos, simRes
                 end
             end
@@ -428,52 +429,125 @@ local function EnsureBulletModuleHook()
                     return OriginalBulletHitscan(origin, targetPos, options)
                 end
 
-                if Config.MaxPenetration and type(options) == "table" then
-                    options.Penetration = math.max(options.Penetration or 0, 10)
-                    options.RicochetChance = 1
-                    options.RicochetMax = math.max(options.RicochetMax or 0, 5)
+                options = type(options) == "table" and options or {}
+
+                local myChar = Utils.GetCharacter()
+                local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
+                local ricMax = options.RicochetMax or (isOutlaw and 3) or 0
+                local ricChance = options.RicochetChance or (isOutlaw and 1) or 0
+
+                -- Outlaw or MaxPenetration ricochet guarantee: ensure Penetration is high enough to not break ricochet loop
+                if isOutlaw or ricMax > 0 or Config.MaxPenetration then
+                    options.RicochetMax = math.max(options.RicochetMax or 0, ricMax > 0 and ricMax or 3)
+                    options.RicochetChance = math.max(options.RicochetChance or 0, ricChance > 0 and ricChance or 1)
+                    options.Penetration = math.max(options.Penetration or 0, (options.RicochetMax or 3) + (Config.MaxPenetration and 10 or 3))
                 end
 
+                local aimTargetPos = targetPos
+                local lockedModel, lockedPart = nil, nil
                 if Config.SilentAim or Config.AutoShoot or Config.Aimbot then
-                    local lockedModel, lockedPart, _, _ = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
+                    lockedModel, lockedPart = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
                     if lockedModel and lockedPart then
-                        targetPos = lockedPart.Position
-                        UpdateVirtualBulletVisual(origin, targetPos, true)
-                        BypassHitscanHook = true
-                        local res = OriginalBulletHitscan(origin, targetPos, options)
-                        BypassHitscanHook = false
-                        if type(res) == "table" then
-                            res.Target = targetPos
-                            if type(res.HitData) ~= "table" or #res.HitData == 0 then
-                                res.HitData = {
-                                    {
-                                        HitChar = lockedModel,
-                                        HitPos = targetPos,
-                                        HitPart = lockedPart,
-                                    }
-                                }
-                            else
-                                res.HitData[1].HitChar = lockedModel
-                                res.HitData[1].HitPos = targetPos
-                                res.HitData[1].HitPart = lockedPart
+                        local headPart = lockedModel:FindFirstChild("Head") or lockedPart
+                        aimTargetPos = headPart.Position
+                        UpdateVirtualBulletVisual(origin, aimTargetPos, true)
+                    end
+                end
+
+                BypassHitscanHook = true
+                local hits, rayRes, isHead, effects = OriginalBulletHitscan(origin, aimTargetPos, options)
+                BypassHitscanHook = false
+
+                hits = type(hits) == "table" and hits or {}
+                effects = type(effects) == "table" and effects or {}
+
+                -- Guarantee Silent Aim registers headshot on first hit
+                if lockedModel and lockedPart then
+                    local headPart = lockedModel:FindFirstChild("Head") or lockedPart
+                    if #hits == 0 then
+                        table.insert(hits, {
+                            HitChar = lockedModel,
+                            HitPos = headPart.Position,
+                            HitPart = headPart,
+                            Ricochet = (options.RicochetMax and options.RicochetMax > 0) or nil
+                        })
+                    else
+                        hits[1].HitChar = lockedModel
+                        hits[1].HitPos = headPart.Position
+                        hits[1].HitPart = headPart
+                        if options.RicochetMax and options.RicochetMax > 0 then
+                            hits[1].Ricochet = true
+                        end
+                    end
+                    isHead = true
+                end
+
+                -- Outlaw Ricochet Chain Continuation (Chains up to RicochetMax mobs)
+                local maxBounces = options.RicochetMax or (isOutlaw and 3) or 0
+                if maxBounces > 0 and #hits > 0 then
+                    local visited = {}
+                    for _, h in ipairs(hits) do
+                        if h.HitChar then
+                            visited[h.HitChar] = true
+                        end
+                    end
+
+                    local lastHitPos = (hits[#hits] and hits[#hits].HitPos) or aimTargetPos
+                    local charsFolder = Workspace:FindFirstChild("Characters")
+                    while #hits <= maxBounces and charsFolder do
+                        local bestNextMob, bestNextPart = nil, nil
+                        local bestDist = 38 -- generous bounce radius (game default is 20)
+
+                        for _, mob in ipairs(charsFolder:GetChildren()) do
+                            if not visited[mob] and mob:IsA("Model") and mob ~= myChar then
+                                local isPvE, mobHp = IsHostilePvEMob(mob)
+                                if isPvE and mobHp > 0 and not mob:GetAttribute("Dead") then
+                                    local p = mob:FindFirstChild("Head") or mob:FindFirstChild("Torso") or mob:FindFirstChild("UpperTorso") or mob:FindFirstChild("HumanoidRootPart")
+                                    if p then
+                                        local d = (p.Position - lastHitPos).Magnitude
+                                        if d < bestDist then
+                                            bestDist = d
+                                            bestNextMob = mob
+                                            bestNextPart = p
+                                        end
+                                    end
+                                end
                             end
-                            return res
+                        end
+
+                        if bestNextMob and bestNextPart then
+                            visited[bestNextMob] = true
+                            local bouncePos = bestNextPart.Position
+                            hits[#hits].Ricochet = true
+                            table.insert(hits, {
+                                HitChar = bestNextMob,
+                                HitPos = bouncePos,
+                                HitPart = bestNextPart,
+                                Ricochet = (#hits < maxBounces) or nil
+                            })
+                            table.insert(effects, {
+                                Origin = lastHitPos,
+                                End = bouncePos,
+                                RayResult = { Position = bouncePos }
+                            })
+                            lastHitPos = bouncePos
                         else
-                            return {
-                                Target = targetPos,
-                                HitData = {
-                                    {
-                                        HitChar = lockedModel,
-                                        HitPos = targetPos,
-                                        HitPart = lockedPart,
-                                    }
-                                }
-                            }
+                            break
                         end
                     end
                 end
 
-                return OriginalBulletHitscan(origin, targetPos, options)
+                -- Guarantee at least one tracer effect so GunClient draws the bullet trail
+                if #effects == 0 then
+                    local finalEnd = (#hits > 0 and hits[1].HitPos) or aimTargetPos
+                    table.insert(effects, {
+                        Origin = origin,
+                        End = finalEnd,
+                        RayResult = rayRes or { Position = finalEnd }
+                    })
+                end
+
+                return hits, rayRes, isHead, effects
             end
         end
     end
@@ -1207,6 +1281,7 @@ Combat.FindUnobstructedPartOnMob = FindUnobstructedPartOnMob
 Combat.GetActualMobHP = GetActualMobHP
 Combat.IsHostilePvEMob = IsHostilePvEMob
 Combat.IsGunWeapon = IsGunWeapon
+Combat.BulletModule = BulletModule
 
 Hub.Combat = Combat
 return Hub

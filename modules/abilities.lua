@@ -139,20 +139,42 @@ local function RunAbilitiesAndToolsStep()
                 pcall(function()
                     actRem:FireServer()
                     local headPart = targetModel:FindFirstChild("Head") or targetPart
+                    local bulletMod = (Hub.GameModules and Hub.GameModules.Bullet) or (Combat and Combat.BulletModule)
                     for i = 1, 6 do
-                        shootRem:FireServer(root.Position, {
-                            {
-                                Target = headPart.Position,
-                                HitData = {
-                                    {
-                                        HitChar = targetModel,
-                                        HitPos = headPart.Position,
-                                        HitPart = headPart,
-                                    }
-                                },
-                                EffectResults = {}
+                        local hitPayload
+                        if bulletMod and bulletMod.BulletHitscan then
+                            local hits, rayRes, isHead, effects = bulletMod.BulletHitscan(root.Position, headPart.Position, {
+                                Attacker = char,
+                                Penetration = 3,
+                                RicochetMax = 3,
+                                RicochetChance = 1,
+                                Range = 1000,
+                            })
+                            local finalTarget = (rayRes and rayRes.Position) or headPart.Position
+                            hitPayload = {
+                                {
+                                    Target = finalTarget,
+                                    HitData = hits,
+                                    EffectResults = effects,
+                                }
                             }
-                        })
+                        else
+                            hitPayload = {
+                                {
+                                    Target = headPart.Position,
+                                    HitData = {
+                                        {
+                                            HitChar = targetModel,
+                                            HitPos = headPart.Position,
+                                            HitPart = headPart,
+                                            Ricochet = true,
+                                        }
+                                    },
+                                    EffectResults = {},
+                                }
+                            }
+                        end
+                        shootRem:FireServer(root.Position, hitPayload)
                     end
                 end)
             end

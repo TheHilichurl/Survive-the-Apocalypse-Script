@@ -111,37 +111,110 @@ Utils.ItemCategoryColors = {
 }
 
 Utils.KnownGuns = {
-    ["Pistol"] = true, ["Heavy Revolver"] = true, ["Desert Eagle"] = true,
-    ["Infiltrator Uzi"] = true, ["AK-47"] = true, ["Rifle"] = true,
-    ["MediGun"] = true, ["Shotgun"] = true, ["SMG"] = true, ["Sniper"] = true,
-    ["Minigun"] = true, ["Flamethrower"] = true, ["Raygun"] = true,
+    -- Handguns & Pistols
+    ["Pistol"] = true, ["Colt"] = true, ["Colt 1911"] = true, ["M1911"] = true, ["Golden Colt"] = true,
+    ["Glock"] = true, ["Glock 17"] = true, ["Glock 18"] = true,
+    ["Heavy Revolver"] = true, ["Revolver"] = true, ["Magnum"] = true, [".44 Magnum"] = true, ["Golden Revolver"] = true,
+    ["Desert Eagle"] = true, ["Deagle"] = true, ["Flare Gun"] = true,
+    -- Shotguns
+    ["Shotgun"] = true, ["Standard Shotgun"] = true, ["Double Barrel Shotgun"] = true,
+    ["Double-Barrel Shotgun"] = true, ["DB Shotgun"] = true, ["Sawed-Off Shotgun"] = true, ["Sawed-Off"] = true,
+    ["AA-12"] = true, ["AA12"] = true, ["Combat Shotgun"] = true, ["Spas-12"] = true,
+    ["870 MCS"] = true, ["Remington 870"] = true,
+    -- SMGs & Rifles
+    ["Infiltrator Uzi"] = true, ["Micro Uzi"] = true, ["Uzi"] = true, ["Combat SMG"] = true,
+    ["Thompson"] = true, ["Tommy Gun"] = true, ["Golden Thompson"] = true,
+    ["MP4"] = true, ["MP5"] = true, ["MP40"] = true, ["P90"] = true,
+    ["AK-47"] = true, ["AK47"] = true, ["Golden AK"] = true,
+    ["SCAR-L"] = true, ["SCAR"] = true, ["Galil"] = true,
+    ["Assault Rifle"] = true, ["Rifle"] = true, ["Primitive Rifle"] = true, ["M4A1"] = true, ["M16"] = true, ["SMG"] = true,
+    -- Heavy, Snipers & Special / Wonder Weapons
+    ["Sniper"] = true, ["Heavy Sniper"] = true, ["Hunting Rifle"] = true, ["AWP"] = true, ["Barrett"] = true,
+    ["SVD"] = true, ["Dragunov"] = true,
+    ["LMG"] = true, ["M60"] = true, ["Light Machine Gun"] = true, ["Minigun"] = true, ["Golden Minigun"] = true,
+    ["Flamethrower"] = true, ["Grenade Launcher"] = true, ["M32 Grenade Launcher"] = true, ["M32"] = true,
+    ["RPG"] = true, ["Double RPG"] = true, ["RPG-7"] = true, ["Rocket Launcher"] = true,
+    ["Explosive Crossbow"] = true, ["Crossbow"] = true,
+    ["Raygun"] = true, ["Ray Gun"] = true, ["Double Raygun"] = true, ["Freeze Ray"] = true, ["Railgun"] = true, ["MediGun"] = true,
 }
 
 Utils.KnownMelees = {
-    ["Bat"] = true, ["Spiked Bat"] = true, ["Knife"] = true, ["Crowbar"] = true,
-    ["Spatula"] = true, ["Tray"] = true, ["Mace"] = true, ["Scythe"] = true,
-    ["Dark Scythe"] = true, ["Power Hammer"] = true, ["Scorchblade"] = true,
-    ["Bloodthirster"] = true, ["Katana"] = true, ["Chainsaw"] = true,
+    -- Bats, Clubs & Bludgeons
+    ["Bat"] = true, ["Baseball Bat"] = true, ["Spiked Bat"] = true, ["Metal Bat"] = true,
+    ["Pool Stick"] = true, ["Plunger"] = true, ["Golf Club"] = true, ["Golden Golf Club"] = true,
+    ["Spatula"] = true, ["Tray"] = true, ["Mace"] = true, ["Sledgehammer"] = true, ["Pipe"] = true,
+    -- Knives, Axes & Utilities
+    ["Crowbar"] = true, ["Knife"] = true, ["Combat Knife"] = true, ["Machete"] = true,
+    ["Firefighter Axe"] = true, ["Fire Axe"] = true, ["Hatchet"] = true, ["Axe"] = true, ["Stoker"] = true,
+    ["Hammer"] = true, ["Repair Hammer"] = true,
+    -- Advanced & Wonder Melee
+    ["Spear"] = true, ["Katana"] = true, ["Flame Katana"] = true, ["Golden Katana"] = true,
+    ["Scythe"] = true, ["Dark Scythe"] = true, ["Chainsaw"] = true,
+    ["Zweihänder"] = true, ["Zweihander"] = true, ["Flame Zweihänder"] = true,
+    ["Power Hammer"] = true, ["Scorchblade"] = true, ["Bloodthirster"] = true,
+    ["Ice Staff"] = true,
 }
 
 Utils.KnownAmmo = {
-    ["Pistol Ammo"] = true, ["Medium Ammo"] = true, ["Long Ammo"] = true, ["Shells"] = true,
+    ["Pistol Ammo"] = true, ["Medium Ammo"] = true, ["Long Ammo"] = true,
+    ["Rifle Ammo"] = true, ["Shells"] = true, ["Shotgun Shells"] = true, ["Shotgun Ammo"] = true,
+    ["Heavy Ammo"] = true, ["Explosive Ammo"] = true, ["Rocket Ammo"] = true, ["Rockets"] = true,
+    ["Ammo Box"] = true, ["Ammo Crate"] = true, ["Ammo Pack"] = true, ["Ammo Packs"] = true,
 }
 
 Utils.KnownMedical = {
-    ["Bandage"] = true, ["Medkit"] = true, ["Recovery Compound"] = true,
-    ["Compound R"] = true, ["Compound I"] = true, ["Compound S"] = true,
-    ["Acid Potion"] = true, ["Ice Potion"] = true, ["Weakening Potion"] = true,
+    ["Bandage"] = true, ["Bandages"] = true, ["Medkit"] = true, ["First Aid Kit"] = true,
+    ["Recovery Compound"] = true, ["Compound R"] = true, ["Compound I"] = true, ["Compound S"] = true,
+    ["Acid Potion"] = true, ["Ice Potion"] = true, ["Weakening Potion"] = true, ["Potion"] = true,
+    ["Healing Pad"] = true,
 }
 
 Utils.KnownThrowables = {
-    ["Tear Gas"] = true, ["Grenade"] = true, ["Molotov"] = true,
-    ["Flashbang"] = true, ["Smoke Grenade"] = true,
+    ["Tear Gas"] = true, ["Grenade"] = true, ["Frag Grenade"] = true,
+    ["Molotov"] = true, ["Molotov Cocktail"] = true,
+    ["Flashbang"] = true, ["Smoke Grenade"] = true, ["Smoke"] = true,
+    ["Decoy"] = true, ["Decoy Launcher"] = true,
+    ["Torch"] = true, ["Pumpkin"] = true, ["Pumpkin Bomb"] = true,
 }
 
 Utils.KnownArmor = {
-    ["Light Armor"] = true, ["Heavy Armor"] = true, ["Riot Shield"] = true,
-    ["Tactical Shield"] = true, ["Gas Mask"] = true,
+    ["Light Armor"] = true, ["Heavy Armor"] = true, ["Military Armor"] = true, ["Riot Armor"] = true,
+    ["Riot Shield"] = true, ["Tactical Shield"] = true, ["Shield"] = true, ["Counter Shield"] = true,
+    ["Gas Mask"] = true, ["Mask"] = true, ["Helmet"] = true, ["Suppressor"] = true,
+}
+
+Utils.KnownFood = {
+    ["Beans"] = true, ["Canned Beans"] = true, ["Canned Food"] = true, ["Chips"] = true, ["Carrot"] = true,
+    ["Bloxy Cola"] = true, ["Bloxiade"] = true, ["Water"] = true, ["Soda"] = true,
+    ["Hot Dog"] = true, ["Hot Dogs"] = true, ["Energy Drink"] = true, ["Ice Cream"] = true,
+    ["Apple"] = true, ["Bread"] = true,
+}
+
+Utils.KnownResources = {
+    ["Scrap"] = true, ["Scrap Metal"] = true, ["Metal"] = true,
+    ["Battery"] = true, ["Batteries"] = true,
+    ["Screws"] = true, ["Screw"] = true,
+    ["Heart"] = true, ["Hearts"] = true, ["Zombie Heart"] = true, ["Blood Moon Heart"] = true,
+    ["Alien Core"] = true, ["Power Cell"] = true, ["Alien Crystal"] = true, ["Green Alien Crystal"] = true,
+}
+
+Utils.KnownBlueprints = {
+    ["Map"] = true, ["Repair Hammer"] = true, ["Shelf"] = true, ["Fence"] = true,
+    ["Gate"] = true, ["Barbed Wire"] = true, ["Bear Trap"] = true, ["Farm Plot"] = true,
+    ["Floodlight"] = true, ["Good Bed"] = true, ["Great Bed"] = true,
+    ["Watchtower"] = true, ["Suppressor"] = true, ["Boost Pad"] = true,
+    ["Electric Fence"] = true, ["Ammo Crate"] = true, ["Turret"] = true,
+    ["Landmine"] = true, ["Repair Drone"] = true, ["Healing Pad"] = true,
+    ["Teleporter"] = true, ["Time Machine"] = true, ["Mortar"] = true,
+    ["UV Light"] = true, ["Daylight Totem"] = true,
+}
+
+Utils.KnownObjectives = {
+    ["Radio Part"] = true, ["Satellite Dish"] = true, ["Antenna"] = true,
+    ["Power Cell"] = true, ["Alien Core"] = true, ["Alien Crystal"] = true,
+    ["Green Alien Crystal"] = true, ["C4"] = true, ["Keycard"] = true,
+    ["Blue Keycard"] = true, ["Red Keycard"] = true, ["Wrench"] = true,
+    ["Teddy Bear"] = true, ["Teddy Bears"] = true,
 }
 
 function Utils.IsThrowableOrConsumable(item)
@@ -159,7 +232,7 @@ function Utils.IsThrowableOrConsumable(item)
     if sName:find("tear gas") or sName:find("tear_gas") or sName:find("teargas") then
         return true
     end
-    if sName:find("grenade") or sName:find("molotov") or sName:find("flashbang") or sName:find("smoke") then
+    if sName:find("grenade") or sName:find("molotov") or sName:find("flashbang") or sName:find("smoke") or sName:find("decoy") then
         return true
     end
     if item:FindFirstChild("ThrownModel") or item:FindFirstChild("Throw") or item:FindFirstChild("Explode") then
@@ -171,10 +244,14 @@ end
 function Utils.IsObjectiveItem(item)
     if not item then return false end
     local name = item.Name
+    if Utils.KnownObjectives and Utils.KnownObjectives[name] then
+        return true
+    end
     return name == "Radio Part" or string.find(name, "Radio") ~= nil
         or name == "Satellite Dish" or name == "Antenna"
-        or name == "Power Cell" or name == "Alien Core"
-        or name == "C4" or name == "Keycard"
+        or name == "Power Cell" or name == "Alien Core" or string.find(name, "Alien") ~= nil
+        or name == "C4" or name == "Keycard" or string.find(name, "Keycard") ~= nil
+        or name == "Wrench"
         or item:GetAttribute("Special") == true
         or item:GetAttribute("Quest") == true
         or item:GetAttribute("Objective") == true
@@ -188,7 +265,7 @@ function Utils.ClassifyItem(item)
     local sName = name:lower()
 
     -- 1. Bản vẽ thiết kế (Blueprints / Schematics)
-    if itemType == "Blueprint" or toolType == "Blueprint" or string.find(sName, "blueprint") ~= nil or string.find(sName, "schematic") ~= nil or string.find(sName, "bản vẽ") ~= nil then
+    if itemType == "Blueprint" or toolType == "Blueprint" or (Utils.KnownBlueprints and Utils.KnownBlueprints[name]) or string.find(sName, "blueprint") ~= nil or string.find(sName, "schematic") ~= nil or string.find(sName, "bản vẽ") ~= nil then
         return "Blueprint"
     -- 2. Tear Gas & tất cả các vật phẩm Throwable đều là Tiêu hao (Consumable)
     elseif Utils.IsThrowableOrConsumable(item) then
@@ -197,11 +274,11 @@ function Utils.ClassifyItem(item)
     elseif (itemType == "Fuel" or name == "Fuel" or string.find(sName, "fuel") ~= nil or string.find(sName, "gas can") ~= nil or string.find(sName, "gas_can") ~= nil or sName == "gas") and not string.find(sName, "tear") then
         return "Fuel"
     -- 4. Tài nguyên xây dựng / máy nghiền (Scrap, Battery, Screws, Heart)
-    elseif itemType == "Resource" or name == "Scrap" or name == "Battery" or name == "Screws" or name == "Heart" or name == "Hearts"
+    elseif itemType == "Resource" or (Utils.KnownResources and Utils.KnownResources[name]) or name == "Scrap" or name == "Battery" or name == "Screws" or name == "Heart" or name == "Hearts"
         or string.find(name, "Scrap") ~= nil or string.find(name, "Battery") ~= nil or string.find(name, "Screw") ~= nil or string.find(name, "Heart") ~= nil
         or (item:FindFirstChild("Stats") and (item.Stats:GetAttribute("Scrap") or item.Stats:GetAttribute("Batteries") or item.Stats:GetAttribute("Hearts"))) then
         return "Resource"
-    elseif itemType == "Food" or name == "Beans" or name == "Chips" or name == "Carrot" or name == "Bloxy Cola" or name == "Bloxiade" or string.find(name, "Food") ~= nil then
+    elseif itemType == "Food" or (Utils.KnownFood and Utils.KnownFood[name]) or name == "Beans" or name == "Chips" or name == "Carrot" or name == "Bloxy Cola" or name == "Bloxiade" or string.find(name, "Food") ~= nil then
         return "Food"
     elseif toolType == "Gun" or (Utils.KnownGuns and Utils.KnownGuns[name]) or item:FindFirstChild("Shoot") ~= nil or (item:FindFirstChild("Stats") and item.Stats:GetAttribute("FireRate") ~= nil) then
         return "Gun"
