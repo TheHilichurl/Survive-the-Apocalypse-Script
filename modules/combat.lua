@@ -86,33 +86,68 @@ local function GetActualMobHP(model)
     if model:GetAttribute("Dead") == true or model:GetAttribute("Untargetable") == true or model:GetAttribute("Untouchable") == true then
         return 0
     end
+
     local minHp = nil
-    local projHp = model:GetAttribute("ProjectedHealth")
-    if type(projHp) == "number" then
-        minHp = projHp
+    local attrHp = model:GetAttribute("Health") or model:GetAttribute("HP") or model:GetAttribute("ProjectedHealth")
+    if type(attrHp) == "number" then
+        minHp = attrHp
     end
+
     local mockHum = model:FindFirstChild("MockHumanoid")
     if mockHum then
-        local mHp = mockHum:GetAttribute("Health")
+        local mHp = mockHum:GetAttribute("Health") or (mockHum:IsA("Humanoid") and mockHum.Health)
         if type(mHp) == "number" then
             minHp = minHp and math.min(minHp, mHp) or mHp
         end
     end
+
     local hum = model:FindFirstChildOfClass("Humanoid")
     if hum then
-        local hHp = hum.Health
+        local hHp = hum.Health or hum:GetAttribute("Health")
         if type(hHp) == "number" then
             minHp = minHp and math.min(minHp, hHp) or hHp
         end
     end
+
+    -- Nếu mob không có thuộc tính HP rõ ràng nhưng là model quái sống có Root/Head:
     if minHp == nil then
-        return 0
+        if model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head") or model:FindFirstChild("UpperTorso") or model.PrimaryPart then
+            minHp = 100
+        else
+            return 0
+        end
     end
+
     local pending = LocalPredictedDamage[model]
     if pending and (os.clock() - pending.Time) <= 0.14 then
         minHp = minHp - pending.Dmg
     end
     return minHp
+end
+
+-- Nhận diện súng (Gun) thông minh & toàn diện
+local function IsGunWeapon(tool)
+    if not tool or not tool:IsA("Tool") then return false end
+    if tool:GetAttribute("ToolType") == "Gun" or tool:GetAttribute("ItemType") == "Gun" then
+        return true
+    end
+    if tool:FindFirstChild("Shoot") or tool:FindFirstChild("Shoot", true) then
+        return true
+    end
+    if tool:GetAttribute("Ammo") ~= nil or tool:GetAttribute("Capacity") ~= nil then
+        return true
+    end
+    local stats = tool:FindFirstChild("Stats")
+    if stats and (stats:GetAttribute("FireRate") or stats:GetAttribute("Range") or stats:GetAttribute("Ammo") or stats:GetAttribute("Bullets")) then
+        return true
+    end
+    if Utils.KnownGuns and Utils.KnownGuns[tool.Name] then
+        return true
+    end
+    if Utils.ClassifyItem and Utils.ClassifyItem(tool) == "Gun" then
+        return true
+    end
+    return false
 end
 
 -- Strict PvE-Only Check
@@ -256,15 +291,12 @@ local function SimulateVirtualBullet(originPos, targetPart, targetModel)
         end)
         BypassHitscanHook = false
 
-        if okSim and type(simRes) == "table" then
-            if type(simRes.HitData) == "table" and #simRes.HitData > 0 then
-                for _, hEntry in ipairs(simRes.HitData) do
-                    if hEntry.HitChar == targetModel then
-                        return true, hEntry.HitPos or targetPos, simRes
-                    end
+        if okSim and type(simRes) == "table" and type(simRes.HitData) == "table" and #simRes.HitData > 0 then
+            for _, hEntry in ipairs(simRes.HitData) do
+                if hEntry.HitChar == targetModel or (hEntry.HitPart and hEntry.HitPart:IsDescendantOf(targetModel)) then
+                    return true, hEntry.HitPos or targetPos, simRes
                 end
             end
-            return false, nil, nil
         end
     end
 
@@ -287,6 +319,13 @@ local function FindUnobstructedPartOnMob(model)
             if isClear then
                 return part, origin, hitPos or part.Position, simRes
             end
+        end
+    end
+    if Config.AimWallCheck == false then
+        local fallbackPart = model:FindFirstChild(Config.AimPart or "Head") or model:FindFirstChild("Head") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+        if fallbackPart and fallbackPart:IsA("BasePart") then
+            local origin = GetWeaponFireOrigin(fallbackPart.Position)
+            return fallbackPart, origin, fallbackPart.Position, nil
         end
     end
     return nil, nil, nil, nil
@@ -367,50 +406,79 @@ local function GetPredictedPosition(part)
     return pos
 end
 
--- BulletModule Hook
-if BulletModule and OriginalBulletHitscan then
-    BulletModule.BulletHitscan = function(origin, targetPos, options)
-        if BypassHitscanHook then
-            return OriginalBulletHitscan(origin, targetPos, options)
+-- BulletModule Hook & Dynamic Resolver
+local function EnsureBulletModuleHook()
+    if not BulletModule then
+        local RS = Services.ReplicatedStorage
+        local Modules = RS and RS:FindFirstChild("Modules")
+        local combatFolder = Modules and (Modules:FindFirstChild("Combat") or Modules:WaitForChild("Combat", 2))
+        local bulletScript = combatFolder and (combatFolder:FindFirstChild("Bullet") or combatFolder:WaitForChild("Bullet", 2))
+        if bulletScript then
+            pcall(function() BulletModule = require(bulletScript) end)
+            if Hub.GameModules then Hub.GameModules.Bullet = BulletModule end
         end
-
-        if Config.MaxPenetration and type(options) == "table" then
-            options.Penetration = math.max(options.Penetration or 0, 10)
-            options.RicochetChance = 1
-            options.RicochetMax = math.max(options.RicochetMax or 0, 5)
-        end
-
-        if Config.SilentAim or Config.AutoShoot or Config.Aimbot then
-            local lockedModel, lockedPart, _, _ = GetBestCombatTarget(Config.AimMaxRange, false, true)
-            if lockedModel and lockedPart then
-                targetPos = lockedPart.Position
-                UpdateVirtualBulletVisual(origin, targetPos, true)
-                BypassHitscanHook = true
-                local res = OriginalBulletHitscan(origin, targetPos, options)
-                BypassHitscanHook = false
-                if type(res) == "table" then
-                    res.Target = targetPos
-                    if type(res.HitData) ~= "table" or #res.HitData == 0 then
-                        res.HitData = {
-                            {
-                                HitChar = lockedModel,
-                                HitPos = targetPos,
-                                HitPart = lockedPart,
-                            }
-                        }
-                    else
-                        res.HitData[1].HitChar = lockedModel
-                        res.HitData[1].HitPos = targetPos
-                        res.HitData[1].HitPart = lockedPart
-                    end
-                    return res
+    end
+    if BulletModule and not BulletModule.__HiliHooked then
+        OriginalBulletHitscan = OriginalBulletHitscan or BulletModule.BulletHitscan
+        Combat.OriginalBulletHitscan = OriginalBulletHitscan
+        if OriginalBulletHitscan then
+            BulletModule.__HiliHooked = true
+            BulletModule.BulletHitscan = function(origin, targetPos, options)
+                if BypassHitscanHook then
+                    return OriginalBulletHitscan(origin, targetPos, options)
                 end
+
+                if Config.MaxPenetration and type(options) == "table" then
+                    options.Penetration = math.max(options.Penetration or 0, 10)
+                    options.RicochetChance = 1
+                    options.RicochetMax = math.max(options.RicochetMax or 0, 5)
+                end
+
+                if Config.SilentAim or Config.AutoShoot or Config.Aimbot then
+                    local lockedModel, lockedPart, _, _ = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
+                    if lockedModel and lockedPart then
+                        targetPos = lockedPart.Position
+                        UpdateVirtualBulletVisual(origin, targetPos, true)
+                        BypassHitscanHook = true
+                        local res = OriginalBulletHitscan(origin, targetPos, options)
+                        BypassHitscanHook = false
+                        if type(res) == "table" then
+                            res.Target = targetPos
+                            if type(res.HitData) ~= "table" or #res.HitData == 0 then
+                                res.HitData = {
+                                    {
+                                        HitChar = lockedModel,
+                                        HitPos = targetPos,
+                                        HitPart = lockedPart,
+                                    }
+                                }
+                            else
+                                res.HitData[1].HitChar = lockedModel
+                                res.HitData[1].HitPos = targetPos
+                                res.HitData[1].HitPart = lockedPart
+                            end
+                            return res
+                        else
+                            return {
+                                Target = targetPos,
+                                HitData = {
+                                    {
+                                        HitChar = lockedModel,
+                                        HitPos = targetPos,
+                                        HitPart = lockedPart,
+                                    }
+                                }
+                            }
+                        end
+                    end
+                end
+
+                return OriginalBulletHitscan(origin, targetPos, options)
             end
         end
-
-        return OriginalBulletHitscan(origin, targetPos, options)
     end
 end
+EnsureBulletModuleHook()
 
 local OriginalGetAutoTarget = _G.getCurrentAutoTargetPosition
 _G.getCurrentAutoTargetPosition = function(maxDist, isHealing, ...)
@@ -864,6 +932,7 @@ local ActiveShootTarget = nil
 local CurrentLockedTarget = nil
 
 Hub.AddConnection(RunService.RenderStepped:Connect(function()
+    EnsureBulletModuleHook()
     local Camera = Services.Camera or Workspace.CurrentCamera
     if Hub.Visuals and Hub.Visuals.FOVCircleFrame then
         local mousePos = UserInputService:GetMouseLocation()
@@ -872,11 +941,17 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         Hub.Visuals.FOVCircleFrame.Visible = Config.AimShowFOV and Config.Aimbot
     end
 
+    local char = Utils.GetCharacter()
+    local held = char and char:FindFirstChildOfClass("Tool")
+    local isGun = IsGunWeapon(held)
+
     if Config.Aimbot and Camera then
         local isAiming = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
             or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-        if isAiming then
-            local targetModel, targetPart = GetBestCombatTarget(Config.AimMaxRange, Config.AimShowFOV, true)
+            or UserInputService:IsKeyDown(Enum.KeyCode.Q)
+            or (UserInputService.TouchEnabled and isGun)
+        if isAiming or Config.AutoShoot or Config.SilentAim then
+            local targetModel, targetPart = GetBestCombatTarget(Config.AimMaxRange, Config.AimShowFOV, Config.AimWallCheck)
             if targetModel and targetPart then
                 CurrentLockedTarget = targetModel
                 local aimPos = GetPredictedPosition(targetPart)
@@ -888,20 +963,28 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         end
     end
 
-    local char = Utils.GetCharacter()
-    local held = char and char:FindFirstChildOfClass("Tool")
-    if not (held and held:GetAttribute("ToolType") == "Gun") or not (Config.AutoShoot or Config.SilentAim) then
+    if not isGun or not (Config.AutoShoot or Config.SilentAim) then
         HideVirtualBulletVisual()
         ActiveShootTarget = nil
         return
     end
 
     local stats = held:FindFirstChild("Stats")
-    local capacity = (stats and stats:GetAttribute("Capacity")) or 12
-    local curAmmo = held:GetAttribute("Ammo") or 0
+    local capacity = (stats and stats:GetAttribute("Capacity")) or held:GetAttribute("Capacity") or 12
+    local curAmmo = held:GetAttribute("Ammo")
+    if curAmmo == nil and stats then
+        curAmmo = stats:GetAttribute("Ammo") or stats:GetAttribute("Capacity")
+    end
+    if curAmmo == nil then
+        local ammoVal = held:FindFirstChild("Ammo")
+        if ammoVal and (ammoVal:IsA("NumberValue") or ammoVal:IsA("IntValue")) then
+            curAmmo = ammoVal.Value
+        end
+    end
+    curAmmo = curAmmo or 12
     local shotsFired = ShotsFiredSinceReload[held] or 0
 
-    if curAmmo <= 0 or shotsFired >= capacity then
+    if (curAmmo ~= nil and curAmmo <= 0) or (capacity > 0 and shotsFired >= capacity) then
         HideVirtualBulletVisual()
         TriggerAutomaticGunReload(held)
         return
@@ -932,7 +1015,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
     end
 
     if not (targetModel and targetPart) then
-        targetModel, targetPart, fireOrigin, verifiedSimRes = GetBestCombatTarget(weaponRange, false, true)
+        targetModel, targetPart, fireOrigin, verifiedSimRes = GetBestCombatTarget(weaponRange, false, Config.AimWallCheck)
         ActiveShootTarget = targetModel
     end
 
@@ -959,7 +1042,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             end
 
             local isStillClear, exactHitPos, latestSimRes = SimulateVirtualBullet(fireOrigin, targetPart, targetModel)
-            if not isStillClear then
+            if not isStillClear and Config.AimWallCheck then
                 ActiveShootTarget = nil
                 UpdateVirtualBulletVisual(fireOrigin, targetPart.Position, false)
                 return
@@ -967,7 +1050,16 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
             LastAutoShootTime = now
             hitPos = exactHitPos or targetPart.Position
-            local shootRem = held:FindFirstChild("Shoot")
+            local shootRem = held:FindFirstChild("Shoot") or held:FindFirstChild("Shoot", true)
+            if not shootRem then
+                for _, ch in ipairs(held:GetDescendants()) do
+                    if ch:IsA("RemoteEvent") and (ch.Name == "Shoot" or ch.Name == "Fire" or ch.Name == "Attack") then
+                        shootRem = ch
+                        break
+                    end
+                end
+            end
+
             if shootRem then
                 local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or 1)
                 local baseDmg = (stats and (stats:GetAttribute("Damage") or stats:GetAttribute("BaseDamage"))) or 25
@@ -1019,7 +1111,11 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                     shootRem:FireServer(fireOrigin, pelletResults, 1, math.random(1, 99999))
                 end)
 
-                if nextAmmo <= 0 or ShotsFiredSinceReload[held] >= capacity then
+                pcall(function()
+                    held:Activate()
+                end)
+
+                if nextAmmo <= 0 or (capacity > 0 and ShotsFiredSinceReload[held] >= capacity) then
                     TriggerAutomaticGunReload(held)
                 end
 
@@ -1048,6 +1144,7 @@ Combat.GetBestCombatTarget = GetBestCombatTarget
 Combat.FindUnobstructedPartOnMob = FindUnobstructedPartOnMob
 Combat.GetActualMobHP = GetActualMobHP
 Combat.IsHostilePvEMob = IsHostilePvEMob
+Combat.IsGunWeapon = IsGunWeapon
 
 Hub.Combat = Combat
 return Hub

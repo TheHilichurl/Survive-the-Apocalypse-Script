@@ -157,6 +157,7 @@ TabCombat:AddSlider("Max Target Range (Studs)", "AimMaxRange", 50, 1000, 10)
 TabCombat:AddToggle("Show Camera Aimbot FOV Circle", "AimShowFOV")
 TabCombat:AddSlider("Camera Aimbot FOV Radius (px)", "AimFOV", 25, 500, 5)
 TabCombat:AddSlider("Camera Aimbot Smoothness", "AimSmoothness", 0.05, 1.0, 0.05)
+TabCombat:AddToggle("Aim Wall Check (Only Target Visible Mobs)", "AimWallCheck")
 
 TabCombat:AddSection("Gun Modifications & Auto Upgrades")
 TabCombat:AddToggle("No Recoil", "NoRecoil", Combat.ApplyAllWeaponMods)

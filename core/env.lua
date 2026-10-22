@@ -68,13 +68,23 @@ local function SafeRequire(inst)
     return ok and mod or nil
 end
 
+local function SafeRequirePath(parent, folderName, moduleName)
+    if not parent then return nil end
+    local folder = parent:FindFirstChild(folderName) or (parent.WaitForChild and parent:WaitForChild(folderName, 3))
+    if not folder then return nil end
+    local inst = folder:FindFirstChild(moduleName) or (folder.WaitForChild and folder:WaitForChild(moduleName, 3))
+    if not inst then return nil end
+    local ok, res = pcall(require, inst)
+    return ok and res or nil
+end
+
 local GameModules = {
-    Bullet = SafeRequire(Modules and Modules:FindFirstChild("Combat") and Modules.Combat:FindFirstChild("Bullet")),
-    Hitbox = SafeRequire(Modules and Modules:FindFirstChild("Combat") and Modules.Combat:FindFirstChild("Hitbox")),
-    Projectile = SafeRequire(Modules and Modules:FindFirstChild("Combat") and Modules.Combat:FindFirstChild("Projectile")),
-    Shake = SafeRequire(Modules and Modules:FindFirstChild("VFX") and Modules.VFX:FindFirstChild("Shake")),
-    DroppedItemSwarm = SafeRequire(Modules and Modules:FindFirstChild("Utility") and Modules.Utility:FindFirstChild("DroppedItemSwarm")),
-    FormatNumber = SafeRequire(Modules and Modules:FindFirstChild("Utility") and Modules.Utility:FindFirstChild("FormatNumber")),
+    Bullet = SafeRequirePath(Modules, "Combat", "Bullet"),
+    Hitbox = SafeRequirePath(Modules, "Combat", "Hitbox"),
+    Projectile = SafeRequirePath(Modules, "Combat", "Projectile"),
+    Shake = SafeRequirePath(Modules, "VFX", "Shake"),
+    DroppedItemSwarm = SafeRequirePath(Modules, "Utility", "DroppedItemSwarm"),
+    FormatNumber = SafeRequirePath(Modules, "Utility", "FormatNumber"),
 }
 
 local GameData = {

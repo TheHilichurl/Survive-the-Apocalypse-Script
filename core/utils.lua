@@ -140,28 +140,41 @@ Utils.KnownArmor = {
     ["Tactical Shield"] = true, ["Gas Mask"] = true,
 }
 
+function Utils.IsObjectiveItem(item)
+    if not item then return false end
+    local name = item.Name
+    return name == "Radio Part" or string.find(name, "Radio") ~= nil
+        or name == "Satellite Dish" or name == "Antenna"
+        or name == "Power Cell" or name == "Alien Core"
+        or name == "C4" or name == "Keycard"
+        or item:GetAttribute("Special") == true
+        or item:GetAttribute("Quest") == true
+        or item:GetAttribute("Objective") == true
+end
+
 function Utils.ClassifyItem(item)
     if not item then return "Equipment" end
     local itemType = item:GetAttribute("ItemType")
     local toolType = item:GetAttribute("ToolType")
     local name = item.Name
 
-    if itemType == "Fuel" or name == "Fuel" then
+    if itemType == "Fuel" or name == "Fuel" or string.find(name, "Fuel") ~= nil or string.find(name, "Gas") ~= nil then
         return "Fuel"
-    elseif itemType == "Resource" or name == "Scrap" or name == "Battery" or name == "Screws"
+    elseif itemType == "Resource" or name == "Scrap" or name == "Battery" or name == "Screws" or name == "Heart" or name == "Hearts"
+        or string.find(name, "Scrap") ~= nil or string.find(name, "Battery") ~= nil or string.find(name, "Screw") ~= nil or string.find(name, "Heart") ~= nil
         or (item:FindFirstChild("Stats") and (item.Stats:GetAttribute("Scrap") or item.Stats:GetAttribute("Batteries") or item.Stats:GetAttribute("Hearts"))) then
         return "Resource"
-    elseif itemType == "Food" or name == "Beans" or name == "Chips" or name == "Carrot" or name == "Bloxy Cola" or name == "Bloxiade" then
+    elseif itemType == "Food" or name == "Beans" or name == "Chips" or name == "Carrot" or name == "Bloxy Cola" or name == "Bloxiade" or string.find(name, "Food") ~= nil then
         return "Food"
-    elseif toolType == "Gun" or Utils.KnownGuns[name] then
+    elseif toolType == "Gun" or (Utils.KnownGuns and Utils.KnownGuns[name]) or item:FindFirstChild("Shoot") ~= nil or (item:FindFirstChild("Stats") and item.Stats:GetAttribute("FireRate") ~= nil) then
         return "Gun"
-    elseif toolType == "Melee" or Utils.KnownMelees[name] then
+    elseif toolType == "Melee" or (Utils.KnownMelees and Utils.KnownMelees[name]) or item:FindFirstChild("HitTargets") ~= nil then
         return "Melee"
-    elseif Utils.KnownAmmo[name] or string.find(name, "Ammo") or itemType == "Ammo" then
+    elseif (Utils.KnownAmmo and Utils.KnownAmmo[name]) or string.find(name, "Ammo") ~= nil or itemType == "Ammo" then
         return "Ammo"
-    elseif Utils.KnownMedical[name] or itemType == "Medical" or string.find(name, "Potion") or string.find(name, "Compound") then
+    elseif (Utils.KnownMedical and Utils.KnownMedical[name]) or itemType == "Medical" or string.find(name, "Potion") ~= nil or string.find(name, "Compound") ~= nil or string.find(name, "Medkit") ~= nil or string.find(name, "Bandage") ~= nil then
         return "Medical"
-    elseif Utils.KnownArmor[name] or itemType == "Armor" or string.find(name, "Armor") or string.find(name, "Mask") or string.find(name, "Shield") then
+    elseif (Utils.KnownArmor and Utils.KnownArmor[name]) or itemType == "Armor" or string.find(name, "Armor") ~= nil or string.find(name, "Mask") ~= nil or string.find(name, "Shield") ~= nil then
         return "Armor"
     elseif toolType == "Ability" or item:GetAttribute("AbilityNum") then
         return "Ability"
@@ -285,9 +298,13 @@ end
 
 function Utils.GetShredderTargetPart()
     local crafting = Workspace:FindFirstChild("Crafting")
-    local shredder = crafting and crafting:FindFirstChild("Shredder")
+    local shredder = crafting and (crafting:FindFirstChild("Shredder") or crafting:FindFirstChild("Scraper") or crafting:FindFirstChild("Workbench"))
+    if not shredder then
+        local structs = Workspace:FindFirstChild("Structures")
+        shredder = structs and (structs:FindFirstChild("Shredder") or structs:FindFirstChild("Scraper") or structs:FindFirstChild("Workbench"))
+    end
     if shredder then
-        return shredder:FindFirstChild("Visual") or shredder.PrimaryPart or shredder:FindFirstChildWhichIsA("BasePart", true)
+        return shredder:FindFirstChild("Visual") or shredder:FindFirstChild("MainPart") or shredder.PrimaryPart or shredder:FindFirstChildWhichIsA("BasePart", true)
     end
     return nil
 end

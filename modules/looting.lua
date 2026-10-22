@@ -256,12 +256,41 @@ local function LootItemToBackpackNoEquip(item)
     if not (char and root) then return false end
 
     local cat = Utils.ClassifyItem(item)
+    local isSpecial = Utils.IsObjectiveItem and Utils.IsObjectiveItem(item)
+
+    -- 1. Gas / Fuel & Resources (Scrap, Battery, Screws, Hearts, etc.):
+    -- KHÔNG loot vào túi! Cho bay thẳng về Base (Gas -> Generator, Scrap/Battery/v.v. -> Shredder/Scraper)!
+    if cat == "Fuel" or cat == "Resource" then
+        return TouchAndFlyItemToBase(item)
+    end
+
     local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
     local dragSys = char:FindFirstChild("DragSystem")
     local dragRemote = dragSys and dragSys:FindFirstChild("DragItem")
     local itemDragFolder = item:FindFirstChild("ItemDrag")
     local reqNetRemote = itemDragFolder and itemDragFolder:FindFirstChild("RequestNetworkOwnership")
 
+    -- 2. Radio Part & các vật phẩm nhiệm vụ đặc biệt (Objective items):
+    -- CHỈ những vật phẩm đặc biệt này mới được cất vào ba lô đeo lưng (game backpack)!
+    if isSpecial then
+        if AdjustBackpackRemote then
+            if part and dragRemote then
+                pcall(function() dragRemote:FireServer(item, part) end)
+            end
+            pcall(function()
+                AdjustBackpackRemote:FireServer(item)
+            end)
+            if part and dragRemote then
+                task.delay(0.06, function()
+                    pcall(function() dragRemote:FireServer(nil) end)
+                end)
+            end
+        end
+        return true
+    end
+
+    -- 3. Vũ khí (Súng, Cận chiến), Đạn, Vật phẩm tiêu hao (Đồ ăn, Băng gạc, Giáp):
+    -- TỰ ĐỘNG nhặt vào túi Roblox mặc định (LocalPlayer.Backpack)!
     if part and not item:IsA("Tool") and firetouchinterest_fn then
         pcall(firetouchinterest_fn, root, part, 0)
         pcall(firetouchinterest_fn, root, part, 1)
@@ -273,27 +302,20 @@ local function LootItemToBackpackNoEquip(item)
         pcall(function() reqNetRemote:FireServer(part) end)
     end
 
-    if AdjustBackpackRemote and (cat == "Food" or cat == "Resource" or cat == "Fuel" or Config.AutoStoreBackpack) then
+    local currentHeld = char:FindFirstChildOfClass("Tool")
+    if currentHeld then
+        LastDesiredEquippedTool = currentHeld
+    end
+    RecentlyAutoLootedToolNames[item.Name] = os.clock()
+
+    if Config.AutoPickupMethodRemote and PickUpItemRemote then
         pcall(function()
-            AdjustBackpackRemote:FireServer(item)
+            PickUpItemRemote:FireServer(item)
         end)
     end
-
-    if cat ~= "Food" and (item:IsA("Tool") or item:GetAttribute("CanPickUp")) then
-        local currentHeld = char:FindFirstChildOfClass("Tool")
-        if currentHeld then
-            LastDesiredEquippedTool = currentHeld
-        end
-        RecentlyAutoLootedToolNames[item.Name] = os.clock()
-        if Config.AutoPickupMethodRemote and PickUpItemRemote then
-            pcall(function()
-                PickUpItemRemote:FireServer(item)
-            end)
-        end
-        if Config.AutoPickupMethodPrompt then
-            local pr = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-            if pr then Utils.SafeTriggerPrompt(pr) end
-        end
+    if Config.AutoPickupMethodPrompt then
+        local pr = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if pr then Utils.SafeTriggerPrompt(pr) end
     end
 
     if part and dragRemote then
@@ -397,22 +419,59 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- Auto Loot to Backpack without hand equipping
-    if (Config.AutoPickup or Config.AutoStoreBackpack) and droppedFolder then
-        for _, item in ipairs(droppedFolder:GetChildren()) do
-            if ShouldPickupItem(item) and not ActiveFlyingItems[item] then
-                local cat = Utils.ClassifyItem(item)
-                if cat ~= "Food" then
-                    local dist = (item:GetPivot().Position - root.Position).Magnitude
-                    if dist <= pickupRadius then
-                        LootItemToBackpackNoEquip(item)
+    -- 1. Tự động chuyển Nhiên Liệu (Gas / Fuel) bay về Máy Phát Điện (Generator)
+    if (Config.AutoFuelGenerator or Config.AutoBringItems or Config.AutoPickup) and droppedFolder then
+        local fuelPct = (Workspace:GetAttribute("FuelPercentage") or 1) * 100
+        if fuelPct <= (Config.AutoFuelThreshold or 95) or Config.AutoPickup then
+            local genPart = Utils.GetGeneratorMainPart()
+            if genPart then
+                local flewFuel = 0
+                for _, item in ipairs(droppedFolder:GetChildren()) do
+                    if Utils.ClassifyItem(item) == "Fuel" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
+                        local dist = (item:GetPivot().Position - root.Position).Magnitude
+                        if dist <= math.max(pickupRadius, 45) then
+                            TouchAndFlyItemToBase(item, genPart.CFrame * CFrame.new(0, 2.5, 0))
+                            flewFuel = flewFuel + 1
+                            if flewFuel >= 8 then break end
+                        end
                     end
                 end
             end
         end
     end
 
-    -- Auto Empty Backpack at Base
+    -- 2. Tự động chuyển Toàn Bộ Tài Nguyên (Scrap, Battery, Screws, Hearts, v.v.) bay về Máy Nghiền / Scraper
+    if (Config.AutoShredResources or Config.AutoBringItems or Config.AutoPickup) and droppedFolder then
+        local shredPart = Utils.GetShredderTargetPart()
+        local genPart = Utils.GetGeneratorMainPart()
+        local baseCenter = genPart and (genPart.CFrame * CFrame.new(0, 2, 8)) or CFrame.new(0, 4, 0)
+        local targetCF = shredPart and (shredPart.CFrame * CFrame.new(0, 2.5, 0)) or baseCenter
+        local flewResources = 0
+        for _, item in ipairs(droppedFolder:GetChildren()) do
+            if Utils.ClassifyItem(item) == "Resource" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
+                local dist = (item:GetPivot().Position - root.Position).Magnitude
+                if dist <= math.max(pickupRadius, 45) then
+                    TouchAndFlyItemToBase(item, targetCF)
+                    flewResources = flewResources + 1
+                    if flewResources >= 15 then break end
+                end
+            end
+        end
+    end
+
+    -- 3. Tự động nhặt Vũ khí (Súng/Melee), Đạn, Tiêu hao (Máu/Đồ ăn) vào Túi Roblox mặc định & Radio Part vào Balo
+    if (Config.AutoPickup or Config.AutoStoreBackpack) and droppedFolder then
+        for _, item in ipairs(droppedFolder:GetChildren()) do
+            if ShouldPickupItem(item) and not ActiveFlyingItems[item] then
+                local dist = (item:GetPivot().Position - root.Position).Magnitude
+                if dist <= pickupRadius then
+                    LootItemToBackpackNoEquip(item)
+                end
+            end
+        end
+    end
+
+    -- 4. Auto Empty Backpack at Base
     if Config.AutoEmptyBackpackAtBase and AdjustBackpackRemote then
         local itemsInBp = LocalPlayer:GetAttribute("ItemsInBackpack") or 0
         if itemsInBp > 0 then
@@ -426,41 +485,6 @@ local function RunLootingAndSurvivalStep()
                 pcall(function()
                     AdjustBackpackRemote:FireServer(nil, genPart.CFrame * CFrame.new(0, 2, 0))
                 end)
-            end
-        end
-    end
-
-    -- Auto Fuel Generator
-    if Config.AutoFuelGenerator and droppedFolder then
-        local fuelPct = (Workspace:GetAttribute("FuelPercentage") or 1) * 100
-        if fuelPct <= (Config.AutoFuelThreshold or 85) then
-            local genPart = Utils.GetGeneratorMainPart()
-            if genPart then
-                for _, item in ipairs(droppedFolder:GetChildren()) do
-                    if Utils.ClassifyItem(item) == "Fuel" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
-                        local dist = (item:GetPivot().Position - root.Position).Magnitude
-                        if dist <= 35 then
-                            TouchAndFlyItemToBase(item, genPart.CFrame * CFrame.new(0, 2.5, 0))
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Auto Shred Resources
-    if Config.AutoShredResources and droppedFolder then
-        local shredPart = Utils.GetShredderTargetPart()
-        if shredPart then
-            for _, item in ipairs(droppedFolder:GetChildren()) do
-                if Utils.ClassifyItem(item) == "Resource" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
-                    local dist = (item:GetPivot().Position - root.Position).Magnitude
-                    if dist <= 35 then
-                        TouchAndFlyItemToBase(item, shredPart.CFrame * CFrame.new(0, 2.5, 0))
-                        break
-                    end
-                end
             end
         end
     end
