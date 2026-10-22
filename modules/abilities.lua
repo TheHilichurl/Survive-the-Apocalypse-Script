@@ -12,9 +12,9 @@ _G.STA_MasterHub = Hub
 local Services = Hub.Services
 local LocalPlayer = Services.LocalPlayer
 local Workspace = Services.Workspace
-local Config = Hub.Config
-local Utils = Hub.Utils
-local Combat = Hub.Combat
+local Config = Hub.Config or {}
+local Utils = Hub.Utils or {}
+local Combat = Hub.Combat or {}
 local AddSuppressorRemote = Hub.Remotes and Hub.Remotes.AddSuppressor
 
 local Abilities = {}

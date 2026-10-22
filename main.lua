@@ -95,7 +95,10 @@ LoadModule("modules/movement.lua")
 LoadModule("modules/visuals.lua")
 
 -- Stage 3: Anime / RPG Fantasy UI Library Engine
-LoadModule("ui/uilib.lua")
+local uilib = LoadModule("ui/uilib.lua")
+if uilib and not Hub.UILib then
+    Hub.UILib = uilib
+end
 
 -- Stage 4: Interface Construction & Automation Loops
 LoadModule("interface.lua")

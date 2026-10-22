@@ -9,6 +9,9 @@
     ================================================================================
 ]]
 
+local Hub = ... or _G.STA_MasterHub or {}
+_G.STA_MasterHub = Hub
+
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")

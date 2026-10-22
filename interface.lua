@@ -15,15 +15,19 @@ local Workspace = Services.Workspace
 local TeleportService = Services.TeleportService
 local HttpService = Services.HttpService
 local CollectionService = Services.CollectionService
-local Config = Hub.Config
-local Utils = Hub.Utils
-local Combat = Hub.Combat
-local Abilities = Hub.Abilities
-local Looting = Hub.Looting
-local Structures = Hub.Structures
-local Movement = Hub.Movement
-local Visuals = Hub.Visuals
-local UILib = Hub.UILib
+local Config = Hub.Config or {}
+local Utils = Hub.Utils or {}
+local Combat = Hub.Combat or {}
+local Abilities = Hub.Abilities or {}
+local Looting = Hub.Looting or {}
+local Structures = Hub.Structures or {}
+local Movement = Hub.Movement or {}
+local Visuals = Hub.Visuals or {}
+local UILib = Hub.UILib or (type(...) == "table" and (...).UILib) or (_G.STA_MasterHub and _G.STA_MasterHub.UILib)
+
+if not UILib then
+    error("[Hili Hub Interface] UILib is nil! Ensure ui/uilib.lua has been loaded before interface.lua.")
+end
 
 local UpgradeCraftingRemote = Hub.Remotes and Hub.Remotes.UpgradeCrafting
 local CraftRemote = Hub.Remotes and Hub.Remotes.Craft
