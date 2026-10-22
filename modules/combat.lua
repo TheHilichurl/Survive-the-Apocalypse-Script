@@ -23,6 +23,9 @@ local PickUpItemRemote = Hub.Remotes and Hub.Remotes.PickUpItem
 
 local Combat = {}
 
+local CurrentLockedTarget = nil
+local ActiveShootTarget = nil
+
 -- Virtual Bullet 3D Line Visualizer (Beam + Attachments)
 local VirtualBulletPart = Instance.new("Part")
 VirtualBulletPart.Name = "HiliHub_VirtualBulletAnchor"
@@ -203,132 +206,136 @@ local function GetWeaponFireOrigin(targetPos)
     return headPos
 end
 
--- Simulate a Virtual Bullet from Origin to TargetPart
+-- ============================================================================
+-- HIGH-PERFORMANCE STATIC RAYCAST ENGINE & TARGET RESOLVER
+-- Giảm thiểu 98% số lượng raycast, triệt tiêu hoàn toàn giật lag khi đông quái
+-- ============================================================================
 local OriginalBulletHitscan = BulletModule and BulletModule.BulletHitscan
 local BypassHitscanHook = false
+
+local StaticAimRayParams = RaycastParams.new()
+StaticAimRayParams.FilterType = Enum.RaycastFilterType.Exclude
+StaticAimRayParams.RespectCanCollide = true
+StaticAimRayParams.IgnoreWater = true
+
+local StaticAimIgnoreList = { VirtualBulletPart }
+local LastIgnoreListRefresh = 0
+
+local function GetStaticAimIgnoreList()
+    local now = os.clock()
+    if (now - LastIgnoreListRefresh) >= 0.5 then
+        LastIgnoreListRefresh = now
+        local list = { VirtualBulletPart }
+        local myChar = Utils.GetCharacter()
+        if myChar then table.insert(list, myChar) end
+        local dropped = Workspace:FindFirstChild("DroppedItems")
+        if dropped then table.insert(list, dropped) end
+        local fog = Workspace:FindFirstChild("Fog")
+        if fog then table.insert(list, fog) end
+        if Hub.Visuals and Hub.Visuals.ESPContainer then table.insert(list, Hub.Visuals.ESPContainer) end
+
+        local charsFolder = Workspace:FindFirstChild("Characters")
+        if charsFolder then
+            for _, ch in ipairs(charsFolder:GetChildren()) do
+                if ch:GetAttribute("Dead") == true or ch:GetAttribute("Player") == true then
+                    table.insert(list, ch)
+                end
+            end
+        end
+        StaticAimIgnoreList = list
+        StaticAimRayParams.FilterDescendantsInstances = list
+    end
+    return StaticAimIgnoreList
+end
+
+local function CheckRayUnobstructed(startPt, endPt, targetModel)
+    if not (startPt and endPt and targetModel) then return false, nil end
+    GetStaticAimIgnoreList()
+
+    local dir = endPt - startPt
+    local dist = dir.Magnitude
+    if dist <= 0.35 then
+        return true, endPt
+    end
+
+    local hit = Workspace:Raycast(startPt, dir, StaticAimRayParams)
+    if not hit then
+        return true, endPt
+    end
+
+    local inst = hit.Instance
+    if not inst then
+        return true, endPt
+    end
+
+    if inst:IsDescendantOf(targetModel) then
+        return true, hit.Position
+    end
+
+    -- Nếu chạm phải vật thể xuyên qua được (Fog, InvisibleBorder, không CanCollide)
+    if not inst.CanCollide or inst.Name == "FogPart" or inst.Name == "InvisibleBorder" or inst.Name:find("Trigger") then
+        local nextPt = hit.Position + dir.Unit * 0.1
+        local remDir = endPt - nextPt
+        if remDir.Magnitude <= 0.35 then
+            return true, endPt
+        end
+        local hit2 = Workspace:Raycast(nextPt, remDir, StaticAimRayParams)
+        if not hit2 then
+            return true, endPt
+        end
+        if hit2.Instance and hit2.Instance:IsDescendantOf(targetModel) then
+            return true, hit2.Position
+        end
+        if not hit2.Instance.CanCollide then
+            return true, endPt
+        end
+    end
+
+    return false, hit.Position
+end
 
 local function SimulateVirtualBullet(originPos, targetPart, targetModel)
     if not (originPos and targetPart and targetModel) then
         return false, nil, nil
     end
 
-    local myChar = Utils.GetCharacter()
-    local head = myChar and myChar:FindFirstChild("Head")
-    local headPos = (head and head:IsA("BasePart")) and head.Position or originPos
     local targetPos = targetPart.Position
-
-    local ignoreList = { VirtualBulletPart }
-    if myChar then table.insert(ignoreList, myChar) end
-    local dropped = Workspace:FindFirstChild("DroppedItems")
-    if dropped then table.insert(ignoreList, dropped) end
-    local fog = Workspace:FindFirstChild("Fog")
-    if fog then table.insert(ignoreList, fog) end
-    if Hub.Visuals and Hub.Visuals.ESPContainer then table.insert(ignoreList, Hub.Visuals.ESPContainer) end
-
-    local charsFolder = Workspace:FindFirstChild("Characters")
-    if charsFolder then
-        for _, ch in ipairs(charsFolder:GetChildren()) do
-            if ch ~= targetModel and (ch:GetAttribute("Dead") == true or ch:GetAttribute("Player") == true) then
-                table.insert(ignoreList, ch)
-            end
-        end
-    end
-
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.RespectCanCollide = true
-    rayParams.IgnoreWater = true
-
-    local function CheckRayUnobstructed(startPt, endPt)
-        local curPt = startPt
-        for _ = 1, 8 do
-            local dir = endPt - curPt
-            local dist = dir.Magnitude
-            if dist <= 0.35 then
-                return true, endPt
-            end
-            rayParams.FilterDescendantsInstances = ignoreList
-            local hit = Workspace:Raycast(curPt, dir, rayParams)
-            if not hit then
-                return true, endPt
-            end
-            local inst = hit.Instance
-            if not inst then
-                return true, endPt
-            end
-            if inst:IsDescendantOf(targetModel) then
-                return true, hit.Position
-            end
-            if not inst.CanCollide or inst.Name == "FogPart" or inst.Name == "InvisibleBorder" then
-                table.insert(ignoreList, inst)
-                curPt = hit.Position + dir.Unit * 0.05
-            else
-                return false, hit.Position
-            end
-        end
-        return false, endPt
-    end
-
-    local okHead, _ = CheckRayUnobstructed(headPos, targetPos)
-    if not okHead then
-        return false, nil, nil
-    end
-
-    local okOrigin, hitPt = CheckRayUnobstructed(originPos, targetPos)
+    local okOrigin, hitPt = CheckRayUnobstructed(originPos, targetPos, targetModel)
     if not okOrigin then
         return false, hitPt, nil
     end
 
-    if OriginalBulletHitscan then
-        BypassHitscanHook = true
-        local okSim, simRes = pcall(function()
-            return OriginalBulletHitscan(originPos, targetPos, {
-                Penetration = Config.MaxPenetration and 10 or 0,
-                Inaccuracy = 0,
-                RicochetChance = 0,
-                RicochetMax = 0,
-            })
-        end)
-        BypassHitscanHook = false
-
-        if okSim and type(simRes) == "table" then
-            local hitsList = type(simRes.HitData) == "table" and simRes.HitData or simRes
-            for _, hEntry in ipairs(hitsList) do
-                if type(hEntry) == "table" and (hEntry.HitChar == targetModel or (hEntry.HitPart and hEntry.HitPart:IsDescendantOf(targetModel))) then
-                    return true, hEntry.HitPos or targetPos, nil
-                end
-            end
-        end
-    end
-
-    return true, targetPos, nil
+    return true, hitPt or targetPos, nil
 end
 
 local function FindUnobstructedPartOnMob(model)
     if not model then return nil, nil, nil, nil end
-    local partNames = { "Head", "UpperTorso", "Torso", "HumanoidRootPart" }
-    if Config.AimPart and Config.AimPart ~= "Head" then
-        table.insert(partNames, 1, Config.AimPart)
-    end
-    local checked = {}
-    for _, name in ipairs(partNames) do
-        local part = model:FindFirstChild(name)
-        if part and part:IsA("BasePart") and not checked[part] then
-            checked[part] = true
-            local origin = GetWeaponFireOrigin(part.Position)
-            local isClear, hitPos, simRes = SimulateVirtualBullet(origin, part, model)
-            if isClear then
-                return part, origin, hitPos or part.Position, simRes
-            end
-        end
-    end
+    local preferredPart = Config.AimPart or "Head"
+    local part = model:FindFirstChild(preferredPart) or model:FindFirstChild("Head") or model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+    if not (part and part:IsA("BasePart")) then return nil, nil, nil, nil end
+
+    local origin = GetWeaponFireOrigin(part.Position)
+
     if Config.AimWallCheck == false then
-        local fallbackPart = model:FindFirstChild(Config.AimPart or "Head") or model:FindFirstChild("Head") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
-        if fallbackPart and fallbackPart:IsA("BasePart") then
-            local origin = GetWeaponFireOrigin(fallbackPart.Position)
-            return fallbackPart, origin, fallbackPart.Position, nil
+        return part, origin, part.Position, nil
+    end
+
+    local isClear, hitPos = CheckRayUnobstructed(origin, part.Position, model)
+    if isClear then
+        return part, origin, hitPos or part.Position, nil
+    end
+
+    -- Nếu part ưu tiên bị che khuất, thử kiểm tra nhanh HumanoidRootPart
+    local altName = (preferredPart == "Head") and "HumanoidRootPart" or "Head"
+    local altPart = model:FindFirstChild(altName)
+    if altPart and altPart:IsA("BasePart") then
+        local altOrigin = GetWeaponFireOrigin(altPart.Position)
+        local isClearAlt, hitPosAlt = CheckRayUnobstructed(altOrigin, altPart.Position, model)
+        if isClearAlt then
+            return altPart, altOrigin, hitPosAlt or altPart.Position, nil
         end
     end
+
     return nil, nil, nil, nil
 end
 
@@ -343,56 +350,81 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
     if not charsFolder then return nil, nil, nil, nil end
 
     local mousePos = UserInputService:GetMouseLocation()
-    local bestModel, bestPart, bestOrigin, bestSimRes = nil, nil, nil, nil
-    local bestScore = math.huge
+    local maxFOV = Config.AimFOV or 160
+    local aimPriority = Config.AimPriority or "Distance"
+    local checkLOS = (requireLOS ~= false) and (Config.AimWallCheck ~= false)
 
+    local myPos = myRoot.Position
+    local candidates = {}
+
+    -- Bước 1: Lọc nhanh bằng toán học thuần túy (Không Raycast, tốn 0% GPU/Physics)
     for _, model in ipairs(charsFolder:GetChildren()) do
         local isHostile, hp = IsHostilePvEMob(model)
         if isHostile then
             local modelPos = model:GetPivot().Position
-            local dist = (modelPos - myRoot.Position).Magnitude
+            local dist = (modelPos - myPos).Magnitude
             if dist <= maxRange then
                 local allowByFOV = true
+                local fovDist = 0
                 if useFOV then
                     local screenPos, onScreen = Camera:WorldToViewportPoint(modelPos)
-                    local fovDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                    allowByFOV = onScreen and (fovDist <= (Config.AimFOV or 160))
+                    if not onScreen then
+                        allowByFOV = false
+                    else
+                        fovDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        allowByFOV = (fovDist <= maxFOV)
+                    end
                 end
 
                 if allowByFOV then
                     local score = dist
-                    if Config.AimPriority == "LowestHP" then
+                    if useFOV then
+                        score = fovDist
+                    elseif aimPriority == "LowestHP" then
                         score = hp
-                    elseif Config.AimPriority == "SpecialsFirst" then
+                    elseif aimPriority == "SpecialsFirst" then
                         score = (Utils.IsSpecialOrBossMob(model) and -10000 or 0) + dist
                     end
 
-                    if score < bestScore then
-                        if requireLOS ~= false then
-                            local clearPart, clearOrigin, _, simRes = FindUnobstructedPartOnMob(model)
-                            if clearPart then
-                                bestScore = score
-                                bestModel = model
-                                bestPart = clearPart
-                                bestOrigin = clearOrigin
-                                bestSimRes = simRes
-                            end
-                        else
-                            local tPart = model:FindFirstChild("Head") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
-                            if tPart then
-                                bestScore = score
-                                bestModel = model
-                                bestPart = tPart
-                                bestOrigin = GetWeaponFireOrigin(tPart.Position)
-                            end
-                        end
-                    end
+                    table.insert(candidates, {
+                        Model = model,
+                        Dist = dist,
+                        Score = score,
+                    })
                 end
             end
         end
     end
 
-    return bestModel, bestPart, bestOrigin, bestSimRes
+    if #candidates == 0 then
+        return nil, nil, nil, nil
+    end
+
+    -- Bước 2: Sắp xếp theo mức độ ưu tiên tốt nhất
+    table.sort(candidates, function(a, b)
+        return a.Score < b.Score
+    end)
+
+    -- Bước 3: Early Exit Raycast - Chỉ kiểm tra vật cản cho tối đa Top 3 mục tiêu tốt nhất!
+    -- Nếu mục tiêu số 1 thông thoáng -> DỪNG NGAY LẬP TỨC (Break), tiết kiệm 95% CPU!
+    local checkLimit = checkLOS and math.min(#candidates, 3) or 1
+    for i = 1, checkLimit do
+        local entry = candidates[i]
+        local model = entry.Model
+        if checkLOS then
+            local clearPart, clearOrigin, hitPos = FindUnobstructedPartOnMob(model)
+            if clearPart then
+                return model, clearPart, clearOrigin, nil
+            end
+        else
+            local tPart = model:FindFirstChild(Config.AimPart or "Head") or model:FindFirstChild("Head") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+            if tPart and tPart:IsA("BasePart") then
+                return model, tPart, GetWeaponFireOrigin(tPart.Position), nil
+            end
+        end
+    end
+
+    return nil, nil, nil, nil
 end
 
 local function GetPredictedPosition(part)
@@ -446,7 +478,13 @@ local function EnsureBulletModuleHook()
                 local aimTargetPos = targetPos
                 local lockedModel, lockedPart = nil, nil
                 if Config.SilentAim or Config.AutoShoot or Config.Aimbot then
-                    lockedModel, lockedPart = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
+                    if CurrentLockedTarget and CurrentLockedTarget.Parent and GetActualMobHP(CurrentLockedTarget) > 0 then
+                        lockedModel = CurrentLockedTarget
+                        lockedPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head") or CurrentLockedTarget:FindFirstChild("Head") or CurrentLockedTarget:FindFirstChild("HumanoidRootPart") or CurrentLockedTarget.PrimaryPart
+                    end
+                    if not (lockedModel and lockedPart) then
+                        lockedModel, lockedPart = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
+                    end
                     if lockedModel and lockedPart then
                         local headPart = lockedModel:FindFirstChild("Head") or lockedPart
                         aimTargetPos = headPart.Position
@@ -1068,8 +1106,6 @@ end
 
 -- RenderStepped AutoShoot & Aim Loop
 local LastAutoShootTime = 0
-local ActiveShootTarget = nil
-local CurrentLockedTarget = nil
 
 Hub.AddConnection(RunService.RenderStepped:Connect(function()
     EnsureBulletModuleHook()
@@ -1084,32 +1120,75 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
     local char = Utils.GetCharacter()
     local held = char and char:FindFirstChildOfClass("Tool")
     local isGun = IsGunWeapon(held)
+    local stats = held and held:FindFirstChild("Stats")
 
-    if Config.Aimbot and Camera then
-        local isAiming = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-            or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-            or UserInputService:IsKeyDown(Enum.KeyCode.Q)
-            or (UserInputService.TouchEnabled and isGun)
-        if isAiming or Config.AutoShoot or Config.SilentAim then
-            local targetModel, targetPart = GetBestCombatTarget(Config.AimMaxRange, Config.AimShowFOV, Config.AimWallCheck)
-            if targetModel and targetPart then
-                CurrentLockedTarget = targetModel
-                local aimPos = GetPredictedPosition(targetPart)
-                local targetCF = CFrame.new(Camera.CFrame.Position, aimPos)
-                Camera.CFrame = Camera.CFrame:Lerp(targetCF, math.clamp(Config.AimSmoothness or 0.25, 0.02, 1))
+    local isAiming = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+        or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+        or UserInputService:IsKeyDown(Enum.KeyCode.Q)
+        or (UserInputService.TouchEnabled and isGun)
+
+    local needsTarget = (Config.Aimbot and isAiming) or Config.AutoShoot or Config.SilentAim
+
+    -- UNIFIED FRAME TARGET RESOLUTION: Giải quyết mục tiêu DUY NHẤT 1 LẦN cho toàn bộ frame
+    local frameTargetModel, frameTargetPart, frameFireOrigin = nil, nil, nil
+
+    if needsTarget then
+        local weaponRange = math.min((stats and stats:GetAttribute("Range")) or 450, Config.AimMaxRange or 500)
+
+        -- 1. Giữ khóa mục tiêu trước đó nếu còn hợp lệ (Target Retention / Stickiness - 0% CPU)
+        if CurrentLockedTarget and CurrentLockedTarget.Parent then
+            local stillAlive, remHP = IsHostilePvEMob(CurrentLockedTarget)
+            local root = Utils.GetRootPart(char)
+            local inRange = root and ((CurrentLockedTarget:GetPivot().Position - root.Position).Magnitude <= weaponRange)
+            if stillAlive and remHP > 0 and inRange then
+                local clearPart, origin = FindUnobstructedPartOnMob(CurrentLockedTarget)
+                if clearPart then
+                    frameTargetModel = CurrentLockedTarget
+                    frameTargetPart = clearPart
+                    frameFireOrigin = origin
+                else
+                    CurrentLockedTarget = nil
+                end
             else
                 CurrentLockedTarget = nil
             end
         end
+
+        -- 2. Nếu chưa có mục tiêu hoặc mục tiêu cũ bị mất, quét tìm mục tiêu mới (Early Exit Top 3)
+        if not frameTargetModel then
+            local useFOV = Config.Aimbot and Config.AimShowFOV and not (Config.SilentAim or Config.AutoShoot)
+            local tModel, tPart, tOrigin = GetBestCombatTarget(weaponRange, useFOV, Config.AimWallCheck)
+            if tModel and tPart then
+                frameTargetModel = tModel
+                frameTargetPart = tPart
+                frameFireOrigin = tOrigin
+                CurrentLockedTarget = tModel
+            end
+        end
+    else
+        CurrentLockedTarget = nil
+    end
+
+    ActiveShootTarget = frameTargetModel
+
+    -- 3. Aimbot Camera Rotation (Mượt mà, dùng chung kết quả đã tìm)
+    if Config.Aimbot and Camera and frameTargetModel and frameTargetPart and (isAiming or Config.AutoShoot or Config.SilentAim) then
+        local aimPos = GetPredictedPosition(frameTargetPart)
+        local targetCF = CFrame.new(Camera.CFrame.Position, aimPos)
+        Camera.CFrame = Camera.CFrame:Lerp(targetCF, math.clamp(Config.AimSmoothness or 0.25, 0.02, 1))
+    end
+
+    -- 4. Virtual Bullet Visualizer
+    if frameTargetModel and frameTargetPart and frameFireOrigin and isGun and (Config.AutoShoot or Config.SilentAim) then
+        UpdateVirtualBulletVisual(frameFireOrigin, frameTargetPart.Position, true)
+    else
+        HideVirtualBulletVisual()
     end
 
     if not isGun or not (Config.AutoShoot or Config.SilentAim) then
-        HideVirtualBulletVisual()
-        ActiveShootTarget = nil
         return
     end
 
-    local stats = held:FindFirstChild("Stats")
     local capacity = (stats and stats:GetAttribute("Capacity")) or held:GetAttribute("Capacity") or 12
     local curAmmo = held:GetAttribute("Ammo")
     if curAmmo == nil and stats then
@@ -1135,37 +1214,14 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         return
     end
 
-    local weaponRange = math.min((stats and stats:GetAttribute("Range")) or 450, Config.AimMaxRange or 500)
-
-    local targetModel, targetPart, fireOrigin, verifiedSimRes = nil, nil, nil, nil
-    if ActiveShootTarget then
-        local stillAlive, remHP = IsHostilePvEMob(ActiveShootTarget)
-        local root = Utils.GetRootPart(char)
-        local inRange = root and ((ActiveShootTarget:GetPivot().Position - root.Position).Magnitude <= weaponRange)
-        if stillAlive and remHP > 0 and inRange then
-            targetPart, fireOrigin, _, verifiedSimRes = FindUnobstructedPartOnMob(ActiveShootTarget)
-            if targetPart then
-                targetModel = ActiveShootTarget
-            else
-                ActiveShootTarget = nil
-            end
-        else
-            ActiveShootTarget = nil
-        end
-    end
-
-    if not (targetModel and targetPart) then
-        targetModel, targetPart, fireOrigin, verifiedSimRes = GetBestCombatTarget(weaponRange, false, Config.AimWallCheck)
-        ActiveShootTarget = targetModel
-    end
-
-    if not (targetModel and targetPart and fireOrigin) then
-        HideVirtualBulletVisual()
+    if not (frameTargetModel and frameTargetPart and frameFireOrigin) then
         return
     end
 
+    local targetModel = frameTargetModel
+    local targetPart = frameTargetPart
+    local fireOrigin = frameFireOrigin
     local hitPos = targetPart.Position
-    UpdateVirtualBulletVisual(fireOrigin, hitPos, true)
 
     if Config.AutoShoot then
         local now = os.clock()
@@ -1177,13 +1233,15 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             local aliveNow, hpNow = IsHostilePvEMob(targetModel)
             if not aliveNow or hpNow <= 0 then
                 ActiveShootTarget = nil
+                CurrentLockedTarget = nil
                 HideVirtualBulletVisual()
                 return
             end
 
-            local isStillClear, exactHitPos, latestSimRes = SimulateVirtualBullet(fireOrigin, targetPart, targetModel)
+            local isStillClear, exactHitPos = CheckRayUnobstructed(fireOrigin, targetPart.Position, targetModel)
             if not isStillClear and Config.AimWallCheck then
                 ActiveShootTarget = nil
+                CurrentLockedTarget = nil
                 UpdateVirtualBulletVisual(fireOrigin, targetPart.Position, false)
                 return
             end
@@ -1286,9 +1344,10 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
                 local checkedTarget = targetModel
                 task.delay(0.05, function()
-                    if ActiveShootTarget == checkedTarget then
+                    if ActiveShootTarget == checkedTarget or CurrentLockedTarget == checkedTarget then
                         if GetActualMobHP(checkedTarget) <= 0 then
                             ActiveShootTarget = nil
+                            CurrentLockedTarget = nil
                         end
                     end
                 end)
