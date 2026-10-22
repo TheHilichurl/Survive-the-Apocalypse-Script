@@ -21,16 +21,18 @@ local firetouchinterest_fn = Hub.Compatibility and Hub.Compatibility.firetouchin
 local Looting = {}
 
 local ActiveFlyingItems = setmetatable({}, { __mode = "k" })
-local CarriedHoverItems = setmetatable({}, { __mode = "k" })
-local CarriedItemCounter = 0
 local OpenedCratesHistory = setmetatable({}, { __mode = "k" })
 local RecentlyAutoLootedToolNames = {}
 local LastDesiredEquippedTool = nil
+local IsHandlingBackpackEquip = false
 
 local function SetupCharacterNoEquipGuard(char)
     if not char then return end
     Hub.AddConnection(char.ChildAdded:Connect(function(child)
         if not child:IsA("Tool") then return end
+        if IsHandlingBackpackEquip or child.Name == "Backpack" or child:GetAttribute("ToolType") == "Backpack" then
+            return
+        end
         local now = os.clock()
         local lootTime = RecentlyAutoLootedToolNames[child.Name]
         if Config.AutoLootWithoutEquip and lootTime and (now - lootTime) <= 0.85 then
@@ -122,178 +124,302 @@ local function GetTargetCFrameForItemType(item, destMode)
     end
 end
 
--- Kéo vật phẩm bay lơ lửng trên đầu người chơi (Item Hover & Carry Engine)
-local function PickUpAndHoverAboveHead(item)
+-- ============================================================================
+-- BACKPACK SACK ENGINE: AUTO-EQUIP, AUTO-LOOT & INSTANT WEAPON RESTORE
+-- ============================================================================
+
+local function GetBackpackTool()
+    local char = Utils.GetCharacter()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if char then
+        local t = char:FindFirstChild("Backpack")
+        if t and t:IsA("Tool") then return t end
+    end
+    if bp then
+        local t = bp:FindFirstChild("Backpack")
+        if t and t:IsA("Tool") then return t end
+    end
+    if char then
+        for _, c in ipairs(char:GetChildren()) do
+            if c:IsA("Tool") and (c.Name == "Backpack" or c:GetAttribute("ToolType") == "Backpack") then
+                return c
+            end
+        end
+    end
+    if bp then
+        for _, c in ipairs(bp:GetChildren()) do
+            if c:IsA("Tool") and (c.Name == "Backpack" or c:GetAttribute("ToolType") == "Backpack") then
+                return c
+            end
+        end
+    end
+    return nil
+end
+
+local function GetBackpackItemCount()
+    local val = LocalPlayer:GetAttribute("ItemsInBackpack")
+    if typeof(val) == "number" then return val end
+    local bpTool = GetBackpackTool()
+    if bpTool then
+        val = bpTool:GetAttribute("ItemsInBackpack") or bpTool:GetAttribute("ItemCount")
+        if typeof(val) == "number" then return val end
+    end
+    return 0
+end
+
+local function GetBackpackMaxCapacity()
+    local cap = LocalPlayer:GetAttribute("MaxItemsInBackpack")
+        or LocalPlayer:GetAttribute("MaxBackpack")
+        or LocalPlayer:GetAttribute("BackpackCapacity")
+    if typeof(cap) == "number" and cap > 0 then return cap end
+
+    local bpTool = GetBackpackTool()
+    if bpTool then
+        cap = bpTool:GetAttribute("MaxItems") or bpTool:GetAttribute("Capacity") or bpTool:GetAttribute("MaxCapacity")
+        if typeof(cap) == "number" and cap > 0 then return cap end
+    end
+
+    return Config.BackpackCapacity or 4
+end
+
+local function IsBackpackFull()
+    return GetBackpackItemCount() >= GetBackpackMaxCapacity()
+end
+
+local function IsBackpackSackItem(item)
     if not item or not item.Parent then return false end
-    if ActiveFlyingItems[item] or CarriedHoverItems[item] then return false end
-    if item:GetAttribute("OnShelf") and Config.AutoPickupIgnoreShelf then return false end
+    local cat = Utils.ClassifyItem(item)
+    if cat == "Fuel" or cat == "Resource" then
+        return true
+    end
+    if Utils.IsObjectiveItem and Utils.IsObjectiveItem(item) then
+        return true
+    end
+    local name = item.Name:lower()
+    if name:find("gas") or name:find("fuel") or name:find("scrap") or name:find("battery") or name:find("heart") or name:find("screw") then
+        return true
+    end
+    return false
+end
+
+-- Kéo vật phẩm lại gần và nhét trực tiếp vào Backpack Sack, sau đó trả về vũ khí trước đó ngay lập tức
+local function StoreCandidatesToBackpack(candidates)
+    if IsHandlingBackpackEquip then return false end
+    if not candidates or #candidates == 0 then return false end
+    if IsBackpackFull() then return false end
 
     local char = Utils.GetCharacter()
     local root = Utils.GetRootPart(char)
-    if not (char and root) then return false end
+    local hum = Utils.GetHumanoid(char)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if not (char and root and hum and bp and Utils.IsCharacterAlive(char)) then return false end
 
-    local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
-    if not part then return false end
+    local bpTool = GetBackpackTool()
+    if not bpTool then return false end
 
     local dragSys = char:FindFirstChild("DragSystem")
     local dragRemote = dragSys and dragSys:FindFirstChild("DragItem")
-    local itemDragFolder = item:FindFirstChild("ItemDrag")
-    local reqNetRemote = itemDragFolder and itemDragFolder:FindFirstChild("RequestNetworkOwnership")
 
-    -- 1. Mô phỏng người chơi chạm vào và nhận quyền vật lý (Touch + Network Ownership)
-    for _, desc in ipairs(item:GetDescendants()) do
-        if desc:IsA("BasePart") then
-            pcall(function()
-                desc.Anchored = false
-                desc.CanCollide = false
-                desc.Massless = true
-            end)
+    -- 1. Lưu lại tool hiện tại đang cầm
+    local currentHeld = char:FindFirstChildOfClass("Tool")
+    local restoreTool = nil
+    if currentHeld and currentHeld ~= bpTool then
+        restoreTool = currentHeld
+        local cat = Utils.ClassifyItem(currentHeld)
+        if cat == "Gun" or cat == "Melee" then
+            LastDesiredEquippedTool = currentHeld
+        end
+    elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
+        restoreTool = LastDesiredEquippedTool
+    end
+
+    IsHandlingBackpackEquip = true
+
+    -- 2. Tự động trang bị Backpack lên
+    if bpTool.Parent ~= char then
+        hum:EquipTool(bpTool)
+        task.wait(0.04)
+    end
+
+    -- 3. Kéo từng item lại gần và nhét vào Backpack sack
+    local storedCount = 0
+    for _, item in ipairs(candidates) do
+        if IsBackpackFull() then break end
+        if item and item.Parent and item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
+            local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
+            if part then
+                pcall(function()
+                    for _, d in ipairs(item:GetDescendants()) do
+                        if d:IsA("BasePart") then
+                            d.Anchored = false
+                            d.CanCollide = false
+                        end
+                    end
+                    part.Anchored = false
+                    part.CanCollide = false
+                    part.CFrame = root.CFrame * CFrame.new(0, 0, -2.5)
+                    part.AssemblyLinearVelocity = Vector3.zero
+                end)
+
+                if firetouchinterest_fn and not item:IsA("Tool") then
+                    pcall(firetouchinterest_fn, root, part, 0)
+                    pcall(firetouchinterest_fn, root, part, 1)
+                end
+
+                if dragRemote then
+                    pcall(function() dragRemote:FireServer(item, part) end)
+                end
+
+                local itemDragFolder = item:FindFirstChild("ItemDrag")
+                local reqNetRemote = itemDragFolder and itemDragFolder:FindFirstChild("RequestNetworkOwnership")
+                if reqNetRemote then
+                    pcall(function() reqNetRemote:FireServer(part) end)
+                end
+
+                if AdjustBackpackRemote then
+                    pcall(function() AdjustBackpackRemote:FireServer(item) end)
+                end
+
+                storedCount = storedCount + 1
+                task.wait(0.06)
+            end
         end
     end
-    pcall(function()
-        part.Anchored = false
-        part.CanCollide = false
-        part.Massless = true
-    end)
 
-    if firetouchinterest_fn and not item:IsA("Tool") then
-        pcall(firetouchinterest_fn, root, part, 0)
-        pcall(firetouchinterest_fn, root, part, 1)
-    end
     if dragRemote then
-        pcall(function() dragRemote:FireServer(item, part) end)
-    end
-    if reqNetRemote then
-        pcall(function() reqNetRemote:FireServer(part) end)
+        pcall(function() dragRemote:FireServer(nil) end)
     end
 
-    -- 2. Tạo BodyMovers để kéo vật lý mượt mà
-    local bp = part:FindFirstChild("STA_ItemFlightBP") or Instance.new("BodyPosition")
-    bp.Name = "STA_ItemFlightBP"
-    bp.MaxForce = Vector3.new(1e7, 1e7, 1e7)
-    bp.D = 380
-    bp.P = 16000
-    bp.Position = root.Position + Vector3.new(0, 4.5, 0)
-    bp.Parent = part
+    -- 4. Trả về slot trước đó đang cầm ngay lập tức!
+    if restoreTool and restoreTool.Parent == bp then
+        hum:EquipTool(restoreTool)
+    elseif not currentHeld then
+        hum:UnequipTools()
+    elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
+        hum:EquipTool(LastDesiredEquippedTool)
+    end
 
-    local bv = part:FindFirstChild("STA_ItemFlightBV") or Instance.new("BodyVelocity")
-    bv.Name = "STA_ItemFlightBV"
-    bv.MaxForce = Vector3.new(1e7, 1e7, 1e7)
-    bv.Velocity = Vector3.zero
-    bv.Parent = part
+    task.wait(0.03)
+    IsHandlingBackpackEquip = false
+    return storedCount > 0
+end
 
-    CarriedItemCounter = CarriedItemCounter + 1
-    local angle = (CarriedItemCounter * 0.9) % (2 * math.pi)
-    local radius = 1.0 + ((CarriedItemCounter * 0.22) % 2.2)
-    local height = 4.2 + ((CarriedItemCounter * 0.3) % 2.5)
+-- Tự động xả toàn bộ vật phẩm trong Backpack sack khi về đến Base
+local function UnloadBackpackAtBase(genPart, shredPart, root)
+    if IsHandlingBackpackEquip then return false end
+    local char = Utils.GetCharacter()
+    local hum = Utils.GetHumanoid(char)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if not (char and hum and bp and Utils.IsCharacterAlive(char)) then return false end
 
-    local cat = Utils.ClassifyItem(item)
-    CarriedHoverItems[item] = {
-        Item = item,
-        Part = part,
-        BP = bp,
-        BV = bv,
-        Category = cat,
-        Offset = Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius),
-        AddedTime = os.clock(),
-        LastNetSync = os.clock(),
-        State = "Hovering",
-        DepositStartTime = 0,
-        DepositCF = nil,
-    }
+    local count = GetBackpackItemCount()
+    if count <= 0 then return false end
 
+    local bpTool = GetBackpackTool()
+    if not bpTool then return false end
+
+    local currentHeld = char:FindFirstChildOfClass("Tool")
+    local restoreTool = nil
+    if currentHeld and currentHeld ~= bpTool then
+        restoreTool = currentHeld
+        local cat = Utils.ClassifyItem(currentHeld)
+        if cat == "Gun" or cat == "Melee" then
+            LastDesiredEquippedTool = currentHeld
+        end
+    elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
+        restoreTool = LastDesiredEquippedTool
+    end
+
+    IsHandlingBackpackEquip = true
+
+    -- Trang bị Backpack lên để un-store
+    if bpTool.Parent ~= char then
+        hum:EquipTool(bpTool)
+        task.wait(0.04)
+    end
+
+    local defaultDropCF = shredPart and (shredPart.CFrame * CFrame.new(0, 2.2, 0))
+        or (genPart and genPart.CFrame * CFrame.new(0, 2.2, 0))
+        or (root and root.CFrame * CFrame.new(0, 1, -3))
+
+    local startTime = os.clock()
+    while (GetBackpackItemCount() > 0) and (os.clock() - startTime < 3.2) and Utils.IsCharacterAlive(char) do
+        if AdjustBackpackRemote then
+            pcall(function()
+                AdjustBackpackRemote:FireServer(nil, defaultDropCF)
+            end)
+        end
+        task.wait(0.09)
+    end
+
+    -- Trả lại slot trước đó ngay lập tức!
+    if restoreTool and restoreTool.Parent == bp then
+        hum:EquipTool(restoreTool)
+    elseif not currentHeld then
+        hum:UnequipTools()
+    elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
+        hum:EquipTool(LastDesiredEquippedTool)
+    end
+
+    task.wait(0.03)
+    IsHandlingBackpackEquip = false
     return true
 end
 
--- Cập nhật toàn bộ các vật phẩm đang bay trên đầu người chơi
-local function UpdateCarriedHoverItems(root, genPart, shredPart)
-    if not root then return end
+-- Tự động phân loại và định vị vật phẩm tại Base theo đúng chủng loại (Fuel -> Generator, Resource -> Shredder, Food -> Bên cạnh)
+local function AutoSortBaseItems(genPart, shredPart, root)
+    local droppedFolder = Workspace:FindFirstChild("DroppedItems")
+    if not droppedFolder then return end
 
-    local char = Utils.GetCharacter()
-    local dragSys = char and char:FindFirstChild("DragSystem")
-    local dragRemote = dragSys and dragSys:FindFirstChild("DragItem")
-    local now = os.clock()
+    local basePos = genPart and genPart.Position or (shredPart and shredPart.Position) or (root and root.Position)
+    if not basePos then return end
 
-    local distToGen = genPart and (root.Position - genPart.Position).Magnitude or 9999
-    local distToShred = shredPart and (root.Position - shredPart.Position).Magnitude or 9999
-    local isAtBase = (distToGen <= 26 or distToShred <= 26)
-
-    for item, data in pairs(CarriedHoverItems) do
-        local part = data.Part
-        if not (item and item.Parent and part and part.Parent) then
-            pcall(function()
-                if data.BP and data.BP.Parent then data.BP:Destroy() end
-                if data.BV and data.BV.Parent then data.BV:Destroy() end
-            end)
-            CarriedHoverItems[item] = nil
-        else
-            if data.State == "Depositing" then
-                -- Đang hạ cánh và nạp vào máy phát điện hoặc máy nghiền
-                local targetCF = data.DepositCF
-                local targetPos = targetCF.Position
-                local currentPos = part.Position
-                local delta = targetPos - currentPos
-                local rem = delta.Magnitude
-
-                if rem <= 3.2 or (now - data.DepositStartTime) >= 2.5 then
-                    pcall(function()
-                        item:PivotTo(targetCF)
-                        part.CFrame = targetCF
-                        part.AssemblyLinearVelocity = Vector3.zero
-                        part.AssemblyAngularVelocity = Vector3.zero
-                        if data.BP and data.BP.Parent then data.BP:Destroy() end
-                        if data.BV and data.BV.Parent then data.BV:Destroy() end
-                    end)
-                    if dragRemote then
-                        pcall(function() dragRemote:FireServer(nil) end)
-                    end
-                    CarriedHoverItems[item] = nil
-                else
-                    pcall(function()
-                        data.BP.Position = targetPos
-                        data.BV.Velocity = delta.Unit * 120
-                        part.AssemblyLinearVelocity = delta.Unit * 120
-                    end)
-                end
-            elseif isAtBase then
-                -- Người chơi đã về đến Base -> Tự động phân loại và chuyển trạng thái hạ cánh
-                local cat = data.Category
-                local targetCF = nil
-                if cat == "Fuel" then
-                    targetCF = genPart and (genPart.CFrame * CFrame.new(0, 2.2, 0)) or root.CFrame
-                elseif cat == "Resource" then
-                    targetCF = shredPart and (shredPart.CFrame * CFrame.new(0, 2.2, 0))
-                        or (genPart and genPart.CFrame * CFrame.new(3.5, 2.2, 0)) or root.CFrame
-                elseif cat == "Food" then
-                    targetCF = genPart and (genPart.CFrame * CFrame.new(-3.5, 2.2, 0)) or (root.CFrame * CFrame.new(0, 1, 3))
-                else
-                    targetCF = genPart and (genPart.CFrame * CFrame.new(0, 2, 6)) or root.CFrame
-                end
-
-                data.State = "Depositing"
-                data.DepositCF = targetCF
-                data.DepositStartTime = now
-                data.BP.Position = targetCF.Position
-                data.BV.Velocity = (targetCF.Position - part.Position).Unit * 110
-            else
-                -- Người chơi đang di chuyển/chiến đấu ngoài bản đồ -> Giữ vật phẩm bay trên đầu theo vị trí người chơi
-                local desiredPos = root.Position + data.Offset
-                pcall(function()
-                    data.BP.Position = desiredPos
-                    local vel = (desiredPos - part.Position) * 5
-                    data.BV.Velocity = vel
-                    part.AssemblyLinearVelocity = vel
-                end)
-
-                if (now - data.LastNetSync) >= 0.35 then
-                    data.LastNetSync = now
-                    if dragRemote then
-                        pcall(function() dragRemote:FireServer(item, part) end)
-                    end
-                    local itemDragFolder = item:FindFirstChild("ItemDrag")
-                    local reqNetRemote = itemDragFolder and itemDragFolder:FindFirstChild("RequestNetworkOwnership")
-                    if reqNetRemote then
-                        pcall(function() reqNetRemote:FireServer(part) end)
+    for _, item in ipairs(droppedFolder:GetChildren()) do
+        if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
+            local itemPos = item:GetPivot().Position
+            local distToBase = (itemPos - basePos).Magnitude
+            if distToBase <= 35 then
+                local cat = Utils.ClassifyItem(item)
+                local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
+                if part then
+                    if cat == "Fuel" and genPart then
+                        local targetCF = genPart.CFrame * CFrame.new(0, 2.2, 0)
+                        if (part.Position - targetCF.Position).Magnitude > 2.2 then
+                            pcall(function()
+                                item:PivotTo(targetCF)
+                                part.CFrame = targetCF
+                                part.AssemblyLinearVelocity = Vector3.zero
+                                part.AssemblyAngularVelocity = Vector3.zero
+                            end)
+                            if firetouchinterest_fn then
+                                pcall(firetouchinterest_fn, genPart, part, 0)
+                                pcall(firetouchinterest_fn, genPart, part, 1)
+                            end
+                        end
+                    elseif cat == "Resource" and shredPart then
+                        local targetCF = shredPart.CFrame * CFrame.new(0, 2.2, 0)
+                        if (part.Position - targetCF.Position).Magnitude > 2.2 then
+                            pcall(function()
+                                item:PivotTo(targetCF)
+                                part.CFrame = targetCF
+                                part.AssemblyLinearVelocity = Vector3.zero
+                                part.AssemblyAngularVelocity = Vector3.zero
+                            end)
+                            if firetouchinterest_fn then
+                                pcall(firetouchinterest_fn, shredPart, part, 0)
+                                pcall(firetouchinterest_fn, shredPart, part, 1)
+                            end
+                        end
+                    elseif cat == "Food" and genPart then
+                        local targetCF = genPart.CFrame * CFrame.new(-3.5, 2.2, 0)
+                        if (part.Position - targetCF.Position).Magnitude > 2.5 then
+                            pcall(function()
+                                item:PivotTo(targetCF)
+                                part.CFrame = targetCF
+                                part.AssemblyLinearVelocity = Vector3.zero
+                                part.AssemblyAngularVelocity = Vector3.zero
+                            end)
+                        end
                     end
                 end
             end
@@ -301,10 +427,10 @@ local function UpdateCarriedHoverItems(root, genPart, shredPart)
     end
 end
 
--- Bay trực tiếp về Base (Dùng khi tính năng HoverCarry tắt hoặc gọi Bring All Map)
+-- Bay trực tiếp về Base (Dùng khi gọi manual Bring All Map)
 local function TouchAndFlyItemToBase(item, customTargetCFrame)
     if not item or not item.Parent then return false end
-    if ActiveFlyingItems[item] or CarriedHoverItems[item] then return false end
+    if ActiveFlyingItems[item] then return false end
     if item:GetAttribute("OnShelf") and Config.AutoPickupIgnoreShelf then return false end
 
     local char = Utils.GetCharacter()
@@ -441,17 +567,12 @@ local function LootItemToBackpackNoEquip(item)
     local root = Utils.GetRootPart(char)
     if not (char and root) then return false end
 
-    local cat = Utils.ClassifyItem(item)
-    local isSpecial = Utils.IsObjectiveItem and Utils.IsObjectiveItem(item)
-
-    -- 1. Gas / Fuel & Resources (Scrap, Battery, Screws, Hearts, etc.):
-    -- Kéo vật lý và giữ bay lơ lửng trên đầu người chơi khi di chuyển, về căn cứ sẽ tự động phân loại!
-    if cat == "Fuel" or cat == "Resource" then
-        if Config.ItemHoverCarry then
-            return PickUpAndHoverAboveHead(item)
-        else
-            return TouchAndFlyItemToBase(item)
+    -- 1. Gas, Scrap, Battery, Heart, Screws, Objective Items: Nhét vào Backpack Sack
+    if IsBackpackSackItem(item) then
+        if not IsBackpackFull() and (Config.AutoStoreBackpack or Config.AutoPickup) then
+            return StoreCandidatesToBackpack({ item })
         end
+        return false
     end
 
     local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
@@ -460,26 +581,7 @@ local function LootItemToBackpackNoEquip(item)
     local itemDragFolder = item:FindFirstChild("ItemDrag")
     local reqNetRemote = itemDragFolder and itemDragFolder:FindFirstChild("RequestNetworkOwnership")
 
-    -- 2. Radio Part & các vật phẩm nhiệm vụ đặc biệt (Objective items):
-    -- CHỈ những vật phẩm đặc biệt này mới được cất vào ba lô đeo lưng (game backpack)!
-    if isSpecial then
-        if AdjustBackpackRemote then
-            if part and dragRemote then
-                pcall(function() dragRemote:FireServer(item, part) end)
-            end
-            pcall(function()
-                AdjustBackpackRemote:FireServer(item)
-            end)
-            if part and dragRemote then
-                task.delay(0.06, function()
-                    pcall(function() dragRemote:FireServer(nil) end)
-                end)
-            end
-        end
-        return true
-    end
-
-    -- 3. Bản vẽ thiết kế (Blueprints / Schematics), Vũ khí (Súng, Cận chiến), Đạn, Vật phẩm tiêu hao (Đồ ăn, Băng gạc, Giáp):
+    -- 2. Bản vẽ thiết kế (Blueprints / Schematics), Vũ khí (Súng, Cận chiến), Đạn, Vật phẩm tiêu hao (Đồ ăn, Băng gạc, Giáp):
     -- TỰ ĐỘNG nhặt thẳng vào túi Roblox mặc định (LocalPlayer.Backpack)!
     if part and not item:IsA("Tool") and firetouchinterest_fn then
         pcall(firetouchinterest_fn, root, part, 0)
@@ -535,21 +637,58 @@ local function RunLootingAndSurvivalStep()
 
     local droppedFolder = Workspace:FindFirstChild("DroppedItems")
     local maxInteractRange = 12 + (char:GetAttribute("DragRange") or 0)
-    local pickupRadius = math.max(Config.AutoPickupRadius or 15, maxInteractRange)
+    local pickupRadius = math.max(Config.AutoPickupRadius or 18, maxInteractRange)
     local hungerPct = GetPlayerHungerPercent(char)
     local hungerThreshold = Config.AutoEatThreshold or 70
 
     local genPart = Utils.GetGeneratorMainPart()
     local shredPart = Utils.GetShredderTargetPart()
 
-    -- 0. Cập nhật vị trí các vật phẩm đang bay trên đầu người chơi (theo dõi & tự động hạ cánh nạp vào base)
-    UpdateCarriedHoverItems(root, genPart, shredPart)
+    local distToGen = genPart and (genPart.Position - root.Position).Magnitude or 9999
+    local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
+    local isAtBase = (distToGen <= 28 or distToShred <= 28)
 
-    -- 1. Tự động ăn đồ ăn thông minh (< 70% Eat, >= 70% nhặt vào túi / kéo về Base)
-    if Config.AutoEat or Config.AutoPickup or Config.AutoStoreBackpack then
+    -- 0. Nếu về đến Base -> Tự động xả Backpack sack và tự động phân loại đúng vị trí theo type
+    if isAtBase then
+        if Config.AutoEmptyBackpackAtBase then
+            UnloadBackpackAtBase(genPart, shredPart, root)
+
+            -- Xả các đồ vật trong Backpack mặc định của Roblox (Đồ ăn, Gas can thả ở generator, Scrap/Battery thả ở scraper)
+            for _, child in ipairs(bp:GetChildren()) do
+                if child:IsA("Tool") then
+                    local toolCat = Utils.ClassifyItem(child)
+                    if (toolCat == "Food" or toolCat == "Fuel") and distToGen <= 28 and genPart then
+                        pcall(function()
+                            child.Parent = Workspace
+                            local h = child:FindFirstChild("Handle") or child:FindFirstChildWhichIsA("BasePart")
+                            if h then
+                                h.CFrame = genPart.CFrame * CFrame.new(-3, 2, 0)
+                                h.AssemblyLinearVelocity = Vector3.zero
+                            end
+                        end)
+                    elseif toolCat == "Resource" and distToShred <= 28 and shredPart then
+                        pcall(function()
+                            child.Parent = Workspace
+                            local h = child:FindFirstChild("Handle") or child:FindFirstChildWhichIsA("BasePart")
+                            if h then
+                                h.CFrame = shredPart.CFrame * CFrame.new(0, 2, 0)
+                                h.AssemblyLinearVelocity = Vector3.zero
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+
+        -- Tự động phân loại tất cả vật phẩm ở base vào đúng vị trí: Fuel -> Generator, Resource -> Shredder, Food -> Bên cạnh
+        AutoSortBaseItems(genPart, shredPart, root)
+    end
+
+    -- 1. Tự động ăn đồ ăn thông minh (< 70% Eat, >= 70% nhặt vào túi Roblox)
+    if Config.AutoEat or Config.AutoPickup then
         if droppedFolder then
             for _, item in ipairs(droppedFolder:GetChildren()) do
-                if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not CarriedHoverItems[item] then
+                if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
                     local dist = (item:GetPivot().Position - root.Position).Magnitude
                     if dist <= pickupRadius then
                         if hungerPct < hungerThreshold then
@@ -604,92 +743,40 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- 3. Kéo Nhiên Liệu (Gas / Fuel) & Tài Nguyên (Scrap, Battery, Screws, Hearts, v.v.) bay trên đầu
-    if (Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoBringItems or Config.AutoPickup) and droppedFolder then
-        local fuelPct = (Workspace:GetAttribute("FuelPercentage") or 1) * 100
-        local needFuel = (fuelPct <= (Config.AutoFuelThreshold or 95)) or Config.AutoPickup
-        local carriedCount = 0
+    -- 3. Thu thập Gas, Scrap, Battery, Heart, Objective Items vào Backpack Sack
+    -- Khi thu thập tự động trang bị lên, đầy thì thôi, sau khi thu xong trả về slot trước đó ngay lập tức!
+    if (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources) and droppedFolder and not isAtBase then
+        if not IsBackpackFull() then
+            local candidates = {}
+            local maxSlots = GetBackpackMaxCapacity() - GetBackpackItemCount()
 
-        for _, item in ipairs(droppedFolder:GetChildren()) do
-            if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not CarriedHoverItems[item] then
-                local cat = Utils.ClassifyItem(item)
-                if (cat == "Fuel" and needFuel) or (cat == "Resource" and Config.AutoShredResources) then
-                    local dist = (item:GetPivot().Position - root.Position).Magnitude
-                    if dist <= math.max(pickupRadius, 45) then
-                        if Config.ItemHoverCarry then
-                            PickUpAndHoverAboveHead(item)
-                        else
-                            local targetCF = (cat == "Fuel" and genPart) and (genPart.CFrame * CFrame.new(0, 2.5, 0))
-                                or (shredPart and shredPart.CFrame * CFrame.new(0, 2.5, 0))
-                            if targetCF then
-                                TouchAndFlyItemToBase(item, targetCF)
+            for _, item in ipairs(droppedFolder:GetChildren()) do
+                if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] then
+                    if IsBackpackSackItem(item) then
+                        local dist = (item:GetPivot().Position - root.Position).Magnitude
+                        if dist <= math.max(pickupRadius, 28) then
+                            table.insert(candidates, item)
+                            if #candidates >= maxSlots then
+                                break
                             end
                         end
-                        carriedCount = carriedCount + 1
-                        if carriedCount >= 16 then break end
                     end
                 end
+            end
+
+            if #candidates > 0 then
+                StoreCandidatesToBackpack(candidates)
             end
         end
     end
 
-    -- 4. Tự động nhặt Bản vẽ thiết kế (Blueprints), Vũ khí (Súng/Melee), Đạn, Tiêu hao (Máu/Đồ ăn) vào Túi Roblox mặc định & Radio Part vào Balo
-    if (Config.AutoPickup or Config.AutoStoreBackpack) and droppedFolder then
+    -- 4. Tự động nhặt Bản vẽ thiết kế (Blueprints), Vũ khí (Súng/Melee), Đạn, Tiêu hao (Máu/Đồ ăn) vào Túi Roblox mặc định
+    if Config.AutoPickup and droppedFolder then
         for _, item in ipairs(droppedFolder:GetChildren()) do
-            if ShouldPickupItem(item) and not ActiveFlyingItems[item] and not CarriedHoverItems[item] then
+            if not ActiveFlyingItems[item] and not IsBackpackSackItem(item) and ShouldPickupItem(item) then
                 local dist = (item:GetPivot().Position - root.Position).Magnitude
                 if dist <= pickupRadius then
                     LootItemToBackpackNoEquip(item)
-                end
-            end
-        end
-    end
-
-    -- 5. Tự động thả đồ trong túi (Backpack game & Roblox Backpack) khi đến gần máy phát điện và scraper
-    if Config.AutoEmptyBackpackAtBase then
-        local distToGen = genPart and (genPart.Position - root.Position).Magnitude or 9999
-        local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
-
-        -- A. Xả Ba lô game (Sack Backpack)
-        if AdjustBackpackRemote then
-            local itemsInBp = LocalPlayer:GetAttribute("ItemsInBackpack") or 0
-            if itemsInBp > 0 then
-                if distToShred <= 26 and shredPart then
-                    pcall(function()
-                        AdjustBackpackRemote:FireServer(nil, shredPart.CFrame * CFrame.new(0, 2, 0))
-                    end)
-                elseif distToGen <= 26 and genPart then
-                    pcall(function()
-                        AdjustBackpackRemote:FireServer(nil, genPart.CFrame * CFrame.new(0, 2, 0))
-                    end)
-                end
-            end
-        end
-
-        -- B. Xả các đồ vật trong Backpack mặc định của Roblox (Đồ ăn, Gas can thả ở generator, Scrap/Battery thả ở scraper)
-        if bp then
-            for _, child in ipairs(bp:GetChildren()) do
-                if child:IsA("Tool") then
-                    local toolCat = Utils.ClassifyItem(child)
-                    if (toolCat == "Food" or toolCat == "Fuel") and distToGen <= 26 and genPart then
-                        pcall(function()
-                            child.Parent = Workspace
-                            local h = child:FindFirstChild("Handle") or child:FindFirstChildWhichIsA("BasePart")
-                            if h then
-                                h.CFrame = genPart.CFrame * CFrame.new(-3, 2, 0)
-                                h.AssemblyLinearVelocity = Vector3.zero
-                            end
-                        end)
-                    elseif toolCat == "Resource" and distToShred <= 26 and shredPart then
-                        pcall(function()
-                            child.Parent = Workspace
-                            local h = child:FindFirstChild("Handle") or child:FindFirstChildWhichIsA("BasePart")
-                            if h then
-                                h.CFrame = shredPart.CFrame * CFrame.new(0, 2, 0)
-                                h.AssemblyLinearVelocity = Vector3.zero
-                            end
-                        end)
-                    end
                 end
             end
         end
@@ -816,6 +903,13 @@ Looting.BringMatchingItems = BringMatchingItems
 Looting.TouchAndFlyItemToBase = TouchAndFlyItemToBase
 Looting.LootItemToBackpackNoEquip = LootItemToBackpackNoEquip
 Looting.GetPlayerHungerPercent = GetPlayerHungerPercent
+Looting.GetBackpackTool = GetBackpackTool
+Looting.GetBackpackItemCount = GetBackpackItemCount
+Looting.GetBackpackMaxCapacity = GetBackpackMaxCapacity
+Looting.IsBackpackFull = IsBackpackFull
+Looting.StoreCandidatesToBackpack = StoreCandidatesToBackpack
+Looting.UnloadBackpackAtBase = UnloadBackpackAtBase
+Looting.AutoSortBaseItems = AutoSortBaseItems
 
 Hub.Looting = Looting
 return Hub

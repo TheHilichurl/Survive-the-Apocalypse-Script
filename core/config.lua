@@ -93,8 +93,8 @@ local Config = {
     UnlockScavengerHighlight = false,
 
     -- Looting, Dragging, Backpack & Survival
-    AutoPickup = false,
-    AutoPickupRadius = 15,
+    AutoPickup = true,
+    AutoPickupRadius = 20,
     AutoPickupMethodRemote = true,
     AutoPickupMethodPrompt = true,
     AutoPickupMethodTouch = true,
@@ -112,14 +112,14 @@ local Config = {
         Equipment = true,
         Ability = true,
     },
-    AutoStoreBackpack = true,
-    AutoLootWithoutEquip = true,
-    AutoEmptyBackpackAtBase = true,
+    AutoStoreBackpack = true,           -- Auto loot Gas, Scrap, Battery, Heart into Backpack sack
+    BackpackCapacity = 4,              -- Max sack capacity fallback (auto detected from player attribute)
+    AutoLootWithoutEquip = true,       -- Never equip looted weapons/ammo to hand (Roblox inventory)
+    AutoEmptyBackpackAtBase = true,     -- Auto unstore and sort items by type at Base (Gas->Gen, Scrap->Shredder)
     AutoFuelGenerator = true,
     AutoFuelThreshold = 95,
     AutoShredResources = true,
     AutoBringItems = false,
-    ItemHoverCarry = true,             -- Drag items physically and hover above player's head, deposit at Base
     ItemFlightSpeed = 145,             -- Studs/sec smooth physics flight to Base
     BringSortOrder = "Nearest First",  -- Nearest First, Farthest First, Highest Tier, Alphabetical
     BringDestination = "AutoByType",   -- AutoByType, BaseCenter, Generator, Shredder, Player

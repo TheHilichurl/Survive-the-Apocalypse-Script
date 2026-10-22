@@ -215,24 +215,24 @@ TabAbilities:AddToggle("Vanguard: Auto Counter Shield Shockwave", "AutoVanguardC
 TabAbilities:AddToggle("Scavenger Lv3: Unlock Native Wall Highlight on Nearby Items", "UnlockScavengerHighlight")
 
 -- ============================================================================
--- TAB 4: LOOTING, DRAG & SURVIVAL
+-- TAB 4: LOOTING, SACK BACKPACK & SURVIVAL
 -- ============================================================================
 local TabLooting = CreateTab("4. Looting")
-TabLooting:AddSection("Smart Auto Loot to Backpack (No Hand Equip)")
-TabLooting:AddToggle("Enable Auto Loot Nearby Items Directly to Backpack", "AutoPickup")
-TabLooting:AddToggle("Never Equip Looted Items to Hand (Direct to Backpack)", "AutoLootWithoutEquip")
-TabLooting:AddToggle("Auto Store Ground Items into Sack (AdjustBackpack)", "AutoStoreBackpack")
+TabLooting:AddSection("Backpack Sack Auto-Loot & Instant Weapon Restore")
+TabLooting:AddToggle("Auto Loot Gas, Scrap, Battery, Hearts into Backpack Sack", "AutoStoreBackpack")
+TabLooting:AddSlider("Backpack Sack Max Capacity", "BackpackCapacity", 2, 10, 1)
+TabLooting:AddToggle("Never Equip Looted Weapons/Items to Hand (Roblox Bag)", "AutoLootWithoutEquip")
+TabLooting:AddToggle("Auto Loot All Other Items (Blueprints, Guns, Ammo, Meds)", "AutoPickup")
 TabLooting:AddSlider("Auto Loot Radius (Studs)", "AutoPickupRadius", 5, 35, 1)
 TabLooting:AddToggle("Ignore Items Stored on Base Shelves (OnShelf)", "AutoPickupIgnoreShelf")
-TabLooting:AddToggle("Auto Empty Backpack into Shredder/Generator at Base", "AutoEmptyBackpackAtBase")
 
-TabLooting:AddSection("Item Hover & Physics Carry Engine (Above Head)")
-TabLooting:AddToggle("Carry Items Above Player Head (Auto-Deposit at Base)", "ItemHoverCarry")
-TabLooting:AddToggle("Auto Collect Nearby Fuel (Gas Cans)", "AutoFuelGenerator")
+TabLooting:AddSection("Base Auto-Empty & Exact Type Sorting")
+TabLooting:AddToggle("Auto Empty & Sort Backpack at Base (Gas->Gen, Scrap->Shredder)", "AutoEmptyBackpackAtBase")
+TabLooting:AddToggle("Auto Fuel Generator at Base (Gas Cans)", "AutoFuelGenerator")
 TabLooting:AddSlider("Fuel Generator When Below (%)", "AutoFuelThreshold", 20, 100, 5)
-TabLooting:AddToggle("Auto Collect Nearby Resources (Scrap/Battery/Hearts)", "AutoShredResources")
-TabLooting:AddToggle("Continuous Auto-Fly Nearby Items to Base", "AutoBringItems")
-TabLooting:AddSlider("Item Flight Speed to Base (Studs/s)", "ItemFlightSpeed", 60, 250, 5)
+TabLooting:AddToggle("Auto Feed Shredder/Scraper at Base (Scrap/Battery/Hearts)", "AutoShredResources")
+
+TabLooting:AddSection("Manual Item Bring to Base")
 TabLooting:AddDropdown("Fly Destination Mode", "BringDestination", { "AutoByType", "BaseCenter", "Generator", "Shredder", "Player" })
 TabLooting:AddDropdown("Item Category Filter", "BringCategoryFilter", {
     "All", "Fuel", "Resource", "Gun", "Melee", "Ammo", "Medical", "Food", "Armor", "Blueprint", "Equipment"
