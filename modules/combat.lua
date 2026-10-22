@@ -214,43 +214,34 @@ local OriginalBulletHitscan = BulletModule and BulletModule.BulletHitscan
 local BypassHitscanHook = false
 
 local StaticAimRayParams = RaycastParams.new()
-StaticAimRayParams.FilterType = Enum.RaycastFilterType.Exclude
+StaticAimRayParams.FilterType = Enum.RaycastFilterType.Include
 StaticAimRayParams.RespectCanCollide = true
-StaticAimRayParams.IgnoreWater = true
+StaticAimRayParams.CollisionGroup = "Default"
 
-local StaticAimIgnoreList = { VirtualBulletPart }
-local LastIgnoreListRefresh = 0
-
-local function GetStaticAimIgnoreList()
+local LastAimRayParamsRefresh = 0
+local function EnsureAimRayParams()
     local now = os.clock()
-    if (now - LastIgnoreListRefresh) >= 0.5 then
-        LastIgnoreListRefresh = now
-        local list = { VirtualBulletPart }
-        local myChar = Utils.GetCharacter()
-        if myChar then table.insert(list, myChar) end
-        local dropped = Workspace:FindFirstChild("DroppedItems")
-        if dropped then table.insert(list, dropped) end
-        local fog = Workspace:FindFirstChild("Fog")
-        if fog then table.insert(list, fog) end
-        if Hub.Visuals and Hub.Visuals.ESPContainer then table.insert(list, Hub.Visuals.ESPContainer) end
-
-        local charsFolder = Workspace:FindFirstChild("Characters")
-        if charsFolder then
-            for _, ch in ipairs(charsFolder:GetChildren()) do
-                if ch:GetAttribute("Dead") == true or ch:GetAttribute("Player") == true then
-                    table.insert(list, ch)
-                end
-            end
-        end
-        StaticAimIgnoreList = list
+    if (now - LastAimRayParamsRefresh) >= 1.0 or #StaticAimRayParams.FilterDescendantsInstances == 0 then
+        LastAimRayParamsRefresh = now
+        local map = Workspace:FindFirstChild("Map")
+        local structures = Workspace:FindFirstChild("Structures")
+        local border = map and map:FindFirstChild("Border")
+        local list = {}
+        if map then table.insert(list, map) end
+        if structures then table.insert(list, structures) end
+        if border then table.insert(list, border) end
         StaticAimRayParams.FilterDescendantsInstances = list
     end
-    return StaticAimIgnoreList
+    return StaticAimRayParams
 end
 
 local function CheckRayUnobstructed(startPt, endPt, targetModel)
-    if not (startPt and endPt and targetModel) then return false, nil end
-    GetStaticAimIgnoreList()
+    if not (startPt and endPt) then return false, nil end
+    if Config.AimWallCheck == false then
+        return true, endPt
+    end
+
+    EnsureAimRayParams()
 
     local dir = endPt - startPt
     local dist = dir.Magnitude
@@ -260,6 +251,7 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
 
     local hit = Workspace:Raycast(startPt, dir, StaticAimRayParams)
     if not hit then
+        -- Tuyến bắn hoàn toàn không bị Map/Structures cản trở
         return true, endPt
     end
 
@@ -268,11 +260,7 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
         return true, endPt
     end
 
-    if inst:IsDescendantOf(targetModel) then
-        return true, hit.Position
-    end
-
-    -- Nếu chạm phải vật thể xuyên qua được (Fog, InvisibleBorder, không CanCollide)
+    -- Nếu chạm phải vật thể xuyên qua được (Fog, InvisibleBorder, không CanCollide, Trigger)
     if not inst.CanCollide or inst.Name == "FogPart" or inst.Name == "InvisibleBorder" or inst.Name:find("Trigger") then
         local nextPt = hit.Position + dir.Unit * 0.1
         local remDir = endPt - nextPt
@@ -283,10 +271,25 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
         if not hit2 then
             return true, endPt
         end
-        if hit2.Instance and hit2.Instance:IsDescendantOf(targetModel) then
-            return true, hit2.Position
+        if not hit2.Instance or not hit2.Instance.CanCollide then
+            return true, endPt
         end
-        if not hit2.Instance.CanCollide then
+    end
+
+    -- Nếu điểm va chạm rất gần mục tiêu (<= 1.2 studs, ví dụ tường ngay sau lưng quái)
+    if (hit.Position - endPt).Magnitude <= 1.2 then
+        return true, hit.Position
+    end
+
+    -- Nếu điểm va chạm quá gần nòng súng (<= 0.6 studs, nòng súng hơi lẹm vào kết cấu vị trí đứng)
+    if (hit.Position - startPt).Magnitude <= 0.6 then
+        local passPt = hit.Position + dir.Unit * 0.8
+        local remDir2 = endPt - passPt
+        if remDir2.Magnitude <= 0.35 then
+            return true, endPt
+        end
+        local hit3 = Workspace:Raycast(passPt, remDir2, StaticAimRayParams)
+        if not hit3 or (hit3.Position - endPt).Magnitude <= 1.2 then
             return true, endPt
         end
     end
@@ -325,14 +328,18 @@ local function FindUnobstructedPartOnMob(model)
         return part, origin, hitPos or part.Position, nil
     end
 
-    -- Nếu part ưu tiên bị che khuất, thử kiểm tra nhanh HumanoidRootPart
-    local altName = (preferredPart == "Head") and "HumanoidRootPart" or "Head"
-    local altPart = model:FindFirstChild(altName)
-    if altPart and altPart:IsA("BasePart") then
-        local altOrigin = GetWeaponFireOrigin(altPart.Position)
-        local isClearAlt, hitPosAlt = CheckRayUnobstructed(altOrigin, altPart.Position, model)
-        if isClearAlt then
-            return altPart, altOrigin, hitPosAlt or altPart.Position, nil
+    -- Nếu part ưu tiên bị che khuất bởi Map/Structures, thử kiểm tra các part khác
+    local candidatePartNames = { "UpperTorso", "Torso", "HumanoidRootPart", "Head" }
+    for _, name in ipairs(candidatePartNames) do
+        if name ~= preferredPart then
+            local altPart = model:FindFirstChild(name)
+            if altPart and altPart:IsA("BasePart") then
+                local altOrigin = GetWeaponFireOrigin(altPart.Position)
+                local isClearAlt, hitPosAlt = CheckRayUnobstructed(altOrigin, altPart.Position, model)
+                if isClearAlt then
+                    return altPart, altOrigin, hitPosAlt or altPart.Position, nil
+                end
+            end
         end
     end
 
@@ -407,7 +414,7 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
 
     -- Bước 3: Early Exit Raycast - Chỉ kiểm tra vật cản cho tối đa Top 3 mục tiêu tốt nhất!
     -- Nếu mục tiêu số 1 thông thoáng -> DỪNG NGAY LẬP TỨC (Break), tiết kiệm 95% CPU!
-    local checkLimit = checkLOS and math.min(#candidates, 3) or 1
+    local checkLimit = checkLOS and math.min(#candidates, 8) or 1
     for i = 1, checkLimit do
         local entry = candidates[i]
         local model = entry.Model
@@ -498,29 +505,49 @@ local function EnsureBulletModuleHook()
 
                 hits = type(hits) == "table" and hits or {}
                 effects = type(effects) == "table" and effects or {}
-                if lockedModel and (not rayRes or not rayRes.Position) then
-                    rayRes = { Position = aimTargetPos }
-                end
 
-                -- Guarantee Silent Aim registers headshot on first hit
+                -- Guarantee Silent Aim registers headshot on first hit and rayRes/effects point directly to head
                 if lockedModel and lockedPart then
                     local headPart = lockedModel:FindFirstChild("Head") or lockedPart
+                    aimTargetPos = headPart.Position
+                    rayRes = {
+                        Position = aimTargetPos,
+                        Instance = headPart,
+                        Normal = Vector3.new(0, 1, 0)
+                    }
+
                     if #hits == 0 then
                         table.insert(hits, {
                             HitChar = lockedModel,
-                            HitPos = headPart.Position,
+                            HitPos = aimTargetPos,
                             HitPart = headPart,
                             Ricochet = (options.RicochetMax and options.RicochetMax > 0) or nil
                         })
                     else
                         hits[1].HitChar = lockedModel
-                        hits[1].HitPos = headPart.Position
+                        hits[1].HitPos = aimTargetPos
                         hits[1].HitPart = headPart
                         if options.RicochetMax and options.RicochetMax > 0 then
                             hits[1].Ricochet = true
                         end
                     end
                     isHead = true
+
+                    if #effects == 0 then
+                        table.insert(effects, {
+                            Origin = origin,
+                            End = aimTargetPos,
+                            RayResult = nil,
+                        })
+                    else
+                        effects[1].Origin = origin
+                        effects[1].End = aimTargetPos
+                        effects[1].RayResult = nil
+                    end
+                end
+
+                for _, eff in ipairs(effects) do
+                    eff.RayResult = nil
                 end
 
                 -- Outlaw Ricochet Chain Continuation (Chains up to RicochetMax mobs)
@@ -569,7 +596,7 @@ local function EnsureBulletModuleHook()
                             table.insert(effects, {
                                 Origin = lastHitPos,
                                 End = bouncePos,
-                                RayResult = { Position = bouncePos }
+                                RayResult = nil
                             })
                             lastHitPos = bouncePos
                         else
@@ -1281,12 +1308,12 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                     local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
 
                     for pIdx = 1, pelletsCount do
-                        local pTargetPos = hitPos
                         local hitsList = nil
                         local effectsList = nil
 
                         if BulletModule and BulletModule.BulletHitscan then
-                            local bHits, bRay, bHead, bEffects = BulletModule.BulletHitscan(fireOrigin, pTargetPos, {
+                            BypassHitscanHook = false
+                            local bHits, bRay, bHead, bEffects = BulletModule.BulletHitscan(fireOrigin, hitPos, {
                                 Attacker = char,
                                 Penetration = (Config.MaxPenetration and 10) or (isOutlaw and 3) or (stats and stats:GetAttribute("Penetration")) or 0,
                                 RicochetMax = (isOutlaw and 3) or 0,
@@ -1299,9 +1326,6 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                             if type(bEffects) == "table" and #bEffects > 0 then
                                 effectsList = bEffects
                             end
-                            if bRay and bRay.Position then
-                                pTargetPos = bRay.Position
-                            end
                         end
 
                         if not hitsList or #hitsList == 0 then
@@ -1313,6 +1337,13 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                                     Ricochet = (isOutlaw and true) or nil,
                                 }
                             }
+                        else
+                            hitsList[1].HitChar = targetModel
+                            hitsList[1].HitPart = targetPart
+                            hitsList[1].HitPos = hitPos
+                            if isOutlaw then
+                                hitsList[1].Ricochet = true
+                            end
                         end
 
                         if not effectsList or #effectsList == 0 then
@@ -1320,13 +1351,19 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                                 {
                                     Origin = fireOrigin,
                                     End = hitPos,
-                                    RayResult = { Position = hitPos },
+                                    RayResult = nil,
                                 }
                             }
+                        else
+                            for _, eff in ipairs(effectsList) do
+                                eff.RayResult = nil
+                            end
+                            effectsList[1].Origin = fireOrigin
+                            effectsList[1].End = hitPos
                         end
 
                         pelletResults[pIdx] = {
-                            Target = pTargetPos,
+                            Target = hitPos,
                             HitData = hitsList,
                             EffectResults = effectsList,
                         }
