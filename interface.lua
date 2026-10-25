@@ -266,7 +266,7 @@ TabLooting:AddSlider("Auto Heal Health Threshold (%)", "AutoHealThreshold", 15, 
 TabLooting:AddToggle("No Slowdown While Using Bandage / Medical", "NoSlowOnMedical")
 TabLooting:AddToggle("Tự động mở hòm rương tiếp tế (Auto Open Crates)", "AutoOpenCrates")
 TabLooting:AddSlider("Tầm tự động mở rương (Studs)", "AutoOpenCratesRange", 10, 50, 2)
-TabLooting:AddToggle("Instant ProximityPrompts (0s Hold Duration Only)", "InstantInteract")
+TabLooting:AddToggle("Trực tiếp hoàn thành ProximityPrompt (Rương/Sửa điện 0s Instant)", "InstantInteract")
 TabLooting:AddToggle("Auto Complete / Fix Power Plants & Objectives", "AutoInteractObjectives")
 TabLooting:AddToggle("Auto Electric Repair Success Remote (Tự động gửi remote sửa điện khi đến gần)", "AutoElectricRepair")
 

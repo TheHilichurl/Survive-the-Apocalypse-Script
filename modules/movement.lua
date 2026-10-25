@@ -80,7 +80,7 @@ end))
 
 Hub.AddConnection(ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, plr)
     if Config.InstantInteract and plr == LocalPlayer then
-        Utils.SafeTriggerPrompt(prompt)
+        Utils.InstantCompletePrompt(prompt)
     end
 end))
 

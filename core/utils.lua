@@ -55,9 +55,61 @@ function Utils.IsHoldingPrompt()
     return false
 end
 
+function Utils.InstantCompletePrompt(prompt, onCompleteCallback)
+    if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled then
+        return false
+    end
+
+    -- Ép thời gian đè giữ về 0 để hoàn thành trực tiếp ngay lập tức
+    pcall(function()
+        prompt.HoldDuration = 0
+        prompt.RequiresLineOfSight = false
+        if prompt.MaxActivationDistance < 35 then
+            prompt.MaxActivationDistance = 35
+        end
+    end)
+
+    local isDone = false
+    local trigConn
+    trigConn = prompt.Triggered:Connect(function()
+        isDone = true
+    end)
+
+    -- 1. Ưu tiên hàm executor fireproximityprompt (trực tiếp bắn sự kiện tới server)
+    if fireproximityprompt_fn then
+        pcall(fireproximityprompt_fn, prompt, 0)
+        pcall(fireproximityprompt_fn, prompt)
+    end
+
+    -- 2. Kích hoạt trực tiếp qua engine Roblox API (InputHoldBegin/End)
+    -- Hoàn toàn độc lập thiết bị: PC và Mobile hoạt động đồng nhất 100%, không cần giả lập vật lý hay chạm màn hình
+    pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(0.04)
+        prompt:InputHoldEnd()
+    end)
+
+    if trigConn then
+        trigConn:Disconnect()
+    end
+
+    if CurrentHoldingPrompt == prompt then
+        CurrentHoldingPrompt = nil
+    end
+
+    if onCompleteCallback then
+        task.defer(onCompleteCallback)
+    end
+    return true
+end
+
 function Utils.SafeTriggerPrompt(prompt)
     if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled then
         return false
+    end
+
+    if Hub.Config.InstantInteract then
+        return Utils.InstantCompletePrompt(prompt)
     end
 
     local holdDur = prompt.HoldDuration or 0
@@ -65,24 +117,7 @@ function Utils.SafeTriggerPrompt(prompt)
         return Utils.HoldPromptContinuous(prompt, holdDur + 0.5)
     end
 
-    pcall(function()
-        if prompt.MaxActivationDistance < 35 then
-            prompt.MaxActivationDistance = 35
-        end
-        prompt.RequiresLineOfSight = false
-    end)
-
-    if fireproximityprompt_fn then
-        pcall(fireproximityprompt_fn, prompt)
-    end
-
-    pcall(function()
-        prompt:InputHoldBegin()
-        task.wait(0.04)
-        prompt:InputHoldEnd()
-    end)
-
-    return true
+    return Utils.InstantCompletePrompt(prompt)
 end
 
 function Utils.HoldPromptContinuous(prompt, maxDuration, onCompleteCallback)
@@ -90,13 +125,18 @@ function Utils.HoldPromptContinuous(prompt, maxDuration, onCompleteCallback)
         return false
     end
 
-    -- Khóa đơn luồng: Chỉ giữ 1 prompt tại một thời điểm để tránh Roblox hủy hold lẫn nhau
+    -- Nếu bật InstantInteract hoặc prompt đã có HoldDuration <= 0: trực tiếp hoàn thành luôn!
+    if Hub.Config.InstantInteract or (prompt.HoldDuration or 0) <= 0 then
+        return Utils.InstantCompletePrompt(prompt, onCompleteCallback)
+    end
+
+    -- Khóa đơn luồng: Chỉ giữ 1 prompt tại một thời điểm để tránh xung đột
     if CurrentHoldingPrompt then
         if CurrentHoldingPrompt == prompt then
-            return true -- Đang giữ đúng prompt này
+            return true
         end
         if CurrentHoldingPrompt.Parent and CurrentHoldingPrompt.Enabled then
-            return false -- Đang bận giữ prompt khác (ví dụ rương trước hoặc trạm điện)
+            return false
         end
         CurrentHoldingPrompt = nil
     end
@@ -115,62 +155,17 @@ function Utils.HoldPromptContinuous(prompt, maxDuration, onCompleteCallback)
         local holdTime = math.max(origHold, 0.1)
         local waitLimit = maxDuration or (holdTime + 0.8)
 
-        -- 1. Nếu là prompt tức thì (HoldDuration <= 0)
-        if origHold <= 0 then
-            if fireproximityprompt_fn then
-                pcall(fireproximityprompt_fn, prompt)
-            end
-            pcall(function()
-                prompt:InputHoldBegin()
-                task.wait(0.04)
-                prompt:InputHoldEnd()
-            end)
-            if CurrentHoldingPrompt == prompt then
-                CurrentHoldingPrompt = nil
-            end
-            if onCompleteCallback then pcall(onCompleteCallback) end
-            return
-        end
-
-        -- 2. Với prompt có thời gian đè giữ (Crate = 2s, Power Plant = 10s, Gas Pump = 5s)
         local isCompleted = false
         local trigConn
         trigConn = prompt.Triggered:Connect(function()
             isCompleted = true
         end)
 
-        -- Thử bypass tức thì 1 lần duy nhất nếu executor hỗ trợ
-        if fireproximityprompt_fn then
-            pcall(fireproximityprompt_fn, prompt, 0, true)
-            pcall(fireproximityprompt_fn, prompt)
-        end
-
-        task.wait(0.05)
-
-        -- Nếu prompt đã kích hoạt thành công hoặc đã bị vô hiệu hóa
-        if isCompleted or not prompt.Enabled or not prompt.Parent then
-            if trigConn then trigConn:Disconnect() end
-            if CurrentHoldingPrompt == prompt then
-                CurrentHoldingPrompt = nil
-            end
-            if onCompleteCallback then pcall(onCompleteCallback) end
-            return
-        end
-
-        -- BẮT ĐẦU ĐÈ GIỮ LIÊN TỤC (Tương thích hoàn toàn cả PC và Mobile):
-        -- Gọi InputHoldBegin trên ProximityPrompt để động cơ Roblox bắt đầu tính thời gian hold
+        -- ĐÈ GIỮ QUA ENGINE ROBLOX (Áp dụng đồng bộ cho cả PC và Mobile, bỏ hoàn toàn giả lập vật lý):
         pcall(function()
             prompt:InputHoldBegin()
         end)
 
-        -- Giả lập đè phím E trên PC (nếu có VirtualInputManager)
-        if VirtualInputManager then
-            pcall(function()
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            end)
-        end
-
-        -- Giữ liên tục trong suốt waitLimit mà KHÔNG ngắt quãng
         local elapsed = 0
         while elapsed < waitLimit do
             if isCompleted or not prompt.Enabled or not prompt.Parent then
@@ -191,16 +186,9 @@ function Utils.HoldPromptContinuous(prompt, maxDuration, onCompleteCallback)
             elapsed = elapsed + 0.08
         end
 
-        -- KẾT THÚC ĐÈ GIỮ VÀ GIẢI PHÓNG INPUT:
         pcall(function()
             prompt:InputHoldEnd()
         end)
-
-        if VirtualInputManager then
-            pcall(function()
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-            end)
-        end
 
         if trigConn then
             trigConn:Disconnect()
@@ -216,6 +204,35 @@ function Utils.HoldPromptContinuous(prompt, maxDuration, onCompleteCallback)
     end)
 
     return true
+end
+
+-- Tự động tinh chỉnh toàn bộ ProximityPrompt khi hiển thị trên màn hình:
+local ProximityPromptService = Services.ProximityPromptService or game:GetService("ProximityPromptService")
+if ProximityPromptService then
+    Hub.AddConnection(ProximityPromptService.PromptShown:Connect(function(prompt)
+        if Hub.Config.InstantInteract and prompt and prompt:IsA("ProximityPrompt") then
+            pcall(function()
+                prompt.HoldDuration = 0
+                prompt.RequiresLineOfSight = false
+                if prompt.MaxActivationDistance < 35 then
+                    prompt.MaxActivationDistance = 35
+                end
+            end)
+        end
+    end))
+end
+
+-- Kích hoạt nội tại tăng tốc tương tác trên Character (ExplorerProximityPrompt native boost)
+local function ApplyInteractSpeedBoost(char)
+    if char then
+        pcall(function()
+            char:SetAttribute("InteractableUseSpeed", 100)
+        end)
+    end
+end
+ApplyInteractSpeedBoost(LocalPlayer and LocalPlayer.Character)
+if LocalPlayer then
+    Hub.AddConnection(LocalPlayer.CharacterAdded:Connect(ApplyInteractSpeedBoost))
 end
 
 function Utils.NotifyGame(msg, color, soundType)

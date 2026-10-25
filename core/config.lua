@@ -136,7 +136,7 @@ local Config = {
     NoSlowOnMedical = true,
     AutoOpenCrates = true,
     AutoOpenCratesRange = 30,         -- Phạm vi tự động mở rương (studs)
-    InstantInteract = false,
+    InstantInteract = true,           -- Trực tiếp hoàn thành ProximityPrompt (0s) không cần chờ đè giữ
     AutoInteractObjectives = true,    -- Tự động hoàn thành/sửa chữa Trạm phát điện (Power Plant), Radio Tower & Objectives
     AutoElectricRepair = true,        -- Tự động gửi remote sửa điện thành công khi đến gần công trình
 

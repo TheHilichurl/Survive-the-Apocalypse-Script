@@ -1217,11 +1217,17 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
                         local prompt = controlBox and controlBox:FindFirstChildWhichIsA("ProximityPrompt", true)
                             or tile:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt and prompt.Enabled then
-                            local holdDur = prompt.HoldDuration or 10.0
-                            Utils.NotifyGame("Đang tự động đè giữ phím sửa Nhà máy phát điện (10s)...", Color3.fromRGB(250, 204, 21))
-                            Utils.HoldPromptContinuous(prompt, holdDur + 0.8, function()
-                                Utils.NotifyGame("Đã sửa xong Nhà máy phát điện thành công!", Color3.fromRGB(74, 222, 128))
-                            end)
+                            if Config.InstantInteract then
+                                Utils.InstantCompletePrompt(prompt, function()
+                                    Utils.NotifyGame("Đã trực tiếp sửa xong Nhà máy phát điện!", Color3.fromRGB(74, 222, 128))
+                                end)
+                            else
+                                local holdDur = prompt.HoldDuration or 10.0
+                                Utils.NotifyGame("Đang tự động đè giữ phím sửa Nhà máy phát điện (10s)...", Color3.fromRGB(250, 204, 21))
+                                Utils.HoldPromptContinuous(prompt, holdDur + 0.8, function()
+                                    Utils.NotifyGame("Đã sửa xong Nhà máy phát điện thành công!", Color3.fromRGB(74, 222, 128))
+                                end)
+                            end
                             return
                         end
                     elseif isRadioTower and distToBox <= 15 then
@@ -1510,14 +1516,20 @@ local function RunLootingAndSurvivalStep()
                     local prompt = crate:FindFirstChildWhichIsA("ProximityPrompt", true)
 
                     if prompt and prompt.Enabled then
-                        local holdDur = prompt.HoldDuration or 2.0
                         local crateName = crate.Name
                         local r = crate:GetAttribute("Rarity") or crateName
-                        Utils.NotifyGame("Đang tự động đè mở rương [" .. tostring(r) .. "] (2s)...", Color3.fromRGB(56, 189, 248))
-                        Utils.HoldPromptContinuous(prompt, holdDur + 0.6, function()
-                            Utils.NotifyGame("Đã mở rương [" .. tostring(r) .. "] thành công!", Color3.fromRGB(74, 222, 128))
-                        end)
-                        break -- Chỉ giữ 1 rương tại một thời điểm
+                        if Config.InstantInteract then
+                            Utils.InstantCompletePrompt(prompt, function()
+                                Utils.NotifyGame("Đã trực tiếp mở rương [" .. tostring(r) .. "]!", Color3.fromRGB(74, 222, 128))
+                            end)
+                        else
+                            local holdDur = prompt.HoldDuration or 2.0
+                            Utils.NotifyGame("Đang tự động đè mở rương [" .. tostring(r) .. "] (2s)...", Color3.fromRGB(56, 189, 248))
+                            Utils.HoldPromptContinuous(prompt, holdDur + 0.6, function()
+                                Utils.NotifyGame("Đã mở rương [" .. tostring(r) .. "] thành công!", Color3.fromRGB(74, 222, 128))
+                            end)
+                        end
+                        break -- Chỉ xử lý 1 rương tại một thời điểm
                     end
                 end
             end
