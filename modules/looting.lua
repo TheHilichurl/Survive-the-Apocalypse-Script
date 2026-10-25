@@ -87,13 +87,10 @@ local function IsItemAlreadyAtBaseOrDelivered(item)
         end
     end
 
-    -- 4. Bất kỳ item nào nằm trong toàn bộ khuôn viên Base (bán kính Config.BaseUnloadRange quanh Generator hoặc Scraper)
-    --    ĐÃ Ở NHÀ RỒI -> TUYỆT ĐỐI KHÔNG HÚT VÀO BACKPACK SACK NỮA!
-    local baseRange = Config.BaseUnloadRange or 110
-    if genPart and (itemPos - genPart.Position).Magnitude <= baseRange then
-        return true
-    end
-    if shredPart and (itemPos - shredPart.Position).Magnitude <= baseRange then
+    -- 4. Bất kỳ item nào nằm trong bán kính Config.BaseUnloadRange quanh Generator (~30 studs)
+    --    ĐÃ Ở KHU VỰC GENERATOR -> KHÔNG HÚT VÀO BACKPACK SACK NỮA!
+    local unloadRange = Config.BaseUnloadRange or 30
+    if genPart and (itemPos - genPart.Position).Magnitude <= unloadRange then
         return true
     end
 
@@ -279,43 +276,16 @@ local function HandleDroppedItemInstantly(item)
     local isFromBackpack = IsHandlingBackpackEquip or IsDroppingBackpack or ((now - LastBackpackDropTime) <= 4.0)
 
     local genPart = Utils.GetGeneratorMainPart()
-    local shredPart = Utils.GetShredderTargetPart()
-    local char = Utils.GetCharacter()
-    local root = Utils.GetRootPart(char)
-    local basePos = (genPart and genPart.Position) or (shredPart and shredPart.Position)
-    if not basePos then return end
-
     local itemPos = item:GetPivot().Position
-    local distToBase = (itemPos - basePos).Magnitude
+    local distToGen = genPart and (itemPos - genPart.Position).Magnitude or 9999
+    local unloadRange = Config.BaseUnloadRange or 30
 
-    -- CHỈ XỬ LÝ KHI VẬT PHẨM ĐƯỢC THẢ RA TỪ BACKPACK HOẶC ĐÃ NẰM TRONG KHUÔN VIÊN BASE (BÁN KÍNH Config.BaseUnloadRange)
-    -- TUYỆT ĐỐI KHÔNG TỰ Ý DỊCH CHUYỂN ĐỒ NGOÀI MAP KHI CHƯA NHẶT VÀO BACKPACK!
-    local baseRange = Config.BaseUnloadRange or 110
-    if isFromBackpack or distToBase <= baseRange then
+    -- Nếu vật phẩm được thả ra từ ba lô hoặc rơi trong phạm vi ~30 studs quanh Generator:
+    -- Đánh dấu để hệ thống không tự động hút lại vào ba lô
+    -- KHÔNG fix cứng vị trí hay PivotTo, để vật phẩm rơi tự do tự nhiên!
+    if isFromBackpack or (distToGen <= unloadRange) then
         DeliveredItems[item] = true
         RecentlyDroppedTime[item] = now
-
-        -- Nếu vật phẩm đang ở trong Base và rơi gần mục tiêu, có thể căn chỉnh rơi vào máy
-        if distToBase <= baseRange then
-            local cat = Utils.ClassifyItem(item)
-            local targetCF = GetTargetCFrameForCategory(cat, genPart, shredPart, basePos)
-            local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
-
-            if targetCF and part then
-                local distToTarget = (part.Position - targetCF.Position).Magnitude
-                if distToTarget > 2.0 then
-                    pcall(function()
-                        item:PivotTo(targetCF)
-                    end)
-                end
-
-                if cat == "Fuel" then
-                    TriggerGeneratorTouch(part)
-                elseif cat == "Resource" then
-                    TriggerShredderTouch(part)
-                end
-            end
-        end
     end
 end
 
@@ -726,14 +696,10 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
 
             LastBackpackDropTime = os.clock()
 
-            -- 2. Trực tiếp xả sạch toàn bộ đồ trong sack theo đúng type:
+            -- 2. Trực tiếp xả sạch toàn bộ đồ trong sack theo cách rơi tự nhiên:
             -- Thả liên tục cho tới khi sạch đồ (ItemsInBackpack == 0).
-            -- Mỗi món đồ khi rơi ra sẽ được HandleDroppedItemInstantly tự động phân loại ngay lập tức:
-            -- Gas -> Generator, Scrap/Battery -> Shredder, Food -> Food stash!
-            local defaultDropCF = (shredPart and (shredPart.CFrame * CFrame.new(0, 4.8, 0)))
-                or (genPart and (genPart.CFrame * CFrame.new(0, 2.2, 0)))
-                or (root and (root.CFrame * CFrame.new(0, 1, -3)))
-
+            -- Vật phẩm rơi tự nhiên phía trước người chơi như game gốc (HumanoidRootPart.CFrame * CFrame.new(0, 0, -3))
+            -- KHÔNG fix cứng 1 chỗ mà cho rơi tự do tự nhiên!
             local attempts = 0
             local maxAttempts = math.min(sackCount + 10, 45)
             while attempts < maxAttempts and Utils.IsCharacterAlive(char) and bpTool.Parent == char do
@@ -743,9 +709,12 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
                 end
 
                 attempts = attempts + 1
-                if AdjustBackpackRemote then
+                if AdjustBackpackRemote and root then
+                    local spreadX = (math.random() - 0.5) * 1.5
+                    local spreadZ = -2.5 + (math.random() - 0.5) * 1.5
+                    local dropCF = root.CFrame * CFrame.new(spreadX, 0, spreadZ)
                     pcall(function()
-                        AdjustBackpackRemote:FireServer(nil, defaultDropCF)
+                        AdjustBackpackRemote:FireServer(nil, dropCF)
                     end)
                 end
                 task.wait(0.06)
@@ -753,13 +722,15 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
         end
 
         -- 3. Xả trực tiếp các vật phẩm dạng Tool trong túi cá nhân Roblox (Fuel, Food, Resource)
-        -- Sử dụng DropTool remote trực tiếp tới vị trí máy mà KHÔNG CẦN switch tool trên tay!
+        -- Thả rơi tự nhiên tại vị trí người chơi
         for _, child in ipairs(bp:GetChildren()) do
             if child:IsA("Tool") and child.Name ~= "Backpack" and child:GetAttribute("ToolType") ~= "Backpack" then
                 local toolCat = Utils.ClassifyItem(child)
                 if toolCat == "Fuel" or toolCat == "Food" or toolCat == "Resource" then
-                    local dropCF = GetTargetCFrameForCategory(toolCat, genPart, shredPart)
-                    if dropCF and Hub.Remotes and Hub.Remotes.DropTool then
+                    if root and Hub.Remotes and Hub.Remotes.DropTool then
+                        local spreadX = (math.random() - 0.5) * 1.2
+                        local spreadZ = -2.5 + (math.random() - 0.5) * 1.2
+                        local dropCF = root.CFrame * CFrame.new(spreadX, 0, spreadZ)
                         pcall(function()
                             Hub.Remotes.DropTool:InvokeServer(child, dropCF)
                         end)
@@ -812,61 +783,10 @@ ThrowGasToGenerator = function(item, part, shredPart, genPart)
     TriggerGeneratorTouch(part)
 end
 
--- Tự động phân loại và định vị tức thời vật phẩm tại Base theo đúng chủng loại (Không kéo vật lý):
--- 1. Scrap, Battery, Heart, Screws: Đặt trực tiếp phía trên Scraper rơi thẳng xuống máy nghiền
--- 2. Gas (Fuel): Đặt trực tiếp phía trên Generator để nạp nhiên liệu
--- 3. Food: Đặt trực tiếp phía trên Generator
+-- Tự động phân loại vật phẩm tại Base (Giữ nguyên vị trí rơi tự nhiên, không cưỡng ép dịch chuyển)
 local function AutoSortBaseItems(genPart, shredPart, root)
-    local droppedFolder = Workspace:FindFirstChild("DroppedItems")
-    if not droppedFolder then return end
-
-    local basePos = (shredPart and shredPart.Position) or (genPart and genPart.Position) or (root and root.Position)
-    if not basePos then return end
-
-    for _, item in ipairs(droppedFolder:GetChildren()) do
-        if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not GasThrowingInProgress[item] then
-            local itemPos = item:GetPivot().Position
-            local distToBase = (itemPos - basePos).Magnitude
-            local baseRange = Config.BaseUnloadRange or 110
-            if distToBase <= baseRange then
-                local cat = Utils.ClassifyItem(item)
-                local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
-                if part then
-                    if cat == "Fuel" and genPart then
-                        local targetCF = genPart.CFrame * CFrame.new(0, 2.2, 0)
-                        if (part.Position - targetCF.Position).Magnitude > 1.8 then
-                            ThrowGasToGenerator(item, part, shredPart, genPart)
-                        else
-                            TriggerGeneratorTouch(part)
-                        end
-                        DeliveredItems[item] = true
-                        RecentlyDroppedTime[item] = os.clock()
-                    elseif cat == "Resource" and shredPart then
-                        local targetCF = shredPart.CFrame * CFrame.new(0, 4.5, 0)
-                        local distToShred = (part.Position - shredPart.Position).Magnitude
-                        if distToShred > 2.0 or part.Position.Y < (shredPart.Position.Y + 0.5) then
-                            pcall(function()
-                                item:PivotTo(targetCF)
-                            end)
-                        end
-                        TriggerShredderTouch(part)
-                        DeliveredItems[item] = true
-                        RecentlyDroppedTime[item] = os.clock()
-                    elseif cat == "Food" and genPart then
-                        -- Thả ở trong base nhưng cách xa generator tầm 10 studs!
-                        local targetCF = genPart.CFrame * CFrame.new(-10, 1.8, 0)
-                        if (part.Position - targetCF.Position).Magnitude > 2.5 then
-                            pcall(function()
-                                item:PivotTo(targetCF)
-                            end)
-                        end
-                        DeliveredItems[item] = true
-                        RecentlyDroppedTime[item] = os.clock()
-                    end
-                end
-            end
-        end
-    end
+    -- Để vật phẩm rơi tự nhiên, không dịch chuyển cố định
+    return
 end
 
 -- Bay trực tiếp về Base (Dùng khi gọi manual Bring All Map)
@@ -1026,11 +946,9 @@ local function ProcessNewlySpawnedLoot()
     if not (char and root and Utils.IsCharacterAlive(char)) then return end
 
     local genPart = Utils.GetGeneratorMainPart()
-    local shredPart = Utils.GetShredderTargetPart()
     local distToGen = genPart and (genPart.Position - root.Position).Magnitude or 9999
-    local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
-    local baseRange = Config.BaseUnloadRange or 110
-    local isAtBase = (distToGen <= baseRange or distToShred <= baseRange)
+    local unloadRange = Config.BaseUnloadRange or 30
+    local isNearGenerator = (distToGen <= unloadRange)
 
     -- Tuyệt đối không kéo đồ từ xa quá 15 studs
     local pickupRadius = math.min(Config.AutoPickupRadius or 15, 15)
@@ -1119,12 +1037,7 @@ local function SetupDroppedItemsWatcher()
 
     Hub.AddConnection(droppedFolder.ChildAdded:Connect(OnItemSpawned))
 
-    -- Kiểm tra sơ bộ các item đã có sẵn tại Base
-    for _, child in ipairs(droppedFolder:GetChildren()) do
-        task.defer(function()
-            HandleDroppedItemInstantly(child)
-        end)
-    end
+    -- KHÔNG lặp qua các item có sẵn lúc load script để tránh kéo dồn toàn bộ đồ xung quanh base!
 end
 
 SetupDroppedItemsWatcher()
@@ -1303,21 +1216,18 @@ local function RunLootingAndSurvivalStep()
     local hungerThreshold = Config.AutoEatThreshold or 70
 
     local genPart = Utils.GetGeneratorMainPart()
-    local shredPart = Utils.GetShredderTargetPart()
-
     local distToGen = genPart and (genPart.Position - root.Position).Magnitude or 9999
-    local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
-    local baseRange = Config.BaseUnloadRange or 110
-    local isAtBase = (distToGen <= baseRange or distToShred <= baseRange)
+    local unloadRange = Config.BaseUnloadRange or 30
+
+    -- Chỉ kích hoạt drop đồ khi người chơi lại gần Generator trong phạm vi ~30 studs
+    local isNearGenerator = (distToGen <= unloadRange)
 
     -- Tự động hoàn thành / sửa chữa Trạm phát điện, Máy phát điện, Radio Tower & Máy nghiền
+    local shredPart = Utils.GetShredderTargetPart()
     AutoCompleteObjectivesAndStations(root, genPart, shredPart)
 
-    -- Tự động phân loại tất cả vật phẩm ở base vào đúng vị trí: Scrap/Battery rơi trên Scraper xuống, Gas & Food trên Generator
-    AutoSortBaseItems(genPart, shredPart, root)
-
-    -- 0. Nếu về đến Base -> Tự động xả Backpack sack và các đồ vật trong Backpack mặc định của Roblox
-    if isAtBase then
+    -- 0. Nếu lại gần Generator (<= 30 studs) -> Tự động kích hoạt xả đồ rơi ra bình thường
+    if isNearGenerator then
         if Config.AutoEmptyBackpackAtBase and not IsDroppingBackpack and not IsHandlingBackpackEquip then
             UnloadBackpackAtBase(genPart, shredPart, root)
         end
