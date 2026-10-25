@@ -51,7 +51,8 @@ local Compatibility = {
     readfile = rawget(_G, "readfile") or rawget(getfenv and getfenv() or {}, "readfile"),
     isfile = rawget(_G, "isfile") or rawget(getfenv and getfenv() or {}, "isfile"),
     gethui = rawget(_G, "gethui") or rawget(getfenv and getfenv() or {}, "gethui"),
-    getcustomasset = rawget(_G, "getcustomasset") or rawget(_G, "getsynasset") or rawget(getfenv and getfenv() or {}, "getcustomasset") or rawget(getfenv and getfenv() or {}, "getsynasset")
+    getcustomasset = rawget(_G, "getcustomasset") or rawget(_G, "getsynasset") or rawget(getfenv and getfenv() or {}, "getcustomasset") or rawget(getfenv and getfenv() or {}, "getsynasset"),
+    firesignal = rawget(_G, "firesignal") or rawget(getfenv and getfenv() or {}, "firesignal"),
 }
 
 -- Game Remotes & Modules References

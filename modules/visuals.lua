@@ -93,7 +93,7 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
         ActiveESPElements[obj] = entry
     end
 
-    -- 1. Highlight (Chams 3D Glow - Áp dụng cho các mục tiêu ưu tiên cao trong giới hạn 30 của Roblox)
+    -- 1. Highlight (Tô màu viền / Outline Only hoặc Chams)
     if allowChams and Config.ESPChams ~= false then
         if not entry.Highlight then
             local hl = Instance.new("Highlight")
@@ -106,8 +106,14 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
         entry.Highlight.Adornee = obj
         entry.Highlight.FillColor = color
         entry.Highlight.OutlineColor = color
-        entry.Highlight.FillTransparency = Config.ESPFillTransparency or 0.55
-        entry.Highlight.OutlineTransparency = Config.ESPOutlineTransparency or 0.0
+        -- Tính năng tô màu viền: chỉ tô phần viền của vật phẩm, quái, công trình
+        if Config.ESPOutlineOnly then
+            entry.Highlight.FillTransparency = 1.0
+            entry.Highlight.OutlineTransparency = 0.0
+        else
+            entry.Highlight.FillTransparency = Config.ESPFillTransparency or 0.55
+            entry.Highlight.OutlineTransparency = Config.ESPOutlineTransparency or 0.0
+        end
         entry.Highlight.Enabled = true
     elseif entry.Highlight then
         entry.Highlight.Enabled = false
@@ -131,31 +137,19 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
                 local container = Instance.new("Frame")
                 container.Name = "TagContainer"
                 container.Size = UDim2.fromScale(1, 1)
-                container.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
-                container.BackgroundTransparency = 0.28
+                container.BackgroundTransparency = 1.0
                 container.BorderSizePixel = 0
                 container.Parent = bb
 
-                local corner = Instance.new("UICorner")
-                corner.CornerRadius = UDim.new(0, 5)
-                corner.Parent = container
-
-                local stroke = Instance.new("UIStroke")
-                stroke.Name = "TagStroke"
-                stroke.Thickness = 1.2
-                stroke.Transparency = 0.35
-                stroke.Color = color
-                stroke.Parent = container
-
                 local txt = Instance.new("TextLabel")
                 txt.Name = "Label"
-                txt.Size = hasHealth and UDim2.new(1, -8, 0, 18) or UDim2.new(1, -8, 1, 0)
-                txt.Position = UDim2.new(0, 4, 0, 1)
+                txt.Size = UDim2.fromScale(1, 1)
+                txt.Position = UDim2.fromScale(0, 0)
                 txt.BackgroundTransparency = 1
                 txt.Font = Enum.Font.GothamBold
-                txt.TextSize = Config.ESPTextSize or 12
+                txt.TextSize = Config.ESPTextSize or 13
                 txt.TextColor3 = color
-                txt.TextStrokeTransparency = 0.25
+                txt.TextStrokeTransparency = 0.2
                 txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
                 txt.Text = labelText
                 txt.Parent = container
@@ -198,13 +192,20 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
             entry.Billboard.MaxDistance = Config.ESPMaxDistance or 1200
             entry.Billboard.Enabled = true
 
+            if entry.Container then
+                entry.Container.BackgroundTransparency = 1.0
+                entry.Container.BorderSizePixel = 0
+                local oldStroke = entry.Container:FindFirstChild("TagStroke")
+                if oldStroke then oldStroke:Destroy() end
+                local oldCorner = entry.Container:FindFirstChildOfClass("UICorner")
+                if oldCorner then oldCorner:Destroy() end
+            end
+
             entry.Label.Text = labelText
             entry.Label.TextColor3 = color
-            entry.Label.TextSize = Config.ESPTextSize or 12
-
-            if entry.Container and entry.Container:FindFirstChild("TagStroke") then
-                entry.Container.TagStroke.Color = color
-            end
+            entry.Label.TextSize = Config.ESPTextSize or 13
+            entry.Label.TextStrokeTransparency = 0.2
+            entry.Label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 
             -- Cập nhật thanh máu nếu có
             if hasHealth and health and maxHealth and maxHealth > 0 and Config.ESPShowHealth ~= false then
@@ -258,6 +259,38 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
     elseif entry.Billboard then
         entry.Billboard.Enabled = false
     end
+end
+
+local function GetCrateColorAndName(crate)
+    local rawName = crate.Name
+    local lower = rawName:lower()
+    local color = Color3.fromRGB(255, 255, 255) -- Mặc định rương thường: Trắng viền
+    local cleanName = rawName
+
+    if lower:find("emerald") then
+        color = Color3.fromRGB(46, 204, 113) -- Xanh lá (Emerald Crate)
+    elseif lower:find("ruby") then
+        color = Color3.fromRGB(239, 68, 68) -- Đỏ (Ruby Crate)
+    elseif lower:find("diamond") then
+        color = Color3.fromRGB(56, 189, 248) -- Xanh ngọc / Kim cương (Diamond Crate)
+    elseif lower:find("gold") or lower:find("airdrop") then
+        color = Color3.fromRGB(250, 204, 21) -- Vàng (Gold / Airdrop Crate)
+    elseif lower:find("amethyst") or lower:find("purple") or lower:find("void") then
+        color = Color3.fromRGB(168, 85, 247) -- Tím (Amethyst Crate)
+    elseif lower:find("sapphire") then
+        color = Color3.fromRGB(37, 99, 235) -- Xanh sapphire (Sapphire Crate)
+    elseif lower:find("silver") then
+        color = Color3.fromRGB(203, 213, 225) -- Bạc (Silver Crate)
+    elseif lower:find("bronze") or lower:find("copper") then
+        color = Color3.fromRGB(249, 115, 22) -- Đồng (Bronze / Copper Crate)
+    elseif lower:find("obsidian") or lower:find("titanium") then
+        color = Color3.fromRGB(148, 163, 184) -- Kim loại / Titan
+    else
+        -- Rương thường màu trắng viền
+        color = Color3.fromRGB(255, 255, 255)
+    end
+
+    return color, cleanName
 end
 
 local function RefreshESP()
@@ -315,33 +348,19 @@ local function RefreshESP()
                             CanChams = true,
                         })
                     elseif not isPlayer and not isDead and hp > 0 and Config.MobESP then
-                        local color = Color3.fromRGB(248, 113, 113) -- Đỏ san hô
-                        local tag = "[ZOMBIE]"
+                        local color = Color3.fromRGB(248, 113, 113) -- Đỏ quái vật
                         local prio = dist
-                        local isSpecial = false
 
-                        if Utils.IsBloaterMob(model) then
-                            color = Color3.fromRGB(163, 230, 53) -- Lime độc
-                            tag = "[BLOATER]"
+                        if Utils.IsSpecialOrBossMob(model) then
+                            color = Color3.fromRGB(251, 146, 60)
                             prio = dist - 800
-                            isSpecial = true
-                        elseif string.find(model.Name, "Screamer") then
-                            color = Color3.fromRGB(244, 114, 182) -- Hồng cánh sen
-                            tag = "[SCREAMER]"
-                            prio = dist - 900
-                            isSpecial = true
-                        elseif Utils.IsSpecialOrBossMob(model) then
-                            color = Color3.fromRGB(251, 146, 60) -- Cam rực rỡ / Boss
-                            tag = "[BOSS]"
-                            prio = dist - 1200
-                            isSpecial = true
-                        elseif string.find(model.Name, "Crawler") then
-                            color = Color3.fromRGB(250, 204, 21) -- Vàng bò
-                            tag = "[CRAWLER]"
-                            prio = dist - 200
+                        elseif Utils.IsBloaterMob(model) then
+                            color = Color3.fromRGB(163, 230, 53)
+                            prio = dist - 500
                         end
 
-                        local textParts = { tag, model.Name }
+                        -- Mặc định chỉ hiển thị tên quái (không phân loại boss hay zombie thường)
+                        local textParts = { model.Name }
                         if Config.ESPShowHealth and maxHp > 0 then
                             table.insert(textParts, "[" .. math.round(hp) .. "/" .. math.round(maxHp) .. "]")
                         end
@@ -358,7 +377,7 @@ local function RefreshESP()
                             Health = hp,
                             MaxHealth = maxHp,
                             StudsOffset = Vector3.new(0, 3.2, 0),
-                            CanChams = isSpecial or (dist < 60),
+                            CanChams = true,
                         })
                     end
                 end
@@ -381,7 +400,8 @@ local function RefreshESP()
                             local tierColor = (tier > 1 and ColorsModule and ColorsModule.ItemTiers and ColorsModule.ItemTiers[tier])
                             local color = tierColor or Utils.ItemCategoryColors[cat] or Color3.fromRGB(255, 255, 255)
 
-                            local textParts = { "[" .. cat:upper() .. "]", item.Name }
+                            -- Mặc định chỉ hiển thị tên vật phẩm
+                            local textParts = { item.Name }
                             if Config.ESPShowItemTier then
                                 local extra = Utils.GetItemExtraInfo(item)
                                 if extra and extra ~= "" then
@@ -408,7 +428,7 @@ local function RefreshESP()
                                 Text = table.concat(textParts, " "),
                                 HasHealth = false,
                                 StudsOffset = Vector3.new(0, 1.4, 0),
-                                CanChams = (tier >= 3 or cat == "Gun" or cat == "Fuel" or cat == "Blueprint"),
+                                CanChams = true,
                             })
                         end
                     end
@@ -418,6 +438,7 @@ local function RefreshESP()
     end
 
     -- 3. Rương đồ chưa mở (Workspace.Map.Crates)
+    -- Chia theo loại rương: thường trắng viền, emerald xanh lá, ruby đỏ, diamond xanh ngọc, gold vàng...
     if Config.CrateESP then
         local mapFolder = Workspace:FindFirstChild("Map")
         local cratesFolder = mapFolder and mapFolder:FindFirstChild("Crates")
@@ -427,13 +448,14 @@ local function RefreshESP()
                     local pos = crate:GetPivot().Position
                     local dist = math.round((pos - myPos).Magnitude)
                     if dist <= maxDist then
-                        local textParts = { "[CRATE]", crate.Name }
+                        local crateColor, crateCleanName = GetCrateColorAndName(crate)
+                        local textParts = { crateCleanName }
                         if Config.ESPShowDistance then
                             table.insert(textParts, "(" .. dist .. "m)")
                         end
                         table.insert(candidates, {
                             Obj = crate,
-                            Color = Color3.fromRGB(250, 204, 21), -- Vàng Gold
+                            Color = crateColor,
                             Priority = dist - 150,
                             Text = table.concat(textParts, " "),
                             HasHealth = false,

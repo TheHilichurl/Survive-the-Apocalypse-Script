@@ -61,9 +61,9 @@ local Config = {
     NoRecoil = false,
     NoCameraShake = false,
     NoSpread = false,
-    RapidFire = false,
-    RapidFireMultiplier = 1.5,
-    FastReload = false,
+    RapidFire = true,
+    RapidFireMultiplier = 2.0, -- Mặc định x2 theo yêu cầu
+    FastReload = false, -- Đã tắt hoàn toàn để tránh lỗi reload
     AutoReload = true,
     AlwaysAutomatic = false,
     InstantCharge = false,
@@ -94,7 +94,7 @@ local Config = {
 
     -- Looting, Dragging, Backpack & Survival
     AutoPickup = true,
-    AutoPickupRadius = 20,
+    AutoPickupRadius = 15, -- Không kéo quá 15 studs
     AutoPickupMethodRemote = true,
     AutoPickupMethodPrompt = true,
     AutoPickupMethodTouch = true,
@@ -135,6 +135,7 @@ local Config = {
     AutoOpenCratesRange = 22,
     InstantInteract = false,
     AutoInteractObjectives = true,    -- Tự động hoàn thành/sửa chữa Trạm phát điện (Power Plant), Radio Tower & Objectives
+    AutoElectricRepair = true,        -- Tự động gửi remote sửa điện thành công khi đến gần công trình
 
     -- Base, Structures, Crafting & Shop
     RepairAura = false,
@@ -150,20 +151,21 @@ local Config = {
     AutoCraftAmmoThreshold = 60,
     AutoBuyMerchant = false,
 
-    -- Visuals & ESP (Comprehensive 3D Info Tags + 3D Chams Glow)
+    -- Visuals & ESP (Text-Only + Outline Highlight Chams)
     ESPEnabled = false,
-    ESPColorOnly = false, -- Hiển thị đầy đủ nhãn thông tin 3D, tên, khoảng cách và thanh máu
-    ESPMaxDistance = 1200, -- Mở rộng tầm nhìn lên 1200 studs
-    ESPMaxTags = 150, -- Hỗ trợ hiển thị lên đến 150-250 đối tượng đồng thời (không bị giới hạn bởi engine)
-    ESPMaxHighlights = 30, -- Tối đa 30 Highlight Chams cho các mục tiêu ưu tiên cao nhất
+    ESPColorOnly = false,
+    ESPOutlineOnly = true, -- Chỉ tô viền của vật phẩm, quái, công trình
+    ESPMaxDistance = 1200,
+    ESPMaxTags = 150,
+    ESPMaxHighlights = 30,
     ESPTextSize = 12,
     ESPShowNames = true,
-    ESPShowDistance = true,
-    ESPShowHealth = true,
-    ESPShowItemTier = true,
+    ESPShowDistance = false, -- Mặc định chỉ hiển thị tên
+    ESPShowHealth = false,   -- Mặc định chỉ hiển thị tên
+    ESPShowItemTier = false, -- Mặc định chỉ hiển thị tên
     ESPChams = true,
-    ESPFillTransparency = 0.55,
-    ESPOutlineTransparency = 0.0,
+    ESPFillTransparency = 1.0, -- Viền outline thuần, ẩn nền fill
+    ESPOutlineTransparency = 0.0, -- Viền rõ nét
     MobESP = true,
     PlayerESP = true,
     CrateESP = true,

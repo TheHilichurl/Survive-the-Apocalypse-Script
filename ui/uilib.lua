@@ -22,25 +22,25 @@ local LocalPlayer = Players.LocalPlayer
 local UILib = {}
 UILib.__index = UILib
 
--- 100% Curated Anime / RPG Fantasy Theme
+-- Curated Yellow / White & Dark Obsidian Theme
 UILib.Theme = {
-    Primary = Color3.fromRGB(236, 72, 153),      -- Vibrant Cherry Blossom / Neon Sakura
-    Secondary = Color3.fromRGB(251, 191, 36),     -- Radiant Star Amber Gold
-    Accent = Color3.fromRGB(168, 85, 247),        -- Arcane Mystical Purple
-    Background = Color3.fromRGB(22, 9, 36),       -- Deep Twilight Velvet
-    Surface = Color3.fromRGB(36, 16, 56),         -- Royal Enchanted Chamber
-    SurfaceAlt = Color3.fromRGB(48, 22, 74),      -- Glowing Amethyst Core
-    Text = Color3.fromRGB(253, 242, 248),         -- Pure Pearl White
-    TextMuted = Color3.fromRGB(200, 175, 215),    -- Soft Starlight Lavender
-    Border = Color3.fromRGB(244, 114, 182),       -- Neon Rose Glow Stroke
-    BorderMuted = Color3.fromRGB(90, 42, 115),    -- Subtle Edge
-    Success = Color3.fromRGB(74, 222, 128),       -- Emerald Bloom
-    Error = Color3.fromRGB(248, 113, 113),        -- Crimson Flare
+    Primary = Color3.fromRGB(250, 204, 21),      -- Radiant Sun Gold / Yellow (#FACC15)
+    Secondary = Color3.fromRGB(255, 255, 255),    -- Pure Crisp White (#FFFFFF)
+    Accent = Color3.fromRGB(234, 179, 8),        -- Warm Amber Gold (#EAB308)
+    Background = Color3.fromRGB(18, 18, 20),      -- Deep Obsidian Charcoal (#121214)
+    Surface = Color3.fromRGB(28, 28, 32),         -- Refined Dark Slate (#1C1C20)
+    SurfaceAlt = Color3.fromRGB(42, 42, 48),      -- Elevated Soft Charcoal (#2A2A30)
+    Text = Color3.fromRGB(255, 255, 255),         -- Pure Crisp White (#FFFFFF)
+    TextMuted = Color3.fromRGB(205, 205, 212),    -- Soft Platinum White (#CDCDD4)
+    Border = Color3.fromRGB(250, 204, 21),       -- Radiant Gold Glow Stroke
+    BorderMuted = Color3.fromRGB(75, 70, 50),     -- Warm Subtle Bronze Edge
+    Success = Color3.fromRGB(74, 222, 128),       -- Emerald Green
+    Error = Color3.fromRGB(248, 113, 113),        -- Crimson Red
     CornerRadius = UDim.new(0.045, 0),
     StrokeThickness = 1.2,
     Font = Enum.Font.GothamMedium,
     FontBold = Enum.Font.GothamBold,
-    FontFancy = Enum.Font.Fantasy,
+    FontFancy = Enum.Font.GothamBold,
 }
 
 UILib.GoogleIcons = {
@@ -825,10 +825,10 @@ function UILib:CreateWindow(config)
             Sw.AnchorPoint = Vector2.new(1, 0.5)
             Sw.Size = UDim2.fromScale(0.135, 0.56)
             Sw.Position = UDim2.fromScale(0.97, 0.5)
-            Sw.BackgroundColor3 = state and UILib.Theme.Primary or Color3.fromRGB(45, 22, 65)
+            Sw.BackgroundColor3 = state and UILib.Theme.Primary or Color3.fromRGB(35, 35, 42)
             Sw.Text = ""
             Sw.AutoButtonColor = false
-            Sw.ZIndex = 6
+            Sw.ZIndex = 7
             Sw.Parent = Row
             ApplyCorner(Sw, UDim.new(1, 0))
             local swStroke = ApplyStroke(Sw, state and UILib.Theme.Secondary or UILib.Theme.BorderMuted, 1, 0.2)
@@ -838,7 +838,7 @@ function UILib:CreateWindow(config)
             Dot.Size = UDim2.fromScale(0.38, 0.74)
             Dot.Position = state and UDim2.fromScale(0.54, 0.5) or UDim2.fromScale(0.08, 0.5)
             Dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            Dot.ZIndex = 7
+            Dot.ZIndex = 8
             Dot.Parent = Sw
             ApplyCorner(Dot, UDim.new(1, 0))
 
@@ -849,7 +849,7 @@ function UILib:CreateWindow(config)
             local function Set(val, skipCallback)
                 state = (val == true)
                 TweenService:Create(Sw, TweenFast, {
-                    BackgroundColor3 = state and UILib.Theme.Primary or Color3.fromRGB(45, 22, 65)
+                    BackgroundColor3 = state and UILib.Theme.Primary or Color3.fromRGB(35, 35, 42)
                 }):Play()
                 TweenService:Create(swStroke, TweenFast, {
                     Color = state and UILib.Theme.Secondary or UILib.Theme.BorderMuted
@@ -862,6 +862,24 @@ function UILib:CreateWindow(config)
                 end
             end
 
+            -- Clickable overlay covering the whole row for easy toggling
+            local ClickOverlay = Instance.new("TextButton")
+            ClickOverlay.Size = UDim2.fromScale(1, 1)
+            ClickOverlay.BackgroundTransparency = 1
+            ClickOverlay.Text = ""
+            ClickOverlay.AutoButtonColor = false
+            ClickOverlay.ZIndex = 9
+            ClickOverlay.Parent = Row
+
+            ClickOverlay.MouseEnter:Connect(function()
+                TweenService:Create(rowStroke, TweenFast, { Color = UILib.Theme.Primary, Transparency = 0.2 }):Play()
+            end)
+            ClickOverlay.MouseLeave:Connect(function()
+                TweenService:Create(rowStroke, TweenFast, { Color = UILib.Theme.Border, Transparency = 0.6 }):Play()
+            end)
+            ClickOverlay.MouseButton1Click:Connect(function()
+                Set(not state, false)
+            end)
             Sw.MouseButton1Click:Connect(function()
                 Set(not state, false)
             end)
@@ -888,21 +906,39 @@ function UILib:CreateWindow(config)
             end)
 
             local Lbl = Instance.new("TextLabel")
-            Lbl.Size = UDim2.fromScale(0.94, 0.44)
+            Lbl.Size = UDim2.fromScale(0.68, 0.44)
             Lbl.Position = UDim2.fromScale(0.03, 0.08)
             Lbl.BackgroundTransparency = 1
-            Lbl.Text = (opts.Name or "Slider") .. ": " .. tostring(val)
+            Lbl.Text = opts.Name or "Slider"
             Lbl.Font = UILib.Theme.FontBold
             Lbl.TextColor3 = UILib.Theme.Text
             Lbl.TextXAlignment = Enum.TextXAlignment.Left
             Lbl.ZIndex = 6
             Lbl.Parent = Box
-            ApplyResponsiveText(Lbl, 12.5, false)
+            ApplyResponsiveText(Lbl, 12, false)
+
+            -- Direct numeric input TextBox allowing typing any exact value
+            local ValInput = Instance.new("TextBox")
+            ValInput.AnchorPoint = Vector2.new(1, 0)
+            ValInput.Size = UDim2.fromScale(0.24, 0.46)
+            ValInput.Position = UDim2.fromScale(0.97, 0.08)
+            ValInput.BackgroundColor3 = UILib.Theme.SurfaceAlt
+            ValInput.Font = UILib.Theme.FontBold
+            ValInput.TextColor3 = UILib.Theme.Primary
+            ValInput.Text = tostring(val)
+            ValInput.ClearTextOnFocus = false
+            ValInput.ClipsDescendants = true
+            ValInput.ZIndex = 8
+            ValInput.Parent = Box
+            ApplyCorner(ValInput, UDim.new(0.24, 0))
+            local valStroke = ApplyStroke(ValInput, UILib.Theme.BorderMuted, 1, 0.4)
+            ApplyResponsiveText(ValInput, 11, false)
 
             local Track = Instance.new("Frame")
-            Track.Size = UDim2.fromScale(0.94, 0.18)
-            Track.Position = UDim2.fromScale(0.03, 0.66)
+            Track.Size = UDim2.fromScale(0.94, 0.22)
+            Track.Position = UDim2.fromScale(0.03, 0.65)
             Track.BackgroundColor3 = UILib.Theme.SurfaceAlt
+            Track.Active = true
             Track.ZIndex = 6
             Track.Parent = Box
             ApplyCorner(Track, UDim.new(1, 0))
@@ -918,15 +954,33 @@ function UILib:CreateWindow(config)
 
             local sliding = false
             local function SetValue(newVal, skipCallback)
-                local snapped = math.floor(newVal / step + 0.5) * step
-                val = tonumber(string.format("%.2f", math.clamp(snapped, min, max)))
+                local snapped = math.floor((newVal - min) / step + 0.5) * step + min
+                local clamped = math.clamp(snapped, min, max)
+                if step >= 1 then
+                    val = math.round(clamped)
+                else
+                    val = tonumber(string.format("%.2f", clamped))
+                end
                 local cleanRatio = math.clamp((val - min) / math.max(max - min, 0.001), 0, 1)
-                Lbl.Text = (opts.Name or "Slider") .. ": " .. tostring(val)
+                ValInput.Text = tostring(val)
                 TweenService:Create(Fill, TweenFast, { Size = UDim2.fromScale(cleanRatio, 1) }):Play()
                 if not skipCallback and opts.Callback then
                     task.spawn(opts.Callback, val)
                 end
             end
+
+            ValInput.Focused:Connect(function()
+                TweenService:Create(valStroke, TweenFast, { Color = UILib.Theme.Primary, Transparency = 0 }):Play()
+            end)
+            ValInput.FocusLost:Connect(function()
+                TweenService:Create(valStroke, TweenFast, { Color = UILib.Theme.BorderMuted, Transparency = 0.4 }):Play()
+                local typedNum = tonumber(ValInput.Text)
+                if typedNum then
+                    SetValue(typedNum, false)
+                else
+                    ValInput.Text = tostring(val)
+                end
+            end)
 
             local function UpdateSlide(input)
                 local ratio = math.clamp((input.Position.X - Track.AbsolutePosition.X) / math.max(Track.AbsoluteSize.X, 1), 0, 1)
@@ -938,6 +992,14 @@ function UILib:CreateWindow(config)
                 if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
                     sliding = true
                     UpdateSlide(inp)
+                end
+            end)
+            Box.InputBegan:Connect(function(inp)
+                if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+                    if inp.Position.Y >= (Track.AbsolutePosition.Y - 12) then
+                        sliding = true
+                        UpdateSlide(inp)
+                    end
                 end
             end)
             UserInputService.InputEnded:Connect(function(inp)
@@ -1008,11 +1070,22 @@ function UILib:CreateWindow(config)
                 end
             end
 
-            CycleBtn.MouseButton1Click:Connect(function()
+            local function CycleNext()
                 local idx = table.find(options, current) or 1
                 local nextIdx = (idx % #options) + 1
                 SetOption(options[nextIdx], false)
-            end)
+            end
+
+            CycleBtn.MouseButton1Click:Connect(CycleNext)
+
+            local RowClickBtn = Instance.new("TextButton")
+            RowClickBtn.Size = UDim2.fromScale(1, 1)
+            RowClickBtn.BackgroundTransparency = 1
+            RowClickBtn.Text = ""
+            RowClickBtn.AutoButtonColor = false
+            RowClickBtn.ZIndex = 6
+            RowClickBtn.Parent = Row
+            RowClickBtn.MouseButton1Click:Connect(CycleNext)
 
             return { Set = SetOption, Get = function() return current end }
         end
@@ -1084,18 +1157,23 @@ function UILib:CreateWindow(config)
         end
 
         function TabAPI:AddToggle(name, configKey, callback)
-            local cfg = config.Config or (Hub.Config or {})
+            local cfg = (config and config.Config) or Hub.Config or {}
             local ctrl = self:CreateToggle({
                 Name = name,
                 Default = cfg[configKey] == true,
                 Callback = function(state)
                     cfg[configKey] = state
-                    if config.ScheduleAutoSave then config.ScheduleAutoSave() end
+                    if config and config.ScheduleAutoSave then
+                        config.ScheduleAutoSave()
+                    elseif Hub.ScheduleAutoSave then
+                        Hub.ScheduleAutoSave()
+                    end
                     if callback then pcall(callback, state) end
                 end
             })
-            if config.UIControlRefreshers then
-                table.insert(config.UIControlRefreshers, function()
+            local refreshers = (config and config.UIControlRefreshers) or Hub.UIControlRefreshers
+            if refreshers then
+                table.insert(refreshers, function()
                     ctrl.Set(cfg[configKey] == true, true)
                 end)
             end
@@ -1103,7 +1181,7 @@ function UILib:CreateWindow(config)
         end
 
         function TabAPI:AddSlider(name, configKey, minVal, maxVal, step, callback)
-            local cfg = config.Config or (Hub.Config or {})
+            local cfg = (config and config.Config) or Hub.Config or {}
             local ctrl = self:CreateSlider({
                 Name = name,
                 Min = minVal,
@@ -1112,12 +1190,17 @@ function UILib:CreateWindow(config)
                 Default = cfg[configKey] or minVal,
                 Callback = function(val)
                     cfg[configKey] = val
-                    if config.ScheduleAutoSave then config.ScheduleAutoSave() end
+                    if config and config.ScheduleAutoSave then
+                        config.ScheduleAutoSave()
+                    elseif Hub.ScheduleAutoSave then
+                        Hub.ScheduleAutoSave()
+                    end
                     if callback then pcall(callback, val) end
                 end
             })
-            if config.UIControlRefreshers then
-                table.insert(config.UIControlRefreshers, function()
+            local refreshers = (config and config.UIControlRefreshers) or Hub.UIControlRefreshers
+            if refreshers then
+                table.insert(refreshers, function()
                     if cfg[configKey] ~= nil then
                         ctrl.Set(cfg[configKey], true)
                     end
@@ -1127,25 +1210,57 @@ function UILib:CreateWindow(config)
         end
 
         function TabAPI:AddDropdown(name, configKey, options, callback)
-            local cfg = config.Config or (Hub.Config or {})
+            local cfg = (config and config.Config) or Hub.Config or {}
             local ctrl = self:CreateDropdown({
                 Name = name,
                 Options = options,
                 Default = cfg[configKey] or options[1],
                 Callback = function(val)
                     cfg[configKey] = val
-                    if config.ScheduleAutoSave then config.ScheduleAutoSave() end
+                    if config and config.ScheduleAutoSave then
+                        config.ScheduleAutoSave()
+                    elseif Hub.ScheduleAutoSave then
+                        Hub.ScheduleAutoSave()
+                    end
                     if callback then pcall(callback, val) end
                 end
             })
-            if config.UIControlRefreshers then
-                table.insert(config.UIControlRefreshers, function()
+            local refreshers = (config and config.UIControlRefreshers) or Hub.UIControlRefreshers
+            if refreshers then
+                table.insert(refreshers, function()
                     if cfg[configKey] ~= nil then
                         ctrl.Set(cfg[configKey], true)
                     end
                 end)
             end
             return ctrl
+        end
+
+        function TabAPI:AddInput(name, configKey, placeholder, callback)
+            local cfg = (config and config.Config) or Hub.Config or {}
+            local box = self:CreateInput({
+                Name = name,
+                Placeholder = placeholder or "Enter text...",
+                Default = tostring(cfg[configKey] or ""),
+                Callback = function(text)
+                    cfg[configKey] = text
+                    if config and config.ScheduleAutoSave then
+                        config.ScheduleAutoSave()
+                    elseif Hub.ScheduleAutoSave then
+                        Hub.ScheduleAutoSave()
+                    end
+                    if callback then pcall(callback, text) end
+                end
+            })
+            local refreshers = (config and config.UIControlRefreshers) or Hub.UIControlRefreshers
+            if refreshers then
+                table.insert(refreshers, function()
+                    if cfg[configKey] ~= nil then
+                        box.Text = tostring(cfg[configKey])
+                    end
+                end)
+            end
+            return box
         end
 
         return TabAPI

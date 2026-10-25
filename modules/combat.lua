@@ -235,6 +235,33 @@ local function EnsureAimRayParams()
     return StaticAimRayParams
 end
 
+local function IsPenetrableObstacle(inst)
+    if not inst or not inst:IsA("BasePart") then return false end
+    if not inst.CanCollide then return true end
+    if inst.Transparency >= 0.4 then return true end
+    local name = inst.Name:lower()
+    if name:find("grass") or name:find("foliage") or name:find("bush") or name:find("plant")
+        or name:find("leaf") or name:find("leaves") or name:find("tree") or name:find("vine")
+        or name:find("pole") or name:find("lamp") or name:find("light") or name:find("post")
+        or name:find("wire") or name:find("cable") or name:find("fence") or name:find("trash")
+        or name:find("sign") or name:find("fog") or name:find("border") or name:find("trigger")
+        or name:find("debris") or name:find("prop") or name:find("decor") or name:find("flower")
+        or name:find("branch") or name:find("woodpole") or name:find("lamppost") then
+        return true
+    end
+    local parent = inst.Parent
+    if parent and parent:IsA("Model") then
+        local pName = parent.Name:lower()
+        if pName:find("grass") or pName:find("foliage") or pName:find("bush") or pName:find("plant")
+            or pName:find("pole") or pName:find("lamp") or pName:find("light") or pName:find("post")
+            or pName:find("wire") or pName:find("cable") or pName:find("tree") or pName:find("fence")
+            or pName:find("sign") or pName:find("prop") or pName:find("decor") then
+            return true
+        end
+    end
+    return false
+end
+
 local function CheckRayUnobstructed(startPt, endPt, targetModel)
     if not (startPt and endPt) then return false, nil end
     if Config.AimWallCheck == false then
@@ -243,58 +270,47 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
 
     EnsureAimRayParams()
 
-    local dir = endPt - startPt
-    local dist = dir.Magnitude
-    if dist <= 0.35 then
-        return true, endPt
-    end
+    local currentPt = startPt
+    local maxPasses = 10
+    local passes = 0
 
-    local hit = Workspace:Raycast(startPt, dir, StaticAimRayParams)
-    if not hit then
-        -- Tuyến bắn hoàn toàn không bị Map/Structures cản trở
-        return true, endPt
-    end
-
-    local inst = hit.Instance
-    if not inst then
-        return true, endPt
-    end
-
-    -- Nếu chạm phải vật thể xuyên qua được (Fog, InvisibleBorder, không CanCollide, Trigger)
-    if not inst.CanCollide or inst.Name == "FogPart" or inst.Name == "InvisibleBorder" or inst.Name:find("Trigger") then
-        local nextPt = hit.Position + dir.Unit * 0.1
-        local remDir = endPt - nextPt
-        if remDir.Magnitude <= 0.35 then
+    while passes < maxPasses do
+        passes = passes + 1
+        local curDir = endPt - currentPt
+        local curDist = curDir.Magnitude
+        if curDist <= 0.35 then
             return true, endPt
         end
-        local hit2 = Workspace:Raycast(nextPt, remDir, StaticAimRayParams)
-        if not hit2 then
-            return true, endPt
-        end
-        if not hit2.Instance or not hit2.Instance.CanCollide then
-            return true, endPt
-        end
-    end
 
-    -- Nếu điểm va chạm rất gần mục tiêu (<= 1.2 studs, ví dụ tường ngay sau lưng quái)
-    if (hit.Position - endPt).Magnitude <= 1.2 then
-        return true, hit.Position
-    end
-
-    -- Nếu điểm va chạm quá gần nòng súng (<= 0.6 studs, nòng súng hơi lẹm vào kết cấu vị trí đứng)
-    if (hit.Position - startPt).Magnitude <= 0.6 then
-        local passPt = hit.Position + dir.Unit * 0.8
-        local remDir2 = endPt - passPt
-        if remDir2.Magnitude <= 0.35 then
+        local hit = Workspace:Raycast(currentPt, curDir, StaticAimRayParams)
+        if not hit then
+            -- Không bị cản trở bởi bất kỳ vật thể nào
             return true, endPt
         end
-        local hit3 = Workspace:Raycast(passPt, remDir2, StaticAimRayParams)
-        if not hit3 or (hit3.Position - endPt).Magnitude <= 1.2 then
+
+        local inst = hit.Instance
+        if not inst then
             return true, endPt
+        end
+
+        -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.5 studs)
+        if (hit.Position - endPt).Magnitude <= 1.5 then
+            return true, hit.Position
+        end
+
+        -- Điểm va chạm quá gần điểm bắn (<= 0.8 studs, ví dụ nòng súng lẹm vào gờ tường/vật cản gần)
+        if passes == 1 and (hit.Position - startPt).Magnitude <= 0.8 then
+            currentPt = hit.Position + curDir.Unit * 0.4
+        elseif IsPenetrableObstacle(inst) then
+            -- Vật thể có thể bắn xuyên: cỏ, cột điện, đèn đường, dây điện, cây bụi, lá,...
+            currentPt = hit.Position + curDir.Unit * 0.4
+        else
+            -- Bị cản bởi tường / công trình kiên cố
+            return false, hit.Position
         end
     end
 
-    return false, hit.Position
+    return false, nil
 end
 
 local function SimulateVirtualBullet(originPos, targetPart, targetModel)
@@ -407,9 +423,12 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return nil, nil, nil, nil
     end
 
-    -- Bước 2: Sắp xếp theo mức độ ưu tiên tốt nhất
+    -- Bước 2: Luôn ưu tiên quái gần nhất trước tiên
     table.sort(candidates, function(a, b)
-        return a.Score < b.Score
+        if useFOV then
+            return a.Score < b.Score
+        end
+        return a.Dist < b.Dist
     end)
 
     -- Bước 3: Early Exit Raycast - Chỉ kiểm tra vật cản cho tối đa Top 3 mục tiêu tốt nhất!
@@ -757,22 +776,16 @@ local function ApplyWeaponModsToTool(tool)
         end
 
         if Config.RapidFire and base.FireRate then
-            stats:SetAttribute("FireRate", base.FireRate * (Config.RapidFireMultiplier or 1.5))
+            stats:SetAttribute("FireRate", base.FireRate * (Config.RapidFireMultiplier or 2.0))
         elseif base.FireRate then
             stats:SetAttribute("FireRate", base.FireRate)
         end
 
-        if Config.FastReload then
-            if base.ReloadTime then stats:SetAttribute("ReloadTime", math.max(0.05, base.ReloadTime * 0.25)) end
-            if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", math.max(0.03, base.ReloadIndividualTime * 0.25)) end
-            if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", math.max(0.03, base.ReloadEndTime * 0.25)) end
-            stats:SetAttribute("ReloadAnimSpeed", 3)
-        else
-            if base.ReloadTime then stats:SetAttribute("ReloadTime", base.ReloadTime) end
-            if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", base.ReloadIndividualTime) end
-            if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
-            if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", base.ReloadAnimSpeed) end
-        end
+        -- Vô hiệu hoá sửa đổi FastReload để tránh lỗi hoạt ảnh nạp đạn và lệch đồng bộ server
+        if base.ReloadTime then stats:SetAttribute("ReloadTime", base.ReloadTime) end
+        if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", base.ReloadIndividualTime) end
+        if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
+        if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", base.ReloadAnimSpeed) end
 
         if Config.AlwaysAutomatic then
             stats:SetAttribute("Automatic", true)
@@ -1012,14 +1025,8 @@ local function RunKillAuraAndBreakAuraStep()
         end
     end
 
+    -- Luôn ưu tiên quái gần nhất
     table.sort(targets, function(a, b)
-        if Config.KillAuraPriority == "LowestHP" then
-            return a.HP < b.HP
-        elseif Config.KillAuraPriority == "HighestHP" then
-            return a.HP > b.HP
-        elseif Config.KillAuraPriority == "SpecialsFirst" and a.Special ~= b.Special then
-            return a.Special
-        end
         return a.Dist < b.Dist
     end)
 
