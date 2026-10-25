@@ -87,12 +87,13 @@ local function IsItemAlreadyAtBaseOrDelivered(item)
         end
     end
 
-    -- 4. Bất kỳ item nào nằm trong toàn bộ khuôn viên Base (bán kính mở rộng 140 studs quanh Generator hoặc Scraper)
+    -- 4. Bất kỳ item nào nằm trong toàn bộ khuôn viên Base (bán kính Config.BaseUnloadRange quanh Generator hoặc Scraper)
     --    ĐÃ Ở NHÀ RỒI -> TUYỆT ĐỐI KHÔNG HÚT VÀO BACKPACK SACK NỮA!
-    if genPart and (itemPos - genPart.Position).Magnitude <= 140 then
+    local baseRange = Config.BaseUnloadRange or 110
+    if genPart and (itemPos - genPart.Position).Magnitude <= baseRange then
         return true
     end
-    if shredPart and (itemPos - shredPart.Position).Magnitude <= 140 then
+    if shredPart and (itemPos - shredPart.Position).Magnitude <= baseRange then
         return true
     end
 
@@ -287,14 +288,15 @@ local function HandleDroppedItemInstantly(item)
     local itemPos = item:GetPivot().Position
     local distToBase = (itemPos - basePos).Magnitude
 
-    -- CHỈ XỬ LÝ KHI VẬT PHẨM ĐƯỢC THẢ RA TỪ BACKPACK HOẶC ĐÃ NẰM TRONG KHUÔN VIÊN BASE (BÁN KÍNH 140 STUDS)
+    -- CHỈ XỬ LÝ KHI VẬT PHẨM ĐƯỢC THẢ RA TỪ BACKPACK HOẶC ĐÃ NẰM TRONG KHUÔN VIÊN BASE (BÁN KÍNH Config.BaseUnloadRange)
     -- TUYỆT ĐỐI KHÔNG TỰ Ý DỊCH CHUYỂN ĐỒ NGOÀI MAP KHI CHƯA NHẶT VÀO BACKPACK!
-    if isFromBackpack or distToBase <= 140 then
+    local baseRange = Config.BaseUnloadRange or 110
+    if isFromBackpack or distToBase <= baseRange then
         DeliveredItems[item] = true
         RecentlyDroppedTime[item] = now
 
         -- Nếu vật phẩm đang ở trong Base và rơi gần mục tiêu, có thể căn chỉnh rơi vào máy
-        if distToBase <= 140 then
+        if distToBase <= baseRange then
             local cat = Utils.ClassifyItem(item)
             local targetCF = GetTargetCFrameForCategory(cat, genPart, shredPart, basePos)
             local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
@@ -662,7 +664,7 @@ local function StoreCandidatesToBackpack(candidates)
     return storedCount > 0
 end
 
--- Tự động xả toàn bộ vật phẩm trong Backpack sack khi về đến Base
+-- Tự động xả toàn bộ vật phẩm trong Backpack sack và túi cá nhân khi về đến Base
 local function UnloadBackpackAtBase(genPart, shredPart, root)
     if IsDroppingBackpack or IsHandlingBackpackEquip then return false end
     local now = os.clock()
@@ -673,19 +675,30 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if not (char and hum and bp and Utils.IsCharacterAlive(char)) then return false end
 
-    local count = GetBackpackItemCount()
-    if count <= 0 then return false end
+    local sackCount = GetBackpackItemCount()
+    local looseToolsCount = 0
+    for _, child in ipairs(bp:GetChildren()) do
+        if child:IsA("Tool") and child.Name ~= "Backpack" and child:GetAttribute("ToolType") ~= "Backpack" then
+            local cat = Utils.ClassifyItem(child)
+            if cat == "Fuel" or cat == "Food" or cat == "Resource" then
+                looseToolsCount = looseToolsCount + 1
+            end
+        end
+    end
+
+    if sackCount <= 0 and looseToolsCount <= 0 then return false end
 
     local bpTool = GetBackpackTool()
-    if not bpTool then return false end
+    if sackCount > 0 and not bpTool then return false end
 
+    -- Lưu lại chính xác món đồ / vũ khí người chơi đang cầm TRƯỚC KHI xả đồ để hoàn trả
     local currentHeld = char:FindFirstChildOfClass("Tool")
-    local restoreTool = nil
+    local previousEquippedTool = nil
     if currentHeld and currentHeld ~= bpTool and currentHeld.Name ~= "Backpack" and currentHeld:GetAttribute("ToolType") ~= "Backpack" then
-        restoreTool = currentHeld
+        previousEquippedTool = currentHeld
         LastDesiredEquippedTool = currentHeld
     elseif LastDesiredEquippedTool and (LastDesiredEquippedTool.Parent == bp or LastDesiredEquippedTool.Parent == char) then
-        restoreTool = LastDesiredEquippedTool
+        previousEquippedTool = LastDesiredEquippedTool
     end
 
     IsDroppingBackpack = true
@@ -693,51 +706,54 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
     LastUnloadTime = now
 
     task.spawn(function()
-        -- 1. Chuyển sang Backpack và ĐỢI BACKPACK ĐƯỢC CẦM TRÊN TAY
-        if bpTool.Parent ~= char then
-            hum:EquipTool(bpTool)
-            local waitTicks = 0
-            while bpTool.Parent ~= char and waitTicks < 20 and Utils.IsCharacterAlive(char) do
-                task.wait(0.04)
-                waitTicks = waitTicks + 1
+        -- 1. Nếu có đồ trong sack: Cầm Backpack lên 1 LẦN DUY NHẤT và giữ nguyên trong suốt quá trình xả đồ
+        -- Tuyệt đối KHÔNG switch qua lại vũ khí trong lúc xả đồ!
+        if sackCount > 0 and bpTool then
+            if bpTool.Parent ~= char then
+                hum:EquipTool(bpTool)
+                local waitTicks = 0
+                while bpTool.Parent ~= char and waitTicks < 25 and Utils.IsCharacterAlive(char) do
+                    task.wait(0.03)
+                    waitTicks = waitTicks + 1
+                end
+            end
+
+            if not Utils.IsCharacterAlive(char) or bpTool.Parent ~= char then
+                IsDroppingBackpack = false
+                IsHandlingBackpackEquip = false
+                return
+            end
+
+            LastBackpackDropTime = os.clock()
+
+            -- 2. Trực tiếp xả sạch toàn bộ đồ trong sack theo đúng type:
+            -- Thả liên tục cho tới khi sạch đồ (ItemsInBackpack == 0).
+            -- Mỗi món đồ khi rơi ra sẽ được HandleDroppedItemInstantly tự động phân loại ngay lập tức:
+            -- Gas -> Generator, Scrap/Battery -> Shredder, Food -> Food stash!
+            local defaultDropCF = (shredPart and (shredPart.CFrame * CFrame.new(0, 4.8, 0)))
+                or (genPart and (genPart.CFrame * CFrame.new(0, 2.2, 0)))
+                or (root and (root.CFrame * CFrame.new(0, 1, -3)))
+
+            local attempts = 0
+            local maxAttempts = math.min(sackCount + 10, 45)
+            while attempts < maxAttempts and Utils.IsCharacterAlive(char) and bpTool.Parent == char do
+                local curSackCount = GetBackpackItemCount()
+                if curSackCount <= 0 then
+                    break
+                end
+
+                attempts = attempts + 1
+                if AdjustBackpackRemote then
+                    pcall(function()
+                        AdjustBackpackRemote:FireServer(nil, defaultDropCF)
+                    end)
+                end
+                task.wait(0.06)
             end
         end
 
-        if not Utils.IsCharacterAlive(char) or bpTool.Parent ~= char then
-            IsDroppingBackpack = false
-            IsHandlingBackpackEquip = false
-            return
-        end
-
-        local defaultDropCF = shredPart and (shredPart.CFrame * CFrame.new(0, 4.8, 0))
-            or (genPart and genPart.CFrame * CFrame.new(0, 2.2, 0))
-            or (root and root.CFrame * CFrame.new(0, 1, -3))
-
-        LastBackpackDropTime = os.clock()
-
-        -- 2. Giữ nguyên Backpack trên tay và thả từng món đồ ra, cho server thời gian xử lý từng item
-        local dropsLeft = math.min(count, 30)
-        local attempts = 0
-        while dropsLeft > 0 and attempts < (count + 5) and Utils.IsCharacterAlive(char) and bpTool.Parent == char do
-            attempts = attempts + 1
-            if AdjustBackpackRemote then
-                pcall(function()
-                    AdjustBackpackRemote:FireServer(nil, defaultDropCF)
-                end)
-            end
-            task.wait(0.08)
-            local currentCount = GetBackpackItemCount()
-            if currentCount < dropsLeft then
-                dropsLeft = currentCount
-            else
-                dropsLeft = dropsLeft - 1
-            end
-            if dropsLeft <= 0 or currentCount <= 0 then
-                break
-            end
-        end
-
-        -- Xả các đồ vật trong Backpack mặc định của Roblox: Fuel -> Generator, Food -> 10 studs away, Resource -> Scraper
+        -- 3. Xả trực tiếp các vật phẩm dạng Tool trong túi cá nhân Roblox (Fuel, Food, Resource)
+        -- Sử dụng DropTool remote trực tiếp tới vị trí máy mà KHÔNG CẦN switch tool trên tay!
         for _, child in ipairs(bp:GetChildren()) do
             if child:IsA("Tool") and child.Name ~= "Backpack" and child:GetAttribute("ToolType") ~= "Backpack" then
                 local toolCat = Utils.ClassifyItem(child)
@@ -747,24 +763,38 @@ local function UnloadBackpackAtBase(genPart, shredPart, root)
                         pcall(function()
                             Hub.Remotes.DropTool:InvokeServer(child, dropCF)
                         end)
-                        task.wait(0.05)
+                        task.wait(0.04)
                     end
                 end
             end
         end
 
-        task.wait(0.12)
+        task.wait(0.08)
 
-        -- 3. CHỈ KHI NÀO DROP XONG TOÀN BỘ MỚI ĐỔI LẠI SLOT VŨ KHÍ TRƯỚC ĐÓ!
-        if restoreTool and restoreTool.Parent == bp then
-            hum:EquipTool(restoreTool)
-        elseif LastDesiredEquippedTool and LastDesiredEquippedTool.Parent == bp then
-            hum:EquipTool(LastDesiredEquippedTool)
-        elseif not currentHeld then
+        -- 4. XẢ XONG THÌ CHUYỂN VỀ ITEM / VŨ KHÍ TRƯỚC ĐÓ NGAY LẬP TỨC:
+        if previousEquippedTool and (previousEquippedTool.Parent == bp or previousEquippedTool.Parent == char) then
+            if previousEquippedTool.Parent ~= char then
+                hum:EquipTool(previousEquippedTool)
+                local w = 0
+                while previousEquippedTool.Parent ~= char and w < 12 and Utils.IsCharacterAlive(char) do
+                    task.wait(0.03)
+                    w = w + 1
+                end
+            end
+        elseif LastDesiredEquippedTool and (LastDesiredEquippedTool.Parent == bp or LastDesiredEquippedTool.Parent == char) then
+            if LastDesiredEquippedTool.Parent ~= char then
+                hum:EquipTool(LastDesiredEquippedTool)
+                local w = 0
+                while LastDesiredEquippedTool.Parent ~= char and w < 12 and Utils.IsCharacterAlive(char) do
+                    task.wait(0.03)
+                    w = w + 1
+                end
+            end
+        elseif not previousEquippedTool then
             hum:UnequipTools()
         end
 
-        task.wait(0.15)
+        task.wait(0.08)
         IsDroppingBackpack = false
         IsHandlingBackpackEquip = false
     end)
@@ -797,7 +827,8 @@ local function AutoSortBaseItems(genPart, shredPart, root)
         if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not GasThrowingInProgress[item] then
             local itemPos = item:GetPivot().Position
             local distToBase = (itemPos - basePos).Magnitude
-            if distToBase <= 140 then
+            local baseRange = Config.BaseUnloadRange or 110
+            if distToBase <= baseRange then
                 local cat = Utils.ClassifyItem(item)
                 local part = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart", true)
                 if part then
@@ -998,7 +1029,8 @@ local function ProcessNewlySpawnedLoot()
     local shredPart = Utils.GetShredderTargetPart()
     local distToGen = genPart and (genPart.Position - root.Position).Magnitude or 9999
     local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
-    local isAtBase = (distToGen <= 140 or distToShred <= 140)
+    local baseRange = Config.BaseUnloadRange or 110
+    local isAtBase = (distToGen <= baseRange or distToShred <= baseRange)
 
     -- Tuyệt đối không kéo đồ từ xa quá 15 studs
     local pickupRadius = math.min(Config.AutoPickupRadius or 15, 15)
@@ -1262,6 +1294,7 @@ local function RunLootingAndSurvivalStep()
     local hum = Utils.GetHumanoid(char)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if not (char and root and hum and bp and Utils.IsCharacterAlive(char)) then return end
+    if IsDroppingBackpack or IsHandlingBackpackEquip then return end
 
     local droppedFolder = Workspace:FindFirstChild("DroppedItems")
     -- Tuyệt đối không kéo đồ từ xa quá 15 studs
@@ -1274,7 +1307,8 @@ local function RunLootingAndSurvivalStep()
 
     local distToGen = genPart and (genPart.Position - root.Position).Magnitude or 9999
     local distToShred = shredPart and (shredPart.Position - root.Position).Magnitude or 9999
-    local isAtBase = (distToGen <= 140 or distToShred <= 140)
+    local baseRange = Config.BaseUnloadRange or 110
+    local isAtBase = (distToGen <= baseRange or distToShred <= baseRange)
 
     -- Tự động hoàn thành / sửa chữa Trạm phát điện, Máy phát điện, Radio Tower & Máy nghiền
     AutoCompleteObjectivesAndStations(root, genPart, shredPart)
@@ -1567,6 +1601,8 @@ Looting.IsBackpackFull = IsBackpackFull
 Looting.StoreCandidatesToBackpack = StoreCandidatesToBackpack
 Looting.UnloadBackpackAtBase = UnloadBackpackAtBase
 Looting.AutoSortBaseItems = AutoSortBaseItems
+Looting.IsUnloading = function() return IsDroppingBackpack or IsHandlingBackpackEquip end
 
 Hub.Looting = Looting
+Hub.IsLootingUnloading = Looting.IsUnloading
 return Hub

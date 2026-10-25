@@ -693,48 +693,24 @@ local function EnsureBulletModuleHook()
                 hits = type(hits) == "table" and hits or {}
                 effects = type(effects) == "table" and effects or {}
 
-                -- Guarantee Silent Aim registers headshot on first hit and rayRes/effects point directly to head
+                -- Đảm bảo Silent Aim định hướng trúng đầu quái vật khi đường đạn thông thoáng
                 if lockedModel and lockedPart then
                     local headPart = lockedModel:FindFirstChild("Head") or lockedPart
                     aimTargetPos = headPart.Position
-                    rayRes = {
-                        Position = aimTargetPos,
-                        Instance = headPart,
-                        Normal = Vector3.new(0, 1, 0)
-                    }
 
-                    if #hits == 0 then
-                        table.insert(hits, {
-                            HitChar = lockedModel,
-                            HitPos = aimTargetPos,
-                            HitPart = headPart,
-                            Ricochet = (options.RicochetMax and options.RicochetMax > 0) or nil
-                        })
-                    else
+                    -- CRITICAL FIX: Chỉ nâng cấp mục tiêu trúng đầu khi đạn thực sự bắn tới và chạm mục tiêu!
+                    -- Nếu #hits == 0, nghĩa là đạn đã bị cản bởi tường, đất, cây kiên cố trong physics game.
+                    -- TUYỆT ĐỐI KHÔNG gượng ép thêm fake hit vào hits khi bị chặn! Làm vậy server sẽ phát hiện
+                    -- bắn xuyên tường và từ chối sát thương (0 dmg) nhưng vẫn trừ đạn -> GÂY BĂNG ĐẠN ẢO LÃNG PHÍ ĐẠN!
+                    if #hits > 0 then
                         hits[1].HitChar = lockedModel
                         hits[1].HitPos = aimTargetPos
                         hits[1].HitPart = headPart
                         if options.RicochetMax and options.RicochetMax > 0 then
                             hits[1].Ricochet = true
                         end
+                        isHead = true
                     end
-                    isHead = true
-
-                    if #effects == 0 then
-                        table.insert(effects, {
-                            Origin = origin,
-                            End = aimTargetPos,
-                            RayResult = nil,
-                        })
-                    else
-                        effects[1].Origin = origin
-                        effects[1].End = aimTargetPos
-                        effects[1].RayResult = nil
-                    end
-                end
-
-                for _, eff in ipairs(effects) do
-                    eff.RayResult = nil
                 end
 
                 -- Outlaw Ricochet Chain Continuation (Chains up to RicochetMax mobs)
@@ -849,6 +825,7 @@ end
 -- Gun Reload & Magazine State Manager
 local IsReloadingWeapon = setmetatable({}, { __mode = "k" })
 local ShotsFiredSinceReload = setmetatable({}, { __mode = "k" })
+local GunSequentialShotCount = setmetatable({}, { __mode = "k" })
 
 local function TriggerAutomaticGunReload(gunTool)
     if not gunTool or not gunTool.Parent then return false end
@@ -903,13 +880,7 @@ local function TriggerAutomaticGunReload(gunTool)
         end)
         task.wait(0.08)
         if gunTool and gunTool.Parent then
-            local updatedAmmo = gunTool:GetAttribute("Ammo") or 0
-            if updatedAmmo <= 0 then
-                local reserveAttr = ammoType and (LocalPlayer:GetAttribute(ammoType .. "Ammo") or (Utils.GetCharacter() and Utils.GetCharacter():GetAttribute(ammoType .. "Ammo")))
-                if reserveAttr == nil or reserveAttr > 0 then
-                    pcall(function() gunTool:SetAttribute("Ammo", cap) end)
-                end
-            end
+            -- Không ép Ammo = cap trên client nếu server chưa nạp xong hoặc hết đạn dự trữ, tránh sinh băng đạn ảo
             ShotsFiredSinceReload[gunTool] = 0
         end
         IsReloadingWeapon[gunTool] = nil
@@ -1347,6 +1318,9 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         Hub.Visuals.FOVCircleFrame.Position = UDim2.fromOffset(mousePos.X, mousePos.Y)
         Hub.Visuals.FOVCircleFrame.Size = UDim2.fromOffset(Config.AimFOV * 2, Config.AimFOV * 2)
         Hub.Visuals.FOVCircleFrame.Visible = Config.AimShowFOV and Config.Aimbot
+    if Hub.IsLootingUnloading and Hub.IsLootingUnloading() then
+        HideVirtualBulletVisual()
+        return
     end
 
     local char = Utils.GetCharacter()
@@ -1483,107 +1457,131 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
             LastAutoShootTime = now
             hitPos = exactHitPos or targetPart.Position
-            local shootRem = held:FindFirstChild("Shoot") or held:FindFirstChild("Shoot", true)
-            if not shootRem then
-                for _, ch in ipairs(held:GetDescendants()) do
-                    if ch:IsA("RemoteEvent") and (ch.Name == "Shoot" or ch.Name == "Fire" or ch.Name == "Attack") then
-                        shootRem = ch
-                        break
+
+            -- Tự động kích hoạt cơ chế bắn nguyên bản thông qua VirtualInputManager / Input simulation
+            -- Điều này đảm bảo GunClient.lua tự sinh sequence shot u14 chính xác, trừ đạn đúng chuẩn và server chấp nhận 100% sát thương!
+            local shotTriggered = false
+            local VIM = Services.VirtualInputManager or (game:FindService("VirtualInputManager") or game:GetService("VirtualInputManager"))
+            if VIM then
+                pcall(function()
+                    VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                    task.delay(0.04, function()
+                        pcall(function() VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0) end)
+                    end)
+                    shotTriggered = true
+                end)
+            end
+
+            local mouse1press_fn = mouse1press or (Input and Input.mouse1press)
+            local mouse1release_fn = mouse1release or (Input and Input.mouse1release)
+            if not shotTriggered and mouse1press_fn and mouse1release_fn then
+                pcall(function()
+                    mouse1press_fn()
+                    task.delay(0.04, function() pcall(mouse1release_fn) end)
+                    shotTriggered = true
+                end)
+            end
+
+            -- Dự phòng an toàn nếu executor không hỗ trợ giả lập chuột:
+            -- Sử dụng bộ đếm shot ID tuần tự strictly-increasing (TUYỆT ĐỐI KHÔNG DÙNG math.random!)
+            -- Và chỉ gửi HitData khi đường đạn thực sự bắn trúng mục tiêu (không forge qua vật cản)
+            if not shotTriggered then
+                local shootRem = held:FindFirstChild("Shoot") or held:FindFirstChild("Shoot", true)
+                if not shootRem then
+                    for _, ch in ipairs(held:GetDescendants()) do
+                        if ch:IsA("RemoteEvent") and (ch.Name == "Shoot" or ch.Name == "Fire" or ch.Name == "Attack") then
+                            shootRem = ch
+                            break
+                        end
                     end
+                end
+
+                if shootRem then
+                    local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or 1)
+                    ShotsFiredSinceReload[held] = shotsFired + 1
+                    GunSequentialShotCount[held] = (GunSequentialShotCount[held] or 0) + 1
+                    local shotSeq = GunSequentialShotCount[held]
+
+                    pcall(function()
+                        local pelletResults = {}
+                        local myChar = Utils.GetCharacter()
+                        local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
+
+                        for pIdx = 1, pelletsCount do
+                            local hitsList = nil
+                            local effectsList = nil
+
+                            if BulletModule and BulletModule.BulletHitscan then
+                                BypassHitscanHook = false
+                                local bHits, bRay, bHead, bEffects = BulletModule.BulletHitscan(fireOrigin, hitPos, {
+                                    Attacker = char,
+                                    Penetration = (Config.MaxPenetration and 10) or (isOutlaw and 3) or (stats and stats:GetAttribute("Penetration")) or 0,
+                                    RicochetMax = (isOutlaw and 3) or 0,
+                                    RicochetChance = (isOutlaw and 1) or 0,
+                                    Range = (stats and stats:GetAttribute("BulletRange")) or 1000,
+                                })
+                                if type(bHits) == "table" and #bHits > 0 then
+                                    hitsList = bHits
+                                end
+                                if type(bEffects) == "table" and #bEffects > 0 then
+                                    effectsList = bEffects
+                                end
+                            end
+
+                            if not hitsList or #hitsList == 0 then
+                                -- Tuyệt đối KHÔNG giả lập fake hit khi ray bị cản! Để hitsList rỗng để server không reject
+                                hitsList = {}
+                            else
+                                hitsList[1].HitChar = targetModel
+                                hitsList[1].HitPart = targetPart
+                                hitsList[1].HitPos = hitPos
+                                if isOutlaw then
+                                    hitsList[1].Ricochet = true
+                                end
+                            end
+
+                            if not effectsList or #effectsList == 0 then
+                                effectsList = {
+                                    {
+                                        Origin = fireOrigin,
+                                        End = hitPos,
+                                    }
+                                }
+                            else
+                                effectsList[1].Origin = fireOrigin
+                                effectsList[1].End = hitPos
+                            end
+
+                            pelletResults[pIdx] = {
+                                Target = hitPos,
+                                HitData = hitsList,
+                                EffectResults = effectsList,
+                            }
+                        end
+
+                        shootRem:FireServer(fireOrigin, pelletResults, 0, shotSeq)
+                        pcall(function()
+                            local currAmmo = held:GetAttribute("Ammo") or 1
+                            held:SetAttribute("Ammo", math.max(0, currAmmo - 1))
+                        end)
+                    end)
                 end
             end
 
-            if shootRem then
-                local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or 1)
-                ShotsFiredSinceReload[held] = shotsFired + 1
-
-                pcall(function()
-                    local pelletResults = {}
-                    local myChar = Utils.GetCharacter()
-                    local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
-
-                    for pIdx = 1, pelletsCount do
-                        local hitsList = nil
-                        local effectsList = nil
-
-                        if BulletModule and BulletModule.BulletHitscan then
-                            BypassHitscanHook = false
-                            local bHits, bRay, bHead, bEffects = BulletModule.BulletHitscan(fireOrigin, hitPos, {
-                                Attacker = char,
-                                Penetration = (Config.MaxPenetration and 10) or (isOutlaw and 3) or (stats and stats:GetAttribute("Penetration")) or 0,
-                                RicochetMax = (isOutlaw and 3) or 0,
-                                RicochetChance = (isOutlaw and 1) or 0,
-                                Range = (stats and stats:GetAttribute("BulletRange")) or 1000,
-                            })
-                            if type(bHits) == "table" and #bHits > 0 then
-                                hitsList = bHits
-                            end
-                            if type(bEffects) == "table" and #bEffects > 0 then
-                                effectsList = bEffects
-                            end
-                        end
-
-                        if not hitsList or #hitsList == 0 then
-                            hitsList = {
-                                {
-                                    HitChar = targetModel,
-                                    HitPos = hitPos,
-                                    HitPart = targetPart,
-                                    Ricochet = (isOutlaw and true) or nil,
-                                }
-                            }
-                        else
-                            hitsList[1].HitChar = targetModel
-                            hitsList[1].HitPart = targetPart
-                            hitsList[1].HitPos = hitPos
-                            if isOutlaw then
-                                hitsList[1].Ricochet = true
-                            end
-                        end
-
-                        if not effectsList or #effectsList == 0 then
-                            effectsList = {
-                                {
-                                    Origin = fireOrigin,
-                                    End = hitPos,
-                                    RayResult = nil,
-                                }
-                            }
-                        else
-                            for _, eff in ipairs(effectsList) do
-                                eff.RayResult = nil
-                            end
-                            effectsList[1].Origin = fireOrigin
-                            effectsList[1].End = hitPos
-                        end
-
-                        pelletResults[pIdx] = {
-                            Target = hitPos,
-                            HitData = hitsList,
-                            EffectResults = effectsList,
-                        }
-                    end
-                    shootRem:FireServer(fireOrigin, pelletResults, 0, math.random(1, 99999))
-                end)
-
-                pcall(function()
-                    held:Activate()
-                end)
-
-                if nextAmmo <= 0 or (capacity > 0 and ShotsFiredSinceReload[held] >= capacity) then
-                    TriggerAutomaticGunReload(held)
-                end
-
-                local checkedTarget = targetModel
-                task.delay(0.05, function()
-                    if ActiveShootTarget == checkedTarget or CurrentLockedTarget == checkedTarget then
-                        if GetActualMobHP(checkedTarget) <= 0 then
-                            ActiveShootTarget = nil
-                            CurrentLockedTarget = nil
-                        end
-                    end
-                end)
+            local curAmmoNow = held:GetAttribute("Ammo") or 0
+            if curAmmoNow <= 0 or (capacity > 0 and (ShotsFiredSinceReload[held] or 0) >= capacity) then
+                TriggerAutomaticGunReload(held)
             end
+
+            local checkedTarget = targetModel
+            task.delay(0.05, function()
+                if ActiveShootTarget == checkedTarget or CurrentLockedTarget == checkedTarget then
+                    if GetActualMobHP(checkedTarget) <= 0 then
+                        ActiveShootTarget = nil
+                        CurrentLockedTarget = nil
+                    end
+                end
+            end)
         end
     end
 end))
