@@ -203,16 +203,17 @@ local Config = {
     AutoSkipCutscenes = false,
     LowQualityFPSBoost = false,
 
-    -- Movement, Map & Automation
+    -- Movement, Map & Automation (Knightmare Anti-Cheat Safe: KM_MAX_PLAYER_SPEED = 28.5)
     SpeedBoost = false,
-    WalkSpeedValue = 28,
+    WalkSpeedValue = 26,               -- Tốc độ an toàn tuyệt đối (< 28.5 studs/s để không bị server giật lùi)
     AutoSprint = false,
     NoSlowdowns = true,
     InfiniteJump = false,
     BunnyHop = false,
-    Noclip = false,
+    Noclip = false,                    -- Khuyến nghị tắt vì server check raycast va chạm địa hình
     Fly = false,
-    FlySpeed = 65,
+    FlySpeed = 25,                     -- Tốc độ lướt an toàn (< 28.5 studs/s)
+    SafeGroundHover = true,            -- Lướt sát mặt đất kèm raycast kiểm tra sàn, tránh bị phạt KM_FLY_TRUST_SCORE
     AutoRevealMap = false,
     AutoReturnAtNight = false,
     AutoFarmLoop = false,

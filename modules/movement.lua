@@ -131,7 +131,12 @@ Hub.AddConnection(RunService.Heartbeat:Connect(function()
     end
 
     if Config.SpeedBoost then
-        hum.WalkSpeed = Config.WalkSpeedValue or 28
+        local targetSpeed = Config.WalkSpeedValue or 26
+        -- Knightmare Anti-Cheat Cap: KM_MAX_PLAYER_SPEED = 28.5 (giới hạn cứng không vượt 27.5 để tránh rubberband)
+        if targetSpeed > 27.5 then
+            targetSpeed = 27.5
+        end
+        hum.WalkSpeed = targetSpeed
     elseif (Config.NoSlowdowns or Config.NoSlowOnMedical) and _G.updateWalkSpeed then
         pcall(_G.updateWalkSpeed)
     end
@@ -163,10 +168,12 @@ Hub.AddConnection(RunService.Heartbeat:Connect(function()
             moveVec = camCF.LookVector * hum.MoveDirection.Magnitude
         end
 
+        -- Knightmare Anti-Cheat: Tốc độ tối đa cho phép là 28.5 studs/s. Cần giới hạn flySpd <= 27.0 studs/s
+        local flySpd = math.min(Config.FlySpeed or 25, 27.0)
         if moveVec.Magnitude > 0 then
-            root.AssemblyLinearVelocity = moveVec.Unit * (Config.FlySpeed or 65)
+            root.AssemblyLinearVelocity = moveVec.Unit * flySpd
         else
-            root.AssemblyLinearVelocity = Vector3.new(0, 1.5, 0)
+            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         end
     end
 end))
