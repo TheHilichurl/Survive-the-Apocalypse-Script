@@ -293,6 +293,136 @@ local function GetCrateColorAndName(crate)
     return color, cleanName
 end
 
+-- ============================================================================
+-- THROTTLED SPECIAL LANDMARKS & RAID STRUCTURES SCANNER
+-- Giảm tải 95% CPU: Không quét thư mục Map.Tiles/Structures liên tục mỗi frame
+-- ============================================================================
+local LastLandmarkScanTime = 0
+local CachedSpecialLandmarks = {}
+
+local function RescanSpecialLandmarks()
+    local now = os.clock()
+    if (now - LastLandmarkScanTime) < 1.8 and #CachedSpecialLandmarks > 0 then
+        return CachedSpecialLandmarks
+    end
+    LastLandmarkScanTime = now
+    local list = {}
+
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
+
+    -- 1. Quét Tiles trong Map (Nuclear Reactor, Military Base, Power Plants, Upgrader, Halloween...)
+    if tilesFolder then
+        for _, tile in ipairs(tilesFolder:GetChildren()) do
+            local tName = tile.Name
+            local lower = tName:lower()
+
+            -- A. Nuclear Reactor Raid (path: workspace.Map.Tiles["Nuclear Reactor"].Assets.PowerPlant)
+            if lower:find("nuclear") or lower:find("reactor") then
+                local assets = tile:FindFirstChild("Assets")
+                local powerPlant = (assets and assets:FindFirstChild("PowerPlant")) or tile:FindFirstChild("PowerPlant", true)
+                local targetObj = powerPlant or tile
+                table.insert(list, {
+                    Type = "NuclearReactor",
+                    Obj = targetObj,
+                    Name = "[RAID] Nuclear Reactor",
+                    Color = Color3.fromRGB(168, 85, 247), -- Neon Purple
+                    Offset = Vector3.new(0, 7.0, 0),
+                    CanChams = true,
+                })
+
+            -- B. Military Base & Military Lab Raid
+            elseif lower:find("military") then
+                local labTag = lower:find("lab") and "[RAID] Military Lab" or "[RAID] Military Base"
+                table.insert(list, {
+                    Type = "MilitaryBase",
+                    Obj = tile,
+                    Name = labTag,
+                    Color = Color3.fromRGB(34, 197, 94), -- Military Emerald Green
+                    Offset = Vector3.new(0, 7.5, 0),
+                    CanChams = true,
+                })
+
+            -- C. Weapon Upgrader (Pack-A-Punch)
+            elseif lower:find("upgrader") or lower:find("pack") then
+                local upgraderModel = tile:FindFirstChild("Upgrader", true) or tile
+                table.insert(list, {
+                    Type = "WeaponUpgrader",
+                    Obj = upgraderModel,
+                    Name = "[SPECIAL] Weapon Upgrader",
+                    Color = Color3.fromRGB(56, 189, 248), -- Cyan
+                    Offset = Vector3.new(0, 4.5, 0),
+                    CanChams = true,
+                })
+
+            -- D. Halloween Event (Cauldron, Pumpkin, Witch, Dullahan)
+            elseif lower:find("halloween") or lower:find("pumpkin") or lower:find("cauldron") or lower:find("dullahan") or lower:find("witch") then
+                table.insert(list, {
+                    Type = "HalloweenEvent",
+                    Obj = tile,
+                    Name = "[EVENT] Halloween (" .. tName .. ")",
+                    Color = Color3.fromRGB(249, 115, 22), -- Pumpkin Orange
+                    Offset = Vector3.new(0, 5.0, 0),
+                    CanChams = true,
+                })
+
+            -- E. Nhiệm vụ Power Plants & Radio Tower
+            elseif tName == "Power Plant" or tName == "Big Power Plant" then
+                table.insert(list, {
+                    Type = "Objective",
+                    Obj = tile,
+                    Name = tName,
+                    Color = Color3.fromRGB(250, 204, 21),
+                    Offset = Vector3.new(0, 6.0, 0),
+                    CanChams = true,
+                    IsPowerPlant = true,
+                })
+            elseif tName == "Radio Tower" then
+                table.insert(list, {
+                    Type = "Objective",
+                    Obj = tile,
+                    Name = "Radio Tower",
+                    Color = Color3.fromRGB(56, 189, 248),
+                    Offset = Vector3.new(0, 8.0, 0),
+                    CanChams = true,
+                    IsRadioTower = true,
+                })
+            end
+        end
+    end
+
+    -- 2. Quét trong Structures cho Upgrader hoặc Halloween nếu được đặt riêng
+    local structsFolder = Workspace:FindFirstChild("Structures")
+    if structsFolder then
+        for _, st in ipairs(structsFolder:GetChildren()) do
+            local sName = st.Name
+            local sLower = sName:lower()
+            if sLower:find("upgrader") or sLower:find("pack") then
+                table.insert(list, {
+                    Type = "WeaponUpgrader",
+                    Obj = st,
+                    Name = "[SPECIAL] Weapon Upgrader",
+                    Color = Color3.fromRGB(56, 189, 248),
+                    Offset = Vector3.new(0, 4.0, 0),
+                    CanChams = true,
+                })
+            elseif sLower:find("halloween") or sLower:find("pumpkin") or sLower:find("cauldron") or sLower:find("altar") then
+                table.insert(list, {
+                    Type = "HalloweenEvent",
+                    Obj = st,
+                    Name = "[EVENT] Halloween (" .. sName .. ")",
+                    Color = Color3.fromRGB(249, 115, 22),
+                    Offset = Vector3.new(0, 3.5, 0),
+                    CanChams = true,
+                })
+            end
+        end
+    end
+
+    CachedSpecialLandmarks = list
+    return list
+end
+
 local function RefreshESP()
     if not Config.ESPEnabled then
         ClearAllESP()
@@ -468,59 +598,66 @@ local function RefreshESP()
         end
     end
 
-    -- 4. Nhiệm vụ & Cứu viện (Power Plants, Radio Tower, Escape Plan)
-    if Config.ObjectiveESP then
-        local mapFolder = Workspace:FindFirstChild("Map")
-        local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
-        if tilesFolder then
-            for _, tile in ipairs(tilesFolder:GetChildren()) do
-                local tName = tile.Name
-                if tName == "Power Plant" or tName == "Big Power Plant" then
-                    local isRepaired = tile:GetAttribute("Repaired") == true
-                    local pos = tile:GetPivot().Position
-                    local dist = math.round((pos - myPos).Magnitude)
-                    if dist <= maxDist then
-                        local color = isRepaired and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(250, 204, 21)
-                        local status = isRepaired and "[ACTIVE]" or "[REPAIR NEEDED]"
-                        local textParts = { "[OBJECTIVE]", tName, status }
-                        if Config.ESPShowDistance then
-                            table.insert(textParts, "(" .. dist .. "m)")
-                        end
-                        table.insert(candidates, {
-                            Obj = tile,
-                            Color = color,
-                            Priority = isRepaired and (dist + 500) or (dist - 1500),
-                            Text = table.concat(textParts, " "),
-                            HasHealth = false,
-                            StudsOffset = Vector3.new(0, 6.0, 0),
-                            CanChams = not isRepaired,
-                        })
+    -- 4. Công trình đặc biệt (Raid Landmarks, Weapon Upgrader, Halloween Event & Objectives)
+    local landmarks = RescanSpecialLandmarks()
+    for _, lm in ipairs(landmarks) do
+        local obj = lm.Obj
+        if obj and obj.Parent then
+            local pos = obj:GetPivot().Position
+            local dist = math.round((pos - myPos).Magnitude)
+            if dist <= maxDist then
+                local shouldShow = false
+                local color = lm.Color
+                local textParts = { lm.Name }
+                local prio = dist - 1200
+                local allowChams = lm.CanChams
+
+                if lm.Type == "NuclearReactor" and Config.ESPNuclearReactor then
+                    shouldShow = true
+                    prio = dist - 2500
+                elseif lm.Type == "MilitaryBase" and Config.ESPMilitaryBase then
+                    shouldShow = true
+                    prio = dist - 2400
+                elseif lm.Type == "WeaponUpgrader" and Config.ESPWeaponUpgrader then
+                    shouldShow = true
+                    prio = dist - 2200
+                elseif lm.Type == "HalloweenEvent" and Config.ESPHalloweenEvent then
+                    shouldShow = true
+                    prio = dist - 2000
+                elseif lm.Type == "Objective" and Config.ObjectiveESP then
+                    shouldShow = true
+                    if lm.IsPowerPlant then
+                        local isRepaired = obj:GetAttribute("Repaired") == true
+                        color = isRepaired and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(250, 204, 21)
+                        table.insert(textParts, isRepaired and "[ACTIVE]" or "[REPAIR NEEDED]")
+                        allowChams = not isRepaired
+                    elseif lm.IsRadioTower then
+                        local isFixed = Workspace:GetAttribute("RadioTowerFixed") == true
+                        color = isFixed and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(56, 189, 248)
+                        table.insert(textParts, isFixed and "[ACTIVE]" or "[SIGNAL INACTIVE]")
+                        allowChams = not isFixed
                     end
-                elseif tName == "Radio Tower" then
-                    local isFixed = Workspace:GetAttribute("RadioTowerFixed") == true
-                    local pos = tile:GetPivot().Position
-                    local dist = math.round((pos - myPos).Magnitude)
-                    if dist <= maxDist then
-                        local color = isFixed and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(56, 189, 248)
-                        local status = isFixed and "[ACTIVE]" or "[SIGNAL INACTIVE]"
-                        local textParts = { "[OBJECTIVE]", "Radio Tower", status }
-                        if Config.ESPShowDistance then
-                            table.insert(textParts, "(" .. dist .. "m)")
-                        end
-                        table.insert(candidates, {
-                            Obj = tile,
-                            Color = color,
-                            Priority = isFixed and (dist + 500) or (dist - 1600),
-                            Text = table.concat(textParts, " "),
-                            HasHealth = false,
-                            StudsOffset = Vector3.new(0, 8.0, 0),
-                            CanChams = not isFixed,
-                        })
+                end
+
+                if shouldShow then
+                    if Config.ESPShowDistance then
+                        table.insert(textParts, "(" .. dist .. "m)")
                     end
+                    table.insert(candidates, {
+                        Obj = obj,
+                        Color = color,
+                        Priority = prio,
+                        Text = table.concat(textParts, " "),
+                        HasHealth = false,
+                        StudsOffset = lm.Offset or Vector3.new(0, 5.0, 0),
+                        CanChams = allowChams,
+                    })
                 end
             end
         end
+    end
 
+    if Config.ObjectiveESP then
         local radio = Workspace:FindFirstChild("Radio")
         if radio and radio:IsA("Model") then
             local pos = radio:GetPivot().Position

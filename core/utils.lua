@@ -352,7 +352,15 @@ function Utils.IsSpecialOrBossMob(mob)
         or string.find(n, "Tyrant") ~= nil
         or string.find(n, "Spitter") ~= nil
         or string.find(n, "Muscle") ~= nil
+        or string.find(n, "Dullahan") ~= nil
+        or string.find(n, "Witch") ~= nil
+        or string.find(n, "Pumpkin") ~= nil
+        or string.find(n, "Scarecrow") ~= nil
+        or string.find(n, "Alien") ~= nil
+        or string.find(n, "Mutant") ~= nil
         or mob:GetAttribute("Boss") == true
+        or mob:GetAttribute("RaidBoss") == true
+        or mob:GetAttribute("Special") == true
 end
 
 function Utils.IsBloaterMob(mob)

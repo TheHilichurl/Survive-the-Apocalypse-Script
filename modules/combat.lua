@@ -82,50 +82,44 @@ local function HideVirtualBulletVisual()
 end
 
 -- Real-Time Mob HP Checker
-local LocalPredictedDamage = setmetatable({}, { __mode = "k" })
-
 local function GetActualMobHP(model)
     if not model or not model.Parent then return 0 end
-    if model:GetAttribute("Dead") == true or model:GetAttribute("Untargetable") == true or model:GetAttribute("Untouchable") == true then
+    if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true then
         return 0
     end
 
-    local minHp = nil
-    local attrHp = model:GetAttribute("Health") or model:GetAttribute("HP") or model:GetAttribute("ProjectedHealth")
-    if type(attrHp) == "number" then
-        minHp = attrHp
+    local hp = model:GetAttribute("Health") or model:GetAttribute("HP")
+    if type(hp) == "number" and hp > 0 then
+        return hp
+    end
+
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    if hum then
+        local hHp = hum.Health
+        if type(hHp) == "number" and hHp > 0 then
+            return hHp
+        end
     end
 
     local mockHum = model:FindFirstChild("MockHumanoid")
     if mockHum then
         local mHp = mockHum:GetAttribute("Health") or (mockHum:IsA("Humanoid") and mockHum.Health)
-        if type(mHp) == "number" then
-            minHp = minHp and math.min(minHp, mHp) or mHp
+        if type(mHp) == "number" and mHp > 0 then
+            return mHp
         end
     end
 
-    local hum = model:FindFirstChildOfClass("Humanoid")
-    if hum then
-        local hHp = hum.Health or hum:GetAttribute("Health")
-        if type(hHp) == "number" then
-            minHp = minHp and math.min(minHp, hHp) or hHp
-        end
+    local projHp = model:GetAttribute("ProjectedHealth")
+    if type(projHp) == "number" and projHp > 0 then
+        return projHp
     end
 
-    -- Nếu mob không có thuộc tính HP rõ ràng nhưng là model quái sống có Root/Head:
-    if minHp == nil then
-        if model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head") or model:FindFirstChild("UpperTorso") or model.PrimaryPart then
-            minHp = 100
-        else
-            return 0
-        end
+    -- Nếu mob đang tồn tại trong Characters và chưa chết:
+    if model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head") or model:FindFirstChild("UpperTorso") or model.PrimaryPart then
+        return 100
     end
 
-    local pending = LocalPredictedDamage[model]
-    if pending and (os.clock() - pending.Time) <= 0.14 then
-        minHp = minHp - pending.Dmg
-    end
-    return minHp
+    return 0
 end
 
 -- Nhận diện súng (Gun) thông minh & toàn diện
@@ -293,17 +287,25 @@ local function IsMapBorderOrWall(inst)
         return true
     end
     local name = inst.Name:lower()
+    local p = inst.Parent
+    local pName = (p and p.Name or ""):lower()
+
+    -- Cây cối (Tree, Tree1) và Bụi cỏ (Grass) là các part không bắn xuyên qua được theo cơ chế game
+    if name:find("tree") or name:find("grass") or pName:find("tree") or pName:find("grass") then
+        return true
+    end
+
     if name:find("border") or name:find("barrier") or name:find("wall") or name:find("fence")
         or name:find("gate") or name:find("door") or name:find("barricade") or name:find("shield")
         or name:find("sandbag") or name:find("pillar") or name:find("column") or name:find("rock")
         or name:find("house") or name:find("building") or name:find("roof") or name:find("floor") then
         return true
     end
-    local p = inst.Parent
     while p and p ~= Workspace do
-        local pName = p.Name:lower()
-        if pName:find("border") or pName:find("barrier") or pName:find("wall") or pName:find("fence")
-            or pName:find("gate") or pName:find("barricade") or pName:find("building") or pName:find("house") then
+        local curPName = p.Name:lower()
+        if curPName:find("tree") or curPName:find("grass")
+            or curPName:find("border") or curPName:find("barrier") or curPName:find("wall") or curPName:find("fence")
+            or curPName:find("gate") or curPName:find("barricade") or curPName:find("building") or curPName:find("house") then
             return true
         end
         p = p.Parent
@@ -320,8 +322,15 @@ local function IsPenetrableObstacle(inst)
         return true
     end
 
-    -- 2. Tường rào map, hàng rào map, tường thành, công trình: TUYỆT ĐỐI KHÔNG XUYÊN!
+    -- 2. Tường rào map, hàng rào map, tường thành, công trình, cây (Tree1/Tree) và bụi cỏ (Grass): TUYỆT ĐỐI KHÔNG XUYÊN!
     if IsMapBorderOrWall(inst) then
+        return false
+    end
+
+    local name = inst.Name:lower()
+    local p = inst.Parent
+    local pName = (p and p.Name or ""):lower()
+    if name:find("tree") or name:find("grass") or pName:find("tree") or pName:find("grass") then
         return false
     end
 
@@ -335,9 +344,8 @@ local function IsPenetrableObstacle(inst)
         return false
     end
 
-    -- 5. Chỉ các chi tiết hoa cỏ, lá rụng, bụi cỏ mềm KHÔNG CÓ VA CHẠM (CanCollide = false) mới được coi là xuyên:
-    local name = inst.Name:lower()
-    if name:find("grass") or name:find("leaf") or name:find("leaves") or name:find("flower")
+    -- 5. Chỉ các chi tiết hoa, lá rụng không va chạm (CanCollide = false) mới được coi là xuyên:
+    if name:find("leaf") or name:find("leaves") or name:find("flower")
         or name:find("weed") or name:find("dirt") or name:find("clutter") or name:find("trash") then
         return true
     end
@@ -881,13 +889,8 @@ local function ApplyWeaponModsToTool(tool)
             stats:SetAttribute("Inaccuracy", base.Inaccuracy)
         end
 
-        if Config.RapidFire and base.FireRate then
-            stats:SetAttribute("FireRate", base.FireRate * (Config.RapidFireMultiplier or 2.0))
-        elseif base.FireRate then
-            stats:SetAttribute("FireRate", base.FireRate)
-        end
-
-        -- Vô hiệu hoá sửa đổi FastReload để tránh lỗi hoạt ảnh nạp đạn và lệch đồng bộ server
+        -- KHÔNG CAN THIỆP VÀO TỐC ĐỘ BẮN HOẶC NẠP ĐẠN - DÙNG THUẦN CƠ CHẾ NGUYÊN BẢN CỦA GAME
+        if base.FireRate then stats:SetAttribute("FireRate", base.FireRate) end
         if base.ReloadTime then stats:SetAttribute("ReloadTime", base.ReloadTime) end
         if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", base.ReloadIndividualTime) end
         if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
@@ -1115,17 +1118,27 @@ local function RunKillAuraAndBreakAuraStep()
                     local isBoss = Utils.IsSpecialOrBossMob(model)
                     local isBloater = Utils.IsBloaterMob(model)
 
-                    if not (Config.KillAuraIgnoreBloaters and isBloater) then
-                        if (isZom and Config.KillAuraAttackZombies)
+                    local isClearCandidate = true
+                    if Config.KillAuraIgnoreBloaters and isBloater then
+                        isClearCandidate = false
+                    end
+
+                    if isClearCandidate then
+                        local allowAttack = isBoss
+                            or (isZom and Config.KillAuraAttackZombies)
                             or (isBan and Config.KillAuraAttackBandits)
-                            or (isBoss and Config.KillAuraAttackBosses)
-                            or (not isZom and not isBan) then
+                            or (not isZom and not isBan)
+
+                        if allowAttack then
                             local dist = (model:GetPivot().Position - root.Position).Magnitude
                             if dist <= maxRange then
                                 local isClear = true
-                                if Config.AimWallCheck ~= false then
-                                    local modelPos = model:GetPivot().Position
-                                    isClear = CheckRayUnobstructed(root.Position, modelPos, model)
+                                -- Nếu trong cự ly cận chiến trực tiếp (<= 8 studs), luôn chém trúng không bị cản bởi sàn/cỏ
+                                if dist > 8 and Config.AimWallCheck ~= false then
+                                    local eyePos = root.Position + Vector3.new(0, 1.5, 0)
+                                    local targetPart = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+                                    local targetPos = (targetPart and targetPart.Position) or (model:GetPivot().Position + Vector3.new(0, 1.5, 0))
+                                    isClear = CheckRayUnobstructed(eyePos, targetPos, model)
                                 end
                                 if isClear then
                                     table.insert(targets, { Model = model, Dist = dist, HP = hp, Special = isBoss })
@@ -1372,11 +1385,14 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
     if Config.AutoShoot then
         local now = os.clock()
-        local fireRate = (stats and stats:GetAttribute("FireRate")) or 6
-        local cooldown = (fireRate > 35) and (60 / fireRate) or (1 / math.max(fireRate, 0.5))
+        -- Tính toán cooldown chuẩn theo đúng công thức của GunClient trong game: 60 / (FireRate * v27)
+        local baseFireRate = (OriginalWeaponStats[held] and OriginalWeaponStats[held].FireRate) or (stats and stats:GetAttribute("FireRate")) or 6
+        local charFireRateBonus = char and char:GetAttribute("FireRate") or 0
+        local effectiveFireRate = baseFireRate * (1 + charFireRateBonus)
+        local cooldown = (effectiveFireRate > 35) and (60 / effectiveFireRate) or (1 / math.max(effectiveFireRate, 0.5))
         cooldown = math.clamp(cooldown, 0.05, 1.2)
 
-        if (now - LastAutoShootTime) >= cooldown then
+        if (now - LastAutoShootTime) >= cooldown and _G.shooting ~= true then
             local aliveNow, hpNow = IsHostilePvEMob(targetModel)
             if not aliveNow or hpNow <= 0 then
                 ActiveShootTarget = nil
@@ -1407,20 +1423,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
             if shootRem then
                 local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or 1)
-                local baseDmg = (stats and (stats:GetAttribute("Damage") or stats:GetAttribute("BaseDamage"))) or 25
-                local headMult = (targetPart.Name == "Head" and ((stats and stats:GetAttribute("HeadshotMultiplier")) or 1.5)) or 1
-                local estTotalDmg = baseDmg * pelletsCount * headMult
-
-                LocalPredictedDamage[targetModel] = {
-                    Dmg = estTotalDmg,
-                    Time = now,
-                }
-
-                local nextAmmo = math.max(0, curAmmo - 1)
                 ShotsFiredSinceReload[held] = shotsFired + 1
-                pcall(function()
-                    held:SetAttribute("Ammo", nextAmmo)
-                end)
 
                 pcall(function()
                     local pelletResults = {}
@@ -1488,7 +1491,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                             EffectResults = effectsList,
                         }
                     end
-                    shootRem:FireServer(fireOrigin, pelletResults, 1, math.random(1, 99999))
+                    shootRem:FireServer(fireOrigin, pelletResults, 0, math.random(1, 99999))
                 end)
 
                 pcall(function()

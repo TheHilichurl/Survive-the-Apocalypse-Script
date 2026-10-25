@@ -57,13 +57,10 @@ local Config = {
     AutoShoot = false,
     ShowVirtualBulletLine = true,
 
-    -- Weapon Mods
+    -- Weapon Mods (Thuần cơ chế game - Không can thiệp tốc độ bắn hoặc nạp đạn)
     NoRecoil = false,
     NoCameraShake = false,
     NoSpread = false,
-    RapidFire = true,
-    RapidFireMultiplier = 2.0, -- Mặc định x2 theo yêu cầu
-    FastReload = false, -- Đã tắt hoàn toàn để tránh lỗi reload
     AutoReload = true,
     AlwaysAutomatic = false,
     InstantCharge = false,
@@ -171,6 +168,10 @@ local Config = {
     CrateESP = true,
     StructureESP = true,
     ObjectiveESP = true,
+    ESPNuclearReactor = true, -- Nhà máy hạt nhân (Nuclear Reactor Raid & The Experiment)
+    ESPMilitaryBase = true,   -- Căn cứ quân sự & Phòng lab (Military Base / Lab & Exterminator)
+    ESPWeaponUpgrader = true, -- Máy nâng cấp vũ khí (Pack-A-Punch / Upgrader)
+    ESPHalloweenEvent = true, -- Sự kiện Halloween (Cauldron / Pumpkin / Dullahan)
     ItemESP = true,
     ItemESPCategories = {
         Gun = true,
