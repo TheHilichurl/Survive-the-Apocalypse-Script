@@ -76,10 +76,120 @@ if GameInfo and GameInfo:FindFirstChild("Colors") then
     pcall(function() ColorsModule = require(GameInfo.Colors) end)
 end
 
-local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealth, health, maxHealth, studsOffset, isInfiniteDistance)
+local function GetBestAdornee(obj)
+    if not obj then return nil end
+    if obj:IsA("BasePart") then return obj end
+    if obj:IsA("Model") then
+        if obj.PrimaryPart then return obj.PrimaryPart end
+        local main = obj:FindFirstChild("MainPart") or obj:FindFirstChild("Main") or obj:FindFirstChild("Hitbox")
+            or obj:FindFirstChild("Box") or obj:FindFirstChild("Center") or obj:FindFirstChild("Head")
+            or obj:FindFirstChild("HumanoidRootPart")
+        if main and main:IsA("BasePart") then return main end
+
+        local bestPart = nil
+        local maxVol = 0
+        for _, p in ipairs(obj:GetChildren()) do
+            if p:IsA("BasePart") then
+                local vol = p.Size.X * p.Size.Y * p.Size.Z
+                if vol > maxVol then
+                    maxVol = vol
+                    bestPart = p
+                end
+            end
+        end
+        if bestPart then return bestPart end
+
+        return obj:FindFirstChildWhichIsA("BasePart", true)
+    end
+    if obj:IsA("Folder") then
+        local model = obj:FindFirstChildWhichIsA("Model")
+        if model then return GetBestAdornee(model) end
+        return obj:FindFirstChildWhichIsA("BasePart", true)
+    end
+    return nil
+end
+
+local function CalculateRoofOffset(obj, fallbackOffset)
+    local offset = fallbackOffset or Vector3.new(0, 6, 0)
+    if not obj or not obj.Parent then return offset end
+    pcall(function()
+        if obj:IsA("Model") then
+            local _, size = obj:GetBoundingBox()
+            if size and size.Y > 0 then
+                local roofY = math.clamp(size.Y / 2 + 4.5, 6, 50)
+                offset = Vector3.new(0, roofY, 0)
+            end
+        elseif obj:IsA("BasePart") then
+            local roofY = math.clamp(obj.Size.Y / 2 + 3.5, 4, 30)
+            offset = Vector3.new(0, roofY, 0)
+        elseif obj:IsA("Folder") then
+            local model = obj:FindFirstChildWhichIsA("Model")
+            if model then
+                local _, size = model:GetBoundingBox()
+                if size and size.Y > 0 then
+                    local roofY = math.clamp(size.Y / 2 + 4.5, 6, 50)
+                    offset = Vector3.new(0, roofY, 0)
+                end
+            end
+        end
+    end)
+    return offset
+end
+
+local function IsPowerPlantRepaired(tile)
+    if not tile or not tile.Parent then return true end
+    -- 1. Nếu toàn bộ 4 nhà máy đã được khôi phục xong (Escape Plan v4 >= 4)
+    local globalActive = Workspace:GetAttribute("PowerPlants") or 0
+    if globalActive >= 4 then
+        return true
+    end
+
+    -- 2. Kiểm tra thuộc tính đã sửa trên chính Tile
+    if tile:GetAttribute("Repaired") == true or tile:GetAttribute("Fixed") == true or tile:GetAttribute("Active") == true then
+        return true
+    end
+
+    -- 3. Kiểm tra cụm hộp điện Power Box
+    local powerBox = tile:FindFirstChild("Power Box", true)
+    if powerBox then
+        if powerBox:GetAttribute("Repaired") == true or powerBox:GetAttribute("Fixed") == true or powerBox:GetAttribute("Active") == true then
+            return true
+        end
+        local prompt = powerBox:FindFirstChildOfClass("ProximityPrompt") or powerBox:FindFirstChild("Prompt", true)
+        if prompt and prompt:IsA("ProximityPrompt") and prompt.Enabled == false then
+            return true
+        end
+    end
+
+    -- 4. Kiểm tra trong Assets / Sub-models
+    local assets = tile:FindFirstChild("Assets")
+    if assets then
+        local ppModel = assets:FindFirstChild("PowerPlant") or assets:FindFirstChild("Power Box")
+        if ppModel and (ppModel:GetAttribute("Repaired") == true or ppModel:GetAttribute("Fixed") == true or ppModel:GetAttribute("Active") == true) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function GetObjectPosition(obj)
+    if not obj or not obj.Parent then return nil end
+    if obj:IsA("PVInstance") then
+        local ok, pos = pcall(function() return obj:GetPivot().Position end)
+        if ok and pos then return pos end
+    end
+    local part = obj:FindFirstChildWhichIsA("BasePart", true)
+    if part then
+        return part.Position
+    end
+    return nil
+end
+
+local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealth, health, maxHealth, studsOffset, isInfiniteDistance, isRaidSpecial)
     if not obj or not obj.Parent then return end
     studsOffset = studsOffset or Vector3.new(0, 2.5, 0)
-    local targetMaxDist = isInfiniteDistance and 0 or (Config.ESPMaxDistance or 3000)
+    local targetMaxDist = (isInfiniteDistance or isRaidSpecial) and 0 or (Config.ESPMaxDistance or 3000)
 
     local entry = ActiveESPElements[obj]
     if not entry then
@@ -94,21 +204,32 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
         ActiveESPElements[obj] = entry
     end
 
-    -- 1. Highlight (Tô màu viền / Outline Only hoặc Chams)
-    if allowChams and Config.ESPChams ~= false then
+    -- 1. Highlight (Tô màu viền & Chams phát sáng)
+    local hlAdornee = obj
+    if hlAdornee:IsA("Folder") then
+        hlAdornee = hlAdornee:FindFirstChildWhichIsA("Model", true) or hlAdornee:FindFirstChildWhichIsA("BasePart", true)
+    end
+
+    if allowChams and hlAdornee then
         if not entry.Highlight then
             local hl = Instance.new("Highlight")
             hl.Name = "STA_ESP_HL"
             hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Adornee = obj
+            hl.Adornee = hlAdornee
             hl.Parent = FOVScreenGui
             entry.Highlight = hl
         end
-        entry.Highlight.Adornee = obj
+        entry.Highlight.Adornee = hlAdornee
         entry.Highlight.FillColor = color
         entry.Highlight.OutlineColor = color
-        -- Tính năng tô màu viền: chỉ tô phần viền của vật phẩm, quái, công trình
-        if Config.ESPOutlineOnly then
+        entry.Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+
+        if isRaidSpecial then
+            -- MỤC TIÊU RAID HOẶC ĐẶC BIỆT: Bắt buộc hiển thị cực kỳ rõ nét bất kể bao xa!
+            -- Silhouette phát sáng xuyên thấu (Fill 0.50) + Viền đâm nét dày (Outline 0.0)
+            entry.Highlight.FillTransparency = 0.50
+            entry.Highlight.OutlineTransparency = 0.0
+        elseif Config.ESPOutlineOnly then
             entry.Highlight.FillTransparency = 1.0
             entry.Highlight.OutlineTransparency = 0.0
         else
@@ -123,13 +244,13 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
     -- 2. 3D Billboard Tag (Hiển thị nhãn thông tin bao quát, không bị giới hạn số lượng)
     local wantText = not Config.ESPColorOnly and (labelText and labelText ~= "")
     if wantText then
-        local adornee = obj:IsA("BasePart") and obj or (obj.PrimaryPart or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart", true))
+        local adornee = GetBestAdornee(obj)
         if adornee then
             if not entry.Billboard then
                 local bb = Instance.new("BillboardGui")
                 bb.Name = "STA_ESP_BB"
                 bb.AlwaysOnTop = true
-                bb.Size = UDim2.fromOffset(165, hasHealth and 32 or 22)
+                bb.Size = isRaidSpecial and UDim2.fromOffset(240, 28) or UDim2.fromOffset(165, hasHealth and 32 or 22)
                 bb.StudsOffset = studsOffset
                 bb.Adornee = adornee
                 bb.MaxDistance = targetMaxDist
@@ -147,10 +268,10 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
                 txt.Size = UDim2.fromScale(1, 1)
                 txt.Position = UDim2.fromScale(0, 0)
                 txt.BackgroundTransparency = 1
-                txt.Font = Enum.Font.GothamBold
-                txt.TextSize = Config.ESPTextSize or 13
+                txt.Font = isRaidSpecial and Enum.Font.GothamBlack or Enum.Font.GothamBold
+                txt.TextSize = isRaidSpecial and 14 or (Config.ESPTextSize or 13)
                 txt.TextColor3 = color
-                txt.TextStrokeTransparency = 0.2
+                txt.TextStrokeTransparency = isRaidSpecial and 0.0 or 0.2
                 txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
                 txt.Text = labelText
                 txt.Parent = container
@@ -191,6 +312,7 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
             entry.Billboard.Adornee = adornee
             entry.Billboard.StudsOffset = studsOffset
             entry.Billboard.MaxDistance = targetMaxDist
+            entry.Billboard.AlwaysOnTop = true
             entry.Billboard.Enabled = true
 
             if entry.Container then
@@ -204,12 +326,19 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
 
             entry.Label.Text = labelText
             entry.Label.TextColor3 = color
-            entry.Label.TextSize = Config.ESPTextSize or 13
-            entry.Label.TextStrokeTransparency = 0.2
+            entry.Label.Font = isRaidSpecial and Enum.Font.GothamBlack or Enum.Font.GothamBold
+            entry.Label.TextSize = isRaidSpecial and 14 or (Config.ESPTextSize or 13)
+            entry.Label.TextStrokeTransparency = isRaidSpecial and 0.0 or 0.2
             entry.Label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 
+            if isRaidSpecial then
+                entry.Billboard.Size = UDim2.fromOffset(240, 28)
+                entry.Label.Size = UDim2.fromScale(1, 1)
+                if entry.HealthBarBg then
+                    entry.HealthBarBg.Visible = false
+                end
             -- Cập nhật thanh máu nếu có
-            if hasHealth and health and maxHealth and maxHealth > 0 and Config.ESPShowHealth ~= false then
+            elseif hasHealth and health and maxHealth and maxHealth > 0 and Config.ESPShowHealth ~= false then
                 if not entry.HealthBarBg then
                     local hBg = Instance.new("Frame")
                     hBg.Name = "HealthBarBg"
@@ -327,29 +456,31 @@ local function RescanSpecialLandmarks()
             -- A. Nuclear Reactor & Nuclear bị bỏ hoang (Abandoned Nuclear)
             -- Path ví dụ: workspace.Map.Tiles["Nuclear Reactor"].Assets.PowerPlant
             if lower:find("nuclear") or lower:find("reactor") then
-                local powerPlant = (assets and (assets:FindFirstChild("PowerPlant") or assets:FindFirstChild("Reactor") or assets:FindFirstChild("Building")))
-                    or tile:FindFirstChild("PowerPlant", true) or tile:FindFirstChildWhichIsA("Model") or tile
                 local isAbandoned = lower:find("abandoned") or lower:find("ruin") or lower:find("old") or lower:find("broken") or lower:find("hoang")
+                local targetModel = (assets and (assets:FindFirstChild("PowerPlant") or assets:FindFirstChild("Reactor") or assets:FindFirstChild("Building")))
+                    or tile:FindFirstChild("PowerPlant", true) or tile:FindFirstChildWhichIsA("Model") or tile
 
                 if isAbandoned then
                     table.insert(list, {
                         Type = "AbandonedNuclear",
-                        Obj = powerPlant or tile,
+                        Obj = targetModel,
                         Name = "[RAID] Nuclear Bị Bỏ Hoang",
                         Color = Color3.fromRGB(249, 115, 22), -- Toxic Amber-Orange
-                        Offset = Vector3.new(0, 7.0, 0),
+                        Offset = CalculateRoofOffset(targetModel, Vector3.new(0, 8.0, 0)),
                         CanChams = true,
                         IsInfiniteRange = true,
+                        IsRaidSpecial = true,
                     })
                 else
                     table.insert(list, {
                         Type = "NuclearReactor",
-                        Obj = powerPlant or tile,
+                        Obj = targetModel,
                         Name = "[RAID] Nuclear Reactor",
                         Color = Color3.fromRGB(168, 85, 247), -- Neon Purple
-                        Offset = Vector3.new(0, 7.0, 0),
+                        Offset = CalculateRoofOffset(targetModel, Vector3.new(0, 8.0, 0)),
                         CanChams = true,
                         IsInfiniteRange = true,
+                        IsRaidSpecial = true,
                     })
                 end
 
@@ -360,12 +491,13 @@ local function RescanSpecialLandmarks()
                 local isLab = lower:find("lab")
                 table.insert(list, {
                     Type = "MilitaryBase",
-                    Obj = baseModel or tile,
+                    Obj = baseModel,
                     Name = isLab and "[RAID] Military Lab" or "[RAID] Military Base",
                     Color = Color3.fromRGB(34, 197, 94), -- Military Emerald Green
-                    Offset = Vector3.new(0, 7.5, 0),
+                    Offset = CalculateRoofOffset(baseModel, Vector3.new(0, 8.5, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
 
             -- C. Weapon Upgrader (Pack-A-Punch / Máy nâng cấp vũ khí)
@@ -374,12 +506,13 @@ local function RescanSpecialLandmarks()
                     or tile:FindFirstChild("Upgrader", true) or tile:FindFirstChildWhichIsA("Model") or tile
                 table.insert(list, {
                     Type = "WeaponUpgrader",
-                    Obj = upgraderModel or tile,
+                    Obj = upgraderModel,
                     Name = "[SPECIAL] Weapon Upgrader (Pack-A-Punch)",
                     Color = Color3.fromRGB(56, 189, 248), -- Neon Cyan
-                    Offset = Vector3.new(0, 4.5, 0),
+                    Offset = CalculateRoofOffset(upgraderModel, Vector3.new(0, 5.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
 
             -- D. Các công trình Raid đặc biệt: Ancient Tomb, Haunted Mansion, Nuclear Bunker, Alien Cave
@@ -387,46 +520,50 @@ local function RescanSpecialLandmarks()
                 local tombModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
                 table.insert(list, {
                     Type = "RaidStructure",
-                    Obj = tombModel or tile,
+                    Obj = tombModel,
                     Name = "[RAID] Ancient Tomb",
                     Color = Color3.fromRGB(239, 68, 68), -- Crimson
-                    Offset = Vector3.new(0, 6.0, 0),
+                    Offset = CalculateRoofOffset(tombModel, Vector3.new(0, 7.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
             elseif lower:find("mansion") then
                 local mansionModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
                 table.insert(list, {
                     Type = "RaidStructure",
-                    Obj = mansionModel or tile,
+                    Obj = mansionModel,
                     Name = "[RAID] Haunted Mansion",
                     Color = Color3.fromRGB(192, 132, 252), -- Neon Violet
-                    Offset = Vector3.new(0, 8.0, 0),
+                    Offset = CalculateRoofOffset(mansionModel, Vector3.new(0, 9.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
             elseif lower:find("bunker") then
                 local bunkerModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
                 table.insert(list, {
                     Type = "RaidStructure",
-                    Obj = bunkerModel or tile,
+                    Obj = bunkerModel,
                     Name = "[SPECIAL] Nuclear Bunker",
                     Color = Color3.fromRGB(245, 158, 11), -- Gold
-                    Offset = Vector3.new(0, 5.0, 0),
+                    Offset = CalculateRoofOffset(bunkerModel, Vector3.new(0, 6.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
-            elseif lower:find("cave") then
+            elseif lower:find("cave") or lower:find("alien") then
                 local caveModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
                 local isAlien = lower:find("alien")
                 table.insert(list, {
                     Type = "RaidStructure",
-                    Obj = caveModel or tile,
+                    Obj = caveModel,
                     Name = isAlien and "[RAID] Alien Cave" or "[POI] Cave",
                     Color = Color3.fromRGB(20, 184, 166), -- Teal
-                    Offset = Vector3.new(0, 5.0, 0),
+                    Offset = CalculateRoofOffset(caveModel, Vector3.new(0, 6.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
 
             -- E. Halloween Event (Cauldron, Pumpkin, Witch, Dullahan)
@@ -436,30 +573,37 @@ local function RescanSpecialLandmarks()
                     Obj = tile,
                     Name = "[EVENT] Halloween (" .. tName .. ")",
                     Color = Color3.fromRGB(249, 115, 22), -- Pumpkin Orange
-                    Offset = Vector3.new(0, 5.0, 0),
+                    Offset = CalculateRoofOffset(tile, Vector3.new(0, 5.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
 
             -- F. Nhiệm vụ Power Plants & Radio Tower (Escape Plan)
             elseif tName == "Power Plant" or tName == "Big Power Plant" or lower:find("power plant") then
+                local plantModel = (assets and (assets:FindFirstChild("PowerPlant") or assets:FindFirstChild("Building")))
+                    or tile:FindFirstChild("PowerPlant", true) or tile
                 table.insert(list, {
                     Type = "Objective",
                     Obj = tile,
+                    HighlightObj = plantModel or tile,
                     Name = tName,
                     Color = Color3.fromRGB(250, 204, 21),
-                    Offset = Vector3.new(0, 6.0, 0),
+                    Offset = CalculateRoofOffset(plantModel or tile, Vector3.new(0, 7.0, 0)),
                     CanChams = true,
                     IsPowerPlant = true,
                     IsInfiniteRange = true,
                 })
             elseif tName == "Radio Tower" or lower:find("radio tower") then
+                local towerModel = (assets and (assets:FindFirstChild("RadioTower") or assets:FindFirstChild("Tower")))
+                    or tile:FindFirstChild("RadioTower", true) or tile
                 table.insert(list, {
                     Type = "Objective",
                     Obj = tile,
+                    HighlightObj = towerModel or tile,
                     Name = "Radio Tower",
                     Color = Color3.fromRGB(56, 189, 248),
-                    Offset = Vector3.new(0, 8.0, 0),
+                    Offset = CalculateRoofOffset(towerModel or tile, Vector3.new(0, 9.0, 0)),
                     CanChams = true,
                     IsRadioTower = true,
                     IsInfiniteRange = true,
@@ -468,7 +612,26 @@ local function RescanSpecialLandmarks()
         end
     end
 
-    -- 2. Quét trong Structures cho Upgrader hoặc Halloween nếu được đặt riêng
+    -- 2. Quét trong Map.Special nếu có
+    local specialFolder = mapFolder and mapFolder:FindFirstChild("Special")
+    if specialFolder then
+        for _, sp in ipairs(specialFolder:GetChildren()) do
+            local spName = sp.Name
+            local targetModel = sp:IsA("Model") and sp or sp:FindFirstChildWhichIsA("Model") or sp:FindFirstChildWhichIsA("BasePart") or sp
+            table.insert(list, {
+                Type = "SpecialTarget",
+                Obj = targetModel,
+                Name = "[SPECIAL] " .. spName,
+                Color = Color3.fromRGB(236, 72, 153), -- Sakura Neon Pink
+                Offset = CalculateRoofOffset(targetModel, Vector3.new(0, 6.0, 0)),
+                CanChams = true,
+                IsInfiniteRange = true,
+                IsRaidSpecial = true,
+            })
+        end
+    end
+
+    -- 3. Quét trong Structures cho Upgrader hoặc Halloween nếu được đặt riêng
     local structsFolder = Workspace:FindFirstChild("Structures")
     if structsFolder then
         for _, st in ipairs(structsFolder:GetChildren()) do
@@ -480,9 +643,10 @@ local function RescanSpecialLandmarks()
                     Obj = st,
                     Name = "[SPECIAL] Weapon Upgrader (Pack-A-Punch)",
                     Color = Color3.fromRGB(56, 189, 248),
-                    Offset = Vector3.new(0, 4.0, 0),
+                    Offset = CalculateRoofOffset(st, Vector3.new(0, 5.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
             elseif sLower:find("halloween") or sLower:find("pumpkin") or sLower:find("cauldron") or sLower:find("altar") then
                 table.insert(list, {
@@ -490,9 +654,10 @@ local function RescanSpecialLandmarks()
                     Obj = st,
                     Name = "[EVENT] Halloween (" .. sName .. ")",
                     Color = Color3.fromRGB(249, 115, 22),
-                    Offset = Vector3.new(0, 3.5, 0),
+                    Offset = CalculateRoofOffset(st, Vector3.new(0, 4.0, 0)),
                     CanChams = true,
                     IsInfiniteRange = true,
+                    IsRaidSpecial = true,
                 })
             end
         end
@@ -680,70 +845,102 @@ local function RefreshESP()
     end
 
     -- 4. Công trình đặc biệt (Raid Landmarks, Weapon Upgrader, Halloween Event & Objectives)
-    -- MỖI CÔNG TRÌNH NÀY ĐỀU HIỂN THỊ BẤT KỂ BAO XA (VÔ HẠN TẦM ESP) VÀ CÓ VIỀN PHÁT SÁNG!
+    -- MỖI CÔNG TRÌNH RAID HOẶC ĐẶC BIỆT ĐỀU HIỂN THỊ BẤT KỂ BAO XA (VÔ HẠN TẦM ESP) VÀ CÓ VIỀN PHÁT SÁNG NỔI BẬT!
     local landmarks = RescanSpecialLandmarks()
     for _, lm in ipairs(landmarks) do
         local obj = lm.Obj
         if obj and obj.Parent then
-            local pos = obj:GetPivot().Position
-            local dist = math.round((pos - myPos).Magnitude)
-            local isInRange = lm.IsInfiniteRange or (dist <= maxDist)
+            local pos = GetObjectPosition(obj)
+            if pos then
+                local dist = math.round((pos - myPos).Magnitude)
+                local isInRange = lm.IsInfiniteRange or (dist <= maxDist)
 
-            if isInRange then
-                local shouldShow = false
-                local color = lm.Color
-                local textParts = { lm.Name }
-                local prio = -100000 + dist -- Luôn ưu tiên cực cao để luôn có viền Highlight và không bị giới hạn tag
-                local allowChams = lm.CanChams
+                if isInRange then
+                    local shouldShow = false
+                    local color = lm.Color
+                    local textParts = { lm.Name }
+                    local prio = -250000 + dist -- Cực kỳ ưu tiên để đứng đầu danh sách ESP
+                    local allowChams = lm.CanChams
+                    local isRaidSpecial = lm.IsRaidSpecial == true
 
-                if lm.Type == "NuclearReactor" and Config.ESPNuclearReactor then
-                    shouldShow = true
-                    prio = -100000 + dist
-                elseif lm.Type == "AbandonedNuclear" and (Config.ESPAbandonedNuclear ~= false) then
-                    shouldShow = true
-                    prio = -99000 + dist
-                elseif lm.Type == "MilitaryBase" and Config.ESPMilitaryBase then
-                    shouldShow = true
-                    prio = -98000 + dist
-                elseif lm.Type == "WeaponUpgrader" and Config.ESPWeaponUpgrader then
-                    shouldShow = true
-                    prio = -97000 + dist
-                elseif lm.Type == "RaidStructure" and (Config.ESPRaidStructures ~= false) then
-                    shouldShow = true
-                    prio = -96000 + dist
-                elseif lm.Type == "HalloweenEvent" and Config.ESPHalloweenEvent then
-                    shouldShow = true
-                    prio = -95000 + dist
-                elseif lm.Type == "Objective" and Config.ObjectiveESP then
-                    shouldShow = true
-                    prio = -94000 + dist
-                    if lm.IsPowerPlant then
-                        local isRepaired = obj:GetAttribute("Repaired") == true
-                        color = isRepaired and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(250, 204, 21)
-                        table.insert(textParts, isRepaired and "[ACTIVE]" or "[REPAIR NEEDED]")
-                        allowChams = true
-                    elseif lm.IsRadioTower then
-                        local isFixed = Workspace:GetAttribute("RadioTowerFixed") == true
-                        color = isFixed and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(56, 189, 248)
-                        table.insert(textParts, isFixed and "[ACTIVE]" or "[SIGNAL INACTIVE]")
-                        allowChams = true
+                    if lm.Type == "NuclearReactor" and Config.ESPNuclearReactor then
+                        shouldShow = true
+                        prio = -300000 + dist
+                    elseif lm.Type == "AbandonedNuclear" and (Config.ESPAbandonedNuclear ~= false) then
+                        shouldShow = true
+                        prio = -290000 + dist
+                    elseif lm.Type == "MilitaryBase" and Config.ESPMilitaryBase then
+                        shouldShow = true
+                        prio = -280000 + dist
+                    elseif lm.Type == "WeaponUpgrader" and Config.ESPWeaponUpgrader then
+                        shouldShow = true
+                        prio = -270000 + dist
+                    elseif lm.Type == "RaidStructure" and (Config.ESPRaidStructures ~= false) then
+                        shouldShow = true
+                        prio = -260000 + dist
+                    elseif lm.Type == "HalloweenEvent" and Config.ESPHalloweenEvent then
+                        shouldShow = true
+                        prio = -250000 + dist
+                    elseif lm.Type == "SpecialTarget" then
+                        shouldShow = true
+                        prio = -240000 + dist
+                    elseif lm.Type == "Objective" and Config.ObjectiveESP then
+                        if lm.IsPowerPlant then
+                            local isRepaired = IsPowerPlantRepaired(obj)
+                            if isRepaired then
+                                -- Nhà máy đã sửa/fix rồi -> HOÀN TOÀN KHÔNG HIỆN!
+                                shouldShow = false
+                                ClearESPForObject(obj)
+                                if lm.HighlightObj and lm.HighlightObj ~= obj then
+                                    ClearESPForObject(lm.HighlightObj)
+                                end
+                            else
+                                -- Chưa sửa -> Hiển thị cảnh báo cần sửa
+                                shouldShow = true
+                                prio = -200000 + dist
+                                color = Color3.fromRGB(250, 204, 21)
+                                table.insert(textParts, "[CẦN SỬA ĐIỆN]")
+                                allowChams = true
+                            end
+                        elseif lm.IsRadioTower then
+                            local isFixed = (Workspace:GetAttribute("RadioTowerFixed") == true)
+                                or (Workspace:GetAttribute("RadioTowerRepaired") == true)
+                                or (obj:GetAttribute("Repaired") == true)
+                                or (obj:GetAttribute("Fixed") == true)
+                            if isFixed then
+                                -- Tháp phát thanh đã sửa xong -> KHÔNG HIỆN!
+                                shouldShow = false
+                                ClearESPForObject(obj)
+                                if lm.HighlightObj and lm.HighlightObj ~= obj then
+                                    ClearESPForObject(lm.HighlightObj)
+                                end
+                            else
+                                shouldShow = true
+                                prio = -190000 + dist
+                                color = Color3.fromRGB(56, 189, 248)
+                                table.insert(textParts, "[CHƯA CÓ TÍN HIỆU]")
+                                allowChams = true
+                            end
+                        end
                     end
-                end
 
-                if shouldShow then
-                    if Config.ESPShowDistance then
+                    if shouldShow then
+                        -- Đối với Raid và các mục tiêu quan trọng, luôn bổ sung khoảng cách rõ ràng
                         table.insert(textParts, "(" .. dist .. "m)")
+
+                        local renderObj = lm.HighlightObj or obj
+                        table.insert(candidates, {
+                            Obj = renderObj,
+                            Color = color,
+                            Priority = prio,
+                            Text = table.concat(textParts, " "),
+                            HasHealth = false,
+                            StudsOffset = lm.Offset or Vector3.new(0, 6.0, 0),
+                            CanChams = allowChams,
+                            IsInfiniteDistance = true,
+                            IsRaidSpecial = isRaidSpecial,
+                        })
                     end
-                    table.insert(candidates, {
-                        Obj = obj,
-                        Color = color,
-                        Priority = prio,
-                        Text = table.concat(textParts, " "),
-                        HasHealth = false,
-                        StudsOffset = lm.Offset or Vector3.new(0, 5.0, 0),
-                        CanChams = allowChams,
-                        IsInfiniteDistance = lm.IsInfiniteRange == true,
-                    })
                 end
             end
         end
@@ -872,11 +1069,16 @@ local function RefreshESP()
     for i = 1, math.min(#candidates, maxTags) do
         local c = candidates[i]
         seen[c.Obj] = true
-        local allowChams = Config.ESPChams and c.CanChams and (hlCount < maxHL)
-        if allowChams then
+        local allowChams = false
+        if c.IsRaidSpecial then
+            -- Raid & Special luôn được đảm bảo viền phát sáng và hình khối nổi bật
+            allowChams = true
+            hlCount = hlCount + 1
+        elseif Config.ESPChams and c.CanChams and (hlCount < maxHL) then
+            allowChams = true
             hlCount = hlCount + 1
         end
-        ApplyComprehensiveESP(c.Obj, c.Color, c.Text, allowChams, c.HasHealth, c.Health, c.MaxHealth, c.StudsOffset, c.IsInfiniteDistance)
+        ApplyComprehensiveESP(c.Obj, c.Color, c.Text, allowChams, c.HasHealth, c.Health, c.MaxHealth, c.StudsOffset, c.IsInfiniteDistance, c.IsRaidSpecial)
     end
 
     for obj, _ in pairs(ActiveESPElements) do
