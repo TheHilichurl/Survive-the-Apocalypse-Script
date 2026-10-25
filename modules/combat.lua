@@ -93,19 +93,22 @@ end
 -- Real-Time Mob HP Checker
 local function GetActualMobHP(model)
     if not model or not model.Parent then return 0 end
-    if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true then
+    if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true or model:GetAttribute("Untargetable") == true then
         return 0
     end
 
-    local hp = model:GetAttribute("Health") or model:GetAttribute("HP")
-    if type(hp) == "number" and hp > 0 then
-        return hp
+    local projHp = model:GetAttribute("ProjectedHealth")
+    if type(projHp) == "number" and projHp <= 0 then
+        return 0
     end
 
     local hum = model:FindFirstChildOfClass("Humanoid")
     if hum then
         local hHp = hum.Health
-        if type(hHp) == "number" and hHp > 0 then
+        if type(hHp) == "number" then
+            if hHp <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then
+                return 0
+            end
             return hHp
         end
     end
@@ -113,19 +116,24 @@ local function GetActualMobHP(model)
     local mockHum = model:FindFirstChild("MockHumanoid")
     if mockHum then
         local mHp = mockHum:GetAttribute("Health") or (mockHum:IsA("Humanoid") and mockHum.Health)
-        if type(mHp) == "number" and mHp > 0 then
+        if type(mHp) == "number" then
+            if mHp <= 0 then
+                return 0
+            end
             return mHp
         end
     end
 
-    local projHp = model:GetAttribute("ProjectedHealth")
-    if type(projHp) == "number" and projHp > 0 then
-        return projHp
+    local hp = model:GetAttribute("Health") or model:GetAttribute("HP")
+    if type(hp) == "number" then
+        if hp <= 0 then
+            return 0
+        end
+        return hp
     end
 
-    -- Nếu mob đang tồn tại trong Characters và chưa chết:
-    if model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head") or model:FindFirstChild("UpperTorso") or model.PrimaryPart then
-        return 100
+    if type(projHp) == "number" and projHp > 0 then
+        return projHp
     end
 
     return 0
@@ -856,12 +864,12 @@ local GunSequentialShotCount = setmetatable({}, { __mode = "k" })
 
 local function TriggerAutomaticGunReload(gunTool)
     if not gunTool or not gunTool.Parent then return false end
-    if IsReloadingWeapon[gunTool] or gunTool:GetAttribute("Reloading") == true then
+    if IsReloadingWeapon[gunTool] then
         return true
     end
 
     local stats = gunTool:FindFirstChild("Stats")
-    local cap = (stats and stats:GetAttribute("Capacity")) or 12
+    local cap = (stats and stats:GetAttribute("Capacity")) or gunTool:GetAttribute("Capacity") or 12
     local ammoType = stats and stats:GetAttribute("AmmoType")
     local curAmmo = gunTool:GetAttribute("Ammo") or 0
 
@@ -880,13 +888,30 @@ local function TriggerAutomaticGunReload(gunTool)
         return false
     end
 
+    -- Lấy lượng đạn dự trữ của người chơi trong LocalPlayer.Ammo
+    local reserveAmmo = 0
+    if LocalPlayer and LocalPlayer:FindFirstChild("Ammo") and ammoType then
+        reserveAmmo = LocalPlayer.Ammo:GetAttribute(ammoType) or 0
+    end
+
     local reloadRem = gunTool:FindFirstChild("Reload")
     local reloadOneRem = gunTool:FindFirstChild("ReloadOne")
     local syncAmmoRem = gunTool:FindFirstChild("SyncAmmo")
     local isIndividual = stats and stats:GetAttribute("IndividualReload") == true
-    local reloadTime = (stats and stats:GetAttribute("ReloadTime")) or 2.0
 
     IsReloadingWeapon[gunTool] = true
+
+    -- Lập tức nạp lại đạn trên client từ đạn dự trữ (hoặc đầy băng) để AutoShoot không bị kẹt vì curAmmo <= 0
+    local reloadAmount = cap
+    if reserveAmmo > 0 then
+        reloadAmount = math.min(cap, reserveAmmo)
+    end
+
+    pcall(function()
+        gunTool:SetAttribute("Ammo", reloadAmount)
+    end)
+    ShotsFiredSinceReload[gunTool] = 0
+
     task.spawn(function()
         pcall(function()
             if isIndividual and reloadOneRem then
@@ -898,13 +923,13 @@ local function TriggerAutomaticGunReload(gunTool)
                 end
                 if reloadRem then
                     local newAmmo = reloadRem:InvokeServer(false)
-                    if newAmmo and type(newAmmo) == "number" then
+                    if newAmmo and type(newAmmo) == "number" and newAmmo > 0 then
                         gunTool:SetAttribute("Ammo", newAmmo)
                     end
                 end
             elseif reloadRem then
                 local newAmmo = reloadRem:InvokeServer()
-                if newAmmo and type(newAmmo) == "number" then
+                if newAmmo and type(newAmmo) == "number" and newAmmo > 0 then
                     gunTool:SetAttribute("Ammo", newAmmo)
                 end
             end
@@ -912,14 +937,22 @@ local function TriggerAutomaticGunReload(gunTool)
                 syncAmmoRem:FireServer()
             end
         end)
-        -- Buffer siêu ngắn (0.15s) để server cập nhật, triệt tiêu hoàn toàn độ trễ chờ 3s
-        task.wait(0.15)
+
+        task.wait(0.10)
         if gunTool and gunTool.Parent then
             ShotsFiredSinceReload[gunTool] = 0
         end
         IsReloadingWeapon[gunTool] = nil
         _G.shooting = false
     end)
+
+    -- Guard timer: Tự động giải phóng trạng thái reload sau 0.4s để phòng ngừa tuyệt đối mọi trường hợp lag server
+    task.delay(0.4, function()
+        if IsReloadingWeapon[gunTool] then
+            IsReloadingWeapon[gunTool] = nil
+        end
+    end)
+
     return true
 end
 
@@ -1479,7 +1512,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         local weaponRange = math.min(gunRange, Config.AimMaxRange or 500)
 
         -- 1. Giữ khóa mục tiêu trước đó nếu còn hợp lệ (Target Retention / Stickiness - 0% CPU)
-        if CurrentLockedTarget and CurrentLockedTarget.Parent then
+        if CurrentLockedTarget and CurrentLockedTarget.Parent and CurrentLockedTarget:IsDescendantOf(Workspace) then
             local stillAlive, remHP = IsHostilePvEMob(CurrentLockedTarget)
             local root = Utils.GetRootPart(char)
             local inRange = root and ((CurrentLockedTarget:GetPivot().Position - root.Position).Magnitude <= weaponRange)
@@ -1495,6 +1528,8 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             else
                 CurrentLockedTarget = nil
             end
+        else
+            CurrentLockedTarget = nil
         end
 
         -- 2. Nếu chưa có mục tiêu hoặc mục tiêu cũ bị mất, quét tìm mục tiêu mới (Early Exit Top 3)
@@ -1558,7 +1593,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         ShotsFiredSinceReload[held] = 0
     end
 
-    if IsReloadingWeapon[held] or held:GetAttribute("Reloading") == true then
+    if IsReloadingWeapon[held] then
         HideVirtualBulletVisual()
         return
     end
