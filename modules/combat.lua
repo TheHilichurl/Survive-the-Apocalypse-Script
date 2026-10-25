@@ -245,8 +245,48 @@ local function EnsureAimRayParams()
     return StaticAimRayParams
 end
 
+local function IsPlayerPlacedFence(inst)
+    if not inst then return false end
+
+    -- Tên vật thể hoặc Model cha phải chứa từ khoá "fence"
+    local name = inst.Name:lower()
+    local parent = inst.Parent
+    local pName = (parent and parent.Name or ""):lower()
+    local isFence = name:find("fence") ~= nil or pName:find("fence") ~= nil
+
+    if not isFence then
+        return false
+    end
+
+    -- Nếu nằm trong Workspace.Map (hoặc Tiles, Border) -> Đây là hàng rào tự nhiên trên bản đồ (KHÔNG BẮN XUYÊN)
+    local map = Workspace:FindFirstChild("Map")
+    if map and inst:IsDescendantOf(map) then
+        return false
+    end
+
+    -- Nếu nằm trong Workspace.Structures -> Đây là hàng rào do người chơi xây dựng/chế tạo (BẮN XUYÊN ĐƯỢC)
+    local structures = Workspace:FindFirstChild("Structures")
+    if structures and inst:IsDescendantOf(structures) then
+        return true
+    end
+
+    -- Kiểm tra thuộc tính do người chơi đặt
+    if inst:GetAttribute("Placed") or inst:GetAttribute("Owner") or inst:GetAttribute("Crafted")
+        or (parent and (parent:GetAttribute("Placed") or parent:GetAttribute("Owner") or parent:GetAttribute("Crafted"))) then
+        return true
+    end
+
+    return false
+end
+
 local function IsMapBorderOrWall(inst)
     if not inst then return false end
+
+    -- Hàng rào do người chơi đặt ra trong Workspace.Structures được game thiết kế cho đạn bắn xuyên qua
+    if IsPlayerPlacedFence(inst) then
+        return false
+    end
+
     local map = Workspace:FindFirstChild("Map")
     local borderFolder = (map and map:FindFirstChild("Border")) or Workspace:FindFirstChild("Border")
     if borderFolder and (inst == borderFolder or inst:IsDescendantOf(borderFolder)) then
@@ -274,22 +314,28 @@ end
 local function IsPenetrableObstacle(inst)
     if not inst or not inst:IsA("BasePart") then return false end
 
-    -- Tường rào map, tường thành, hàng rào, công trình: TUYỆT ĐỐI KHÔNG XUYÊN!
+    -- 1. Hàng rào do người chơi đặt (Player-placed Fence / Electric Fence trong Structures):
+    -- Game cho phép đạn người chơi bắn xuyên qua để thủ nhà!
+    if IsPlayerPlacedFence(inst) then
+        return true
+    end
+
+    -- 2. Tường rào map, hàng rào map, tường thành, công trình: TUYỆT ĐỐI KHÔNG XUYÊN!
     if IsMapBorderOrWall(inst) then
         return false
     end
 
-    -- Thuộc tính xuyên thấu chính thức của game:
+    -- 3. Thuộc tính xuyên thấu chính thức của game:
     if inst:GetAttribute("BulletUncollidable") == true then
         return true
     end
 
-    -- Mọi vật thể có va chạm vật lý (CanCollide = true) trong Map/Structures đều cản đạn:
+    -- 4. Mọi vật thể có va chạm vật lý (CanCollide = true) trong Map/Structures đều cản đạn:
     if inst.CanCollide then
         return false
     end
 
-    -- Chỉ các chi tiết hoa cỏ, lá rụng, bụi cỏ mềm KHÔNG CÓ VA CHẠM (CanCollide = false) mới được coi là xuyên:
+    -- 5. Chỉ các chi tiết hoa cỏ, lá rụng, bụi cỏ mềm KHÔNG CÓ VA CHẠM (CanCollide = false) mới được coi là xuyên:
     local name = inst.Name:lower()
     if name:find("grass") or name:find("leaf") or name:find("leaves") or name:find("flower")
         or name:find("weed") or name:find("dirt") or name:find("clutter") or name:find("trash") then
