@@ -218,6 +218,10 @@ StaticAimRayParams.FilterType = Enum.RaycastFilterType.Include
 StaticAimRayParams.RespectCanCollide = true
 StaticAimRayParams.CollisionGroup = "Default"
 
+local BorderRayParams = RaycastParams.new()
+BorderRayParams.FilterType = Enum.RaycastFilterType.Include
+BorderRayParams.RespectCanCollide = false
+
 local LastAimRayParamsRefresh = 0
 local function EnsureAimRayParams()
     local now = os.clock()
@@ -225,40 +229,73 @@ local function EnsureAimRayParams()
         LastAimRayParamsRefresh = now
         local map = Workspace:FindFirstChild("Map")
         local structures = Workspace:FindFirstChild("Structures")
-        local border = map and map:FindFirstChild("Border")
+        local border = (map and map:FindFirstChild("Border")) or Workspace:FindFirstChild("Border")
         local list = {}
         if map then table.insert(list, map) end
         if structures then table.insert(list, structures) end
         if border then table.insert(list, border) end
         StaticAimRayParams.FilterDescendantsInstances = list
+
+        if border then
+            BorderRayParams.FilterDescendantsInstances = { border }
+        else
+            BorderRayParams.FilterDescendantsInstances = {}
+        end
     end
     return StaticAimRayParams
 end
 
-local function IsPenetrableObstacle(inst)
-    if not inst or not inst:IsA("BasePart") then return false end
-    if not inst.CanCollide then return true end
-    if inst.Transparency >= 0.4 then return true end
-    local name = inst.Name:lower()
-    if name:find("grass") or name:find("foliage") or name:find("bush") or name:find("plant")
-        or name:find("leaf") or name:find("leaves") or name:find("tree") or name:find("vine")
-        or name:find("pole") or name:find("lamp") or name:find("light") or name:find("post")
-        or name:find("wire") or name:find("cable") or name:find("fence") or name:find("trash")
-        or name:find("sign") or name:find("fog") or name:find("border") or name:find("trigger")
-        or name:find("debris") or name:find("prop") or name:find("decor") or name:find("flower")
-        or name:find("branch") or name:find("woodpole") or name:find("lamppost") then
+local function IsMapBorderOrWall(inst)
+    if not inst then return false end
+    local map = Workspace:FindFirstChild("Map")
+    local borderFolder = (map and map:FindFirstChild("Border")) or Workspace:FindFirstChild("Border")
+    if borderFolder and (inst == borderFolder or inst:IsDescendantOf(borderFolder)) then
         return true
     end
-    local parent = inst.Parent
-    if parent and parent:IsA("Model") then
-        local pName = parent.Name:lower()
-        if pName:find("grass") or pName:find("foliage") or pName:find("bush") or pName:find("plant")
-            or pName:find("pole") or pName:find("lamp") or pName:find("light") or pName:find("post")
-            or pName:find("wire") or pName:find("cable") or pName:find("tree") or pName:find("fence")
-            or pName:find("sign") or pName:find("prop") or pName:find("decor") then
+    local name = inst.Name:lower()
+    if name:find("border") or name:find("barrier") or name:find("wall") or name:find("fence")
+        or name:find("gate") or name:find("door") or name:find("barricade") or name:find("shield")
+        or name:find("sandbag") or name:find("pillar") or name:find("column") or name:find("rock")
+        or name:find("house") or name:find("building") or name:find("roof") or name:find("floor") then
+        return true
+    end
+    local p = inst.Parent
+    while p and p ~= Workspace do
+        local pName = p.Name:lower()
+        if pName:find("border") or pName:find("barrier") or pName:find("wall") or pName:find("fence")
+            or pName:find("gate") or pName:find("barricade") or pName:find("building") or pName:find("house") then
             return true
         end
+        p = p.Parent
     end
+    return false
+end
+
+local function IsPenetrableObstacle(inst)
+    if not inst or not inst:IsA("BasePart") then return false end
+
+    -- Tường rào map, tường thành, hàng rào, công trình: TUYỆT ĐỐI KHÔNG XUYÊN!
+    if IsMapBorderOrWall(inst) then
+        return false
+    end
+
+    -- Thuộc tính xuyên thấu chính thức của game:
+    if inst:GetAttribute("BulletUncollidable") == true then
+        return true
+    end
+
+    -- Mọi vật thể có va chạm vật lý (CanCollide = true) trong Map/Structures đều cản đạn:
+    if inst.CanCollide then
+        return false
+    end
+
+    -- Chỉ các chi tiết hoa cỏ, lá rụng, bụi cỏ mềm KHÔNG CÓ VA CHẠM (CanCollide = false) mới được coi là xuyên:
+    local name = inst.Name:lower()
+    if name:find("grass") or name:find("leaf") or name:find("leaves") or name:find("flower")
+        or name:find("weed") or name:find("dirt") or name:find("clutter") or name:find("trash") then
+        return true
+    end
+
     return false
 end
 
@@ -270,8 +307,24 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
 
     EnsureAimRayParams()
 
+    local totalDir = endPt - startPt
+    local totalDist = totalDir.Magnitude
+    if totalDist <= 0.35 then
+        return true, endPt
+    end
+
+    -- 1. KIỂM TRA ĐẶC BIỆT TƯỜNG RÀO MAP (WORKSPACE.MAP.BORDER):
+    -- Tường rào map chặn hoàn toàn đường đạn và tầm nhìn, quái ở ngoài rào tuyệt đối không bắn!
+    if #BorderRayParams.FilterDescendantsInstances > 0 then
+        local borderHit = Workspace:Raycast(startPt, totalDir, BorderRayParams)
+        if borderHit then
+            return false, borderHit.Position
+        end
+    end
+
+    -- 2. KIỂM TRA VẬT CẢN CHUNG (MAP, STRUCTURES, WALLS, FENCES)
     local currentPt = startPt
-    local maxPasses = 10
+    local maxPasses = 5
     local passes = 0
 
     while passes < maxPasses do
@@ -293,19 +346,26 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
             return true, endPt
         end
 
-        -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.5 studs)
-        if (hit.Position - endPt).Magnitude <= 1.5 then
+        -- Nếu chạm chính mục tiêu quái vật (hoặc con của model)
+        if targetModel and (inst == targetModel or inst:IsDescendantOf(targetModel)) then
             return true, hit.Position
         end
 
-        -- Điểm va chạm quá gần điểm bắn (<= 0.8 studs, ví dụ nòng súng lẹm vào gờ tường/vật cản gần)
-        if passes == 1 and (hit.Position - startPt).Magnitude <= 0.8 then
-            currentPt = hit.Position + curDir.Unit * 0.4
-        elseif IsPenetrableObstacle(inst) then
-            -- Vật thể có thể bắn xuyên: cỏ, cột điện, đèn đường, dây điện, cây bụi, lá,...
-            currentPt = hit.Position + curDir.Unit * 0.4
+        -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs)
+        if (hit.Position - endPt).Magnitude <= 1.2 then
+            return true, hit.Position
+        end
+
+        -- Nếu trúng tường rào map, tường nhà, hàng rào, chướng ngại vật kiên cố -> BỊ CẢN HOÀN TOÀN!
+        if IsMapBorderOrWall(inst) then
+            return false, hit.Position
+        end
+
+        -- Kiểm tra nếu là vật thể có thể xuyên (chỉ hoa cỏ không va chạm hoặc có BulletUncollidable)
+        if IsPenetrableObstacle(inst) then
+            currentPt = hit.Position + curDir.Unit * 0.2
         else
-            -- Bị cản bởi tường / công trình kiên cố
+            -- Bị cản bởi vật thể kiên cố trong Map/Structures
             return false, hit.Position
         end
     end
@@ -1016,7 +1076,14 @@ local function RunKillAuraAndBreakAuraStep()
                             or (not isZom and not isBan) then
                             local dist = (model:GetPivot().Position - root.Position).Magnitude
                             if dist <= maxRange then
-                                table.insert(targets, { Model = model, Dist = dist, HP = hp, Special = isBoss })
+                                local isClear = true
+                                if Config.AimWallCheck ~= false then
+                                    local modelPos = model:GetPivot().Position
+                                    isClear = CheckRayUnobstructed(root.Position, modelPos, model)
+                                end
+                                if isClear then
+                                    table.insert(targets, { Model = model, Dist = dist, HP = hp, Special = isBoss })
+                                end
                             end
                         end
                     end
