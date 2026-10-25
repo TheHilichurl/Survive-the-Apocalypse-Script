@@ -209,7 +209,7 @@ local BypassHitscanHook = false
 
 local StaticAimRayParams = RaycastParams.new()
 StaticAimRayParams.FilterType = Enum.RaycastFilterType.Include
-StaticAimRayParams.RespectCanCollide = true
+StaticAimRayParams.RespectCanCollide = false -- Giúp phát hiện chính xác cả các bụi cỏ và tán cây dù CanCollide = false
 StaticAimRayParams.CollisionGroup = "Default"
 
 local BorderRayParams = RaycastParams.new()
@@ -224,11 +224,24 @@ local function EnsureAimRayParams()
         local map = Workspace:FindFirstChild("Map")
         local structures = Workspace:FindFirstChild("Structures")
         local border = (map and map:FindFirstChild("Border")) or Workspace:FindFirstChild("Border")
+        local terrain = Workspace:FindFirstChildOfClass("Terrain") or Workspace:FindFirstChild("Terrain")
         local list = {}
         if map then table.insert(list, map) end
         if structures then table.insert(list, structures) end
         if border then table.insert(list, border) end
+        if terrain then table.insert(list, terrain) end
+
+        -- Bổ sung các thư mục cảnh quan, cây cối, cỏ trên bản đồ
+        for _, ch in ipairs(Workspace:GetChildren()) do
+            local chName = ch.Name:lower()
+            if (chName:find("tree") or chName:find("grass") or chName:find("foliage") or chName:find("nature") or chName:find("decoration") or chName:find("environment"))
+                and ch ~= Workspace:FindFirstChild("Characters") and ch ~= Workspace:FindFirstChild("DroppedItems") then
+                table.insert(list, ch)
+            end
+        end
+
         StaticAimRayParams.FilterDescendantsInstances = list
+        StaticAimRayParams.RespectCanCollide = false
 
         if border then
             BorderRayParams.FilterDescendantsInstances = { border }
@@ -273,12 +286,39 @@ local function IsPlayerPlacedFence(inst)
     return false
 end
 
+-- Nhận diện vật thể Cây (Tree, Tree1,...) và Bụi cỏ (Grass,...)
+local function IsTreeOrGrass(inst)
+    if not inst then return false end
+    if Utils.IsTreeOrGrass then
+        return Utils.IsTreeOrGrass(inst)
+    end
+    local cur = inst
+    while cur and cur ~= Workspace do
+        local n = cur.Name:lower()
+        if n:find("tree") or n:find("grass") or n:find("trunk") or n:find("foliage")
+            or n:find("branch") or n:find("bush") or n:find("shrub") or n:find("flora")
+            or n:find("leaves") or n:find("wood") then
+            return true
+        end
+        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") then
+            return true
+        end
+        cur = cur.Parent
+    end
+    return false
+end
+
 local function IsMapBorderOrWall(inst)
     if not inst then return false end
 
     -- Hàng rào do người chơi đặt ra trong Workspace.Structures được game thiết kế cho đạn bắn xuyên qua
     if IsPlayerPlacedFence(inst) then
         return false
+    end
+
+    -- Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
+    if IsTreeOrGrass(inst) then
+        return true
     end
 
     local map = Workspace:FindFirstChild("Map")
@@ -290,11 +330,6 @@ local function IsMapBorderOrWall(inst)
     local p = inst.Parent
     local pName = (p and p.Name or ""):lower()
 
-    -- Cây cối (Tree, Tree1) và Bụi cỏ (Grass) là các part không bắn xuyên qua được theo cơ chế game
-    if name:find("tree") or name:find("grass") or pName:find("tree") or pName:find("grass") then
-        return true
-    end
-
     if name:find("border") or name:find("barrier") or name:find("wall") or name:find("fence")
         or name:find("gate") or name:find("door") or name:find("barricade") or name:find("shield")
         or name:find("sandbag") or name:find("pillar") or name:find("column") or name:find("rock")
@@ -303,8 +338,7 @@ local function IsMapBorderOrWall(inst)
     end
     while p and p ~= Workspace do
         local curPName = p.Name:lower()
-        if curPName:find("tree") or curPName:find("grass")
-            or curPName:find("border") or curPName:find("barrier") or curPName:find("wall") or curPName:find("fence")
+        if curPName:find("border") or curPName:find("barrier") or curPName:find("wall") or curPName:find("fence")
             or curPName:find("gate") or curPName:find("barricade") or curPName:find("building") or curPName:find("house") then
             return true
         end
@@ -322,31 +356,29 @@ local function IsPenetrableObstacle(inst)
         return true
     end
 
-    -- 2. Tường rào map, hàng rào map, tường thành, công trình, cây (Tree1/Tree) và bụi cỏ (Grass): TUYỆT ĐỐI KHÔNG XUYÊN!
+    -- 2. Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
+    if IsTreeOrGrass(inst) then
+        return false
+    end
+
+    -- 3. Tường rào map, hàng rào map, tường thành, công trình: TUYỆT ĐỐI KHÔNG XUYÊN!
     if IsMapBorderOrWall(inst) then
         return false
     end
 
-    local name = inst.Name:lower()
-    local p = inst.Parent
-    local pName = (p and p.Name or ""):lower()
-    if name:find("tree") or name:find("grass") or pName:find("tree") or pName:find("grass") then
-        return false
-    end
-
-    -- 3. Thuộc tính xuyên thấu chính thức của game:
+    -- 4. Thuộc tính xuyên thấu chính thức của game:
     if inst:GetAttribute("BulletUncollidable") == true then
         return true
     end
 
-    -- 4. Mọi vật thể có va chạm vật lý (CanCollide = true) trong Map/Structures đều cản đạn:
+    -- 5. Mọi vật thể có va chạm vật lý (CanCollide = true) trong Map/Structures đều cản đạn:
     if inst.CanCollide then
         return false
     end
 
-    -- 5. Chỉ các chi tiết hoa, lá rụng không va chạm (CanCollide = false) mới được coi là xuyên:
-    if name:find("leaf") or name:find("leaves") or name:find("flower")
-        or name:find("weed") or name:find("dirt") or name:find("clutter") or name:find("trash") then
+    -- 6. Chỉ các chi tiết hoa nhỏ, bụi rác nhỏ không va chạm (CanCollide = false) và KHÔNG PHẢI cây cỏ mới được coi là xuyên:
+    local name = inst.Name:lower()
+    if not IsTreeOrGrass(inst) and (name:find("flower") or name:find("dirt") or name:find("clutter") or name:find("trash") or inst.Transparency >= 0.85) then
         return true
     end
 
@@ -408,6 +440,11 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
         -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs)
         if (hit.Position - endPt).Magnitude <= 1.2 then
             return true, hit.Position
+        end
+
+        -- Nếu chạm cây cối (Tree, Tree1,...) hoặc bụi cỏ (Grass,...) -> TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
+        if IsTreeOrGrass(inst) then
+            return false, hit.Position
         end
 
         -- Nếu trúng tường rào map, tường nhà, hàng rào, chướng ngại vật kiên cố -> BỊ CẢN HOÀN TOÀN!
@@ -627,8 +664,25 @@ local function EnsureBulletModuleHook()
                     end
                     if lockedModel and lockedPart then
                         local headPart = lockedModel:FindFirstChild("Head") or lockedPart
-                        aimTargetPos = headPart.Position
-                        UpdateVirtualBulletVisual(origin, aimTargetPos, true)
+                        local candidateAimPos = headPart.Position
+
+                        -- Kiểm tra vật cản (Cây Tree, Cỏ Grass, Tường)
+                        if Config.AimWallCheck ~= false then
+                            local isClear, hitPos = CheckRayUnobstructed(origin, candidateAimPos, lockedModel)
+                            if not isClear then
+                                -- BỊ CHẶN BỞI CÂY, CỎ HOẶC TƯỜNG -> TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
+                                lockedModel = nil
+                                lockedPart = nil
+                                aimTargetPos = targetPos
+                                UpdateVirtualBulletVisual(origin, hitPos or targetPos, false)
+                            else
+                                aimTargetPos = candidateAimPos
+                                UpdateVirtualBulletVisual(origin, aimTargetPos, true)
+                            end
+                        else
+                            aimTargetPos = candidateAimPos
+                            UpdateVirtualBulletVisual(origin, aimTargetPos, true)
+                        end
                     end
                 end
 
@@ -1117,6 +1171,7 @@ local function RunKillAuraAndBreakAuraStep()
                     local isBan = model:GetAttribute("Bandit") == true
                     local isBoss = Utils.IsSpecialOrBossMob(model)
                     local isBloater = Utils.IsBloaterMob(model)
+                    local isCrawler = Utils.IsCrawlerMob and Utils.IsCrawlerMob(model)
 
                     local isClearCandidate = true
                     if Config.KillAuraIgnoreBloaters and isBloater then
@@ -1125,23 +1180,40 @@ local function RunKillAuraAndBreakAuraStep()
 
                     if isClearCandidate then
                         local allowAttack = isBoss
+                            or isBloater
+                            or isCrawler
                             or (isZom and Config.KillAuraAttackZombies)
                             or (isBan and Config.KillAuraAttackBandits)
                             or (not isZom and not isBan)
 
                         if allowAttack then
-                            local dist = (model:GetPivot().Position - root.Position).Magnitude
-                            if dist <= maxRange then
+                            local targetPart = model:FindFirstChild("HumanoidRootPart")
+                                or model:FindFirstChild("Head")
+                                or model:FindFirstChild("UpperTorso")
+                                or model:FindFirstChild("Torso")
+                                or model.PrimaryPart
+                            local targetPos = (targetPart and targetPart.Position) or model:GetPivot().Position
+                            local delta = targetPos - root.Position
+                            local dist3D = delta.Magnitude
+                            local distHorizontal = Vector2.new(delta.X, delta.Z).Magnitude
+
+                            -- Đối với Crawler (quái bò thấp sát mặt đất), sử dụng khoảng cách ngang để không bị hụt tầm do chênh lệch độ cao
+                            local effectiveDist = isCrawler and distHorizontal or dist3D
+
+                            if effectiveDist <= maxRange then
                                 local isClear = true
-                                -- Nếu trong cự ly cận chiến trực tiếp (<= 8 studs), luôn chém trúng không bị cản bởi sàn/cỏ
-                                if dist > 8 and Config.AimWallCheck ~= false then
-                                    local eyePos = root.Position + Vector3.new(0, 1.5, 0)
-                                    local targetPart = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
-                                    local targetPos = (targetPart and targetPart.Position) or (model:GetPivot().Position + Vector3.new(0, 1.5, 0))
-                                    isClear = CheckRayUnobstructed(eyePos, targetPos, model)
+                                -- Đối với Melee, nếu trong cự ly cận chiến (<= 10 studs), không bị cản bởi sàn nhà / cỏ
+                                -- Nếu dist3D > 10, chỉ kiểm tra tường chắn kiên cố (BorderRayParams), tuyệt đối không để mặt sàn / mặt cỏ làm trượt chém quái bò (Crawler)
+                                if dist3D > 10 and Config.AimWallCheck ~= false then
+                                    local eyePos = root.Position + Vector3.new(0, 0.5, 0)
+                                    local checkPos = targetPos + Vector3.new(0, isCrawler and 0.5 or 0, 0)
+                                    local wallHit = Workspace:Raycast(eyePos, (checkPos - eyePos), BorderRayParams)
+                                    if wallHit then
+                                        isClear = false
+                                    end
                                 end
                                 if isClear then
-                                    table.insert(targets, { Model = model, Dist = dist, HP = hp, Special = isBoss })
+                                    table.insert(targets, { Model = model, Dist = effectiveDist, HP = hp, Special = isBoss or isBloater or isCrawler })
                                 end
                             end
                         end

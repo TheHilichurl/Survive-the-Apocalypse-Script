@@ -141,7 +141,7 @@ local TabCombat = CreateTab("2. Combat")
 TabCombat:AddSection("Melee Kill Aura & Break Aura")
 TabCombat:AddToggle("Enable Melee Kill Aura (HitTargets)", "KillAura")
 TabCombat:AddDropdown("Kill Aura Target Priority", "KillAuraPriority", { "Nearest", "LowestHP", "HighestHP", "SpecialsFirst" })
-TabCombat:AddToggle("Ignore Bloaters in Melee (Prevent Death Explosion)", "KillAuraIgnoreBloaters")
+TabCombat:AddToggle("Bỏ qua Bloater khi chém Melee (Tránh nổ chết) [Tắt: chém tất cả]", "KillAuraIgnoreBloaters")
 TabCombat:AddToggle("Auto-Equip Best Melee Weapon", "KillAuraAutoEquip")
 TabCombat:AddToggle("Auto Special Melee (Power Hammer / Scorchblade / Stalk)", "AutoPowerMelee")
 TabCombat:AddToggle("Show Kill Aura Target Highlight", "KillAuraTargetIndicator")
@@ -259,8 +259,8 @@ TabLooting:AddSlider("Smart Food Eat Threshold (%)", "AutoEatThreshold", 15, 95,
 TabLooting:AddToggle("Auto Heal (Bandage / Medkit / Recovery Compound)", "AutoHeal")
 TabLooting:AddSlider("Auto Heal Health Threshold (%)", "AutoHealThreshold", 15, 90, 5)
 TabLooting:AddToggle("No Slowdown While Using Bandage / Medical", "NoSlowOnMedical")
-TabLooting:AddToggle("Auto Open Loot Crates (Direct Safe Remote)", "AutoOpenCrates")
-TabLooting:AddSlider("Auto Open Crates Range (Studs)", "AutoOpenCratesRange", 8, 35, 1)
+TabLooting:AddToggle("Tự động mở hòm rương tiếp tế (Auto Open Crates)", "AutoOpenCrates")
+TabLooting:AddSlider("Tầm tự động mở rương (Studs)", "AutoOpenCratesRange", 10, 50, 2)
 TabLooting:AddToggle("Instant ProximityPrompts (0s Hold Duration Only)", "InstantInteract")
 TabLooting:AddToggle("Auto Complete / Fix Power Plants & Objectives", "AutoInteractObjectives")
 TabLooting:AddToggle("Auto Electric Repair Success Remote (Tự động gửi remote sửa điện khi đến gần)", "AutoElectricRepair")
@@ -319,20 +319,41 @@ TabBase:AddButton("Craft Selected Item via Remote", function()
     end
 end)
 
-TabBase:AddSection("Remote Ammo Crate & Merchant Shop")
-TabBase:AddToggle("Auto Craft Ammo When Low", "AutoCraftAmmo")
-TabBase:AddDropdown("Ammo Type to Craft / Drop", "AutoCraftAmmoType", { "Pistol", "Medium", "Long", "Shells" })
-TabBase:AddSlider("Auto Craft Ammo Reserve Threshold", "AutoCraftAmmoThreshold", 10, 200, 10)
-TabBase:AddButton("Craft Selected Ammo at Ammo Crate Now", function()
+TabBase:AddSection("Tự động chế đạn (Ammo Crate) & Cửa hàng Merchant")
+TabBase:AddToggle("Tự động chế đạn khi thiếu (Auto Craft Ammo)", "AutoCraftAmmo")
+TabBase:AddDropdown("Loại đạn chế tạo", "AutoCraftAmmoType", { "Smart", "All", "Medium", "Long", "Pistol", "Shells" })
+TabBase:AddInput("Max Cap Đạn tối đa trong túi (Nhập số tuỳ ý)", "AutoCraftAmmoMaxCap", "120", function(text)
+    local n = tonumber(text)
+    if n and n > 0 then
+        Config.AutoCraftAmmoMaxCap = math.floor(n)
+        Utils.NotifyGame("Đã đặt Max Cap đạn: " .. tostring(math.floor(n)), Color3.fromRGB(56, 189, 248))
+    else
+        Config.AutoCraftAmmoMaxCap = 120
+        Utils.NotifyGame("Vui lòng nhập số hợp lệ! Đặt lại về 120.", Color3.fromRGB(248, 113, 113), "Warning")
+    end
+end)
+TabBase:AddButton("Chế ngay 1 mẻ đạn tại trạm đạn", function()
+    local mode = Config.AutoCraftAmmoType
+    local aType = "Medium"
+    if mode == "Smart" then
+        local char = Utils.GetCharacter()
+        local tool = char and char:FindFirstChildWhichIsA("Tool")
+        local stats = tool and tool:FindFirstChild("Stats")
+        aType = (stats and stats:GetAttribute("AmmoType")) or "Medium"
+    elseif mode == "All" then
+        aType = "Medium"
+    else
+        aType = mode
+    end
     local crates = CollectionService:GetTagged("AmmoCrate")
     local crate = crates[1] or (Workspace:FindFirstChild("Structures") and Workspace.Structures:FindFirstChild("Ammo Crate"))
     if crate and crate:FindFirstChild("CraftAmmo") then
         task.spawn(function()
-            pcall(function() crate.CraftAmmo:InvokeServer(Config.AutoCraftAmmoType) end)
-            Utils.NotifyGame("Crafted " .. Config.AutoCraftAmmoType .. " Ammo!")
+            pcall(function() crate.CraftAmmo:InvokeServer(aType) end)
+            Utils.NotifyGame("Đã chế 1 mẻ " .. tostring(aType) .. " Ammo!")
         end)
     else
-        Utils.NotifyGame("No Ammo Crate built in workspace.Structures yet!", Color3.fromRGB(248, 113, 113), "Error")
+        Utils.NotifyGame("Chưa có trạm Ammo Crate nào được xây trong căn cứ!", Color3.fromRGB(248, 113, 113), "Error")
     end
 end)
 TabBase:AddButton("Drop Minimum Stack of Selected Ammo", function()
@@ -368,7 +389,8 @@ TabVisuals:AddToggle("Show Item Tiers & Extra Info (Guns, Ammo, Food)", "ESPShow
 TabVisuals:AddToggle("Enable 3D Chams / Highlight", "ESPChams", Visuals.RefreshESP)
 TabVisuals:AddToggle("Tô màu viền (Outline Only Mode cho vật phẩm, quái, công trình)", "ESPOutlineOnly", Visuals.RefreshESP)
 TabVisuals:AddToggle("Clean Color-Only Mode (Hide 3D Tags / Text)", "ESPColorOnly", Visuals.RefreshESP)
-TabVisuals:AddSlider("ESP Max Distance (Studs)", "ESPMaxDistance", 100, 3000, 50)
+TabVisuals:AddSlider("ESP Max Distance (Studs)", "ESPMaxDistance", 100, 10000, 100)
+TabVisuals:AddSlider("Vật phẩm viền phát sáng khi lại gần (Studs)", "ESPItemHighlightRange", 30, 200, 5)
 TabVisuals:AddSlider("Max Visible 3D Tags (Up to 250 Entities)", "ESPMaxTags", 20, 250, 10)
 TabVisuals:AddSlider("Max 3D Chams Highlights (Engine Cap: 30)", "ESPMaxHighlights", 10, 30, 1)
 TabVisuals:AddSlider("Tag Text Size", "ESPTextSize", 9, 16, 1)
@@ -378,15 +400,17 @@ TabVisuals:AddSlider("Chams Outline Transparency", "ESPOutlineTransparency", 0.0
 TabVisuals:AddSection("Target Entity Filters")
 TabVisuals:AddToggle("Zombies, Bosses, Bloaters & Specials", "MobESP", Visuals.RefreshESP)
 TabVisuals:AddToggle("Dropped Items & Weapons (All 12 Categories)", "ItemESP", Visuals.RefreshESP)
-TabVisuals:AddToggle("Unopened Loot Crates & Airdrops (Gold)", "CrateESP", Visuals.RefreshESP)
+TabVisuals:AddToggle("Hòm rương tiếp tế chưa mở (Crate ESP - Vô hạn khoảng cách & Viền phát sáng)", "CrateESP", Visuals.RefreshESP)
 TabVisuals:AddToggle("Power Plants & Radio Tower Objectives (Escape Plan)", "ObjectiveESP", Visuals.RefreshESP)
 TabVisuals:AddToggle("Base Generator, Shredder, Scrap Piles & Barrels", "StructureESP", Visuals.RefreshESP)
 TabVisuals:AddToggle("Teammates & Downed Players (Revive Alert)", "PlayerESP", Visuals.RefreshESP)
 
-TabVisuals:AddSection("Raid & Special Event Landmarks ESP")
+TabVisuals:AddSection("Raid & Special Event Landmarks ESP (Vô hạn tầm nhìn & Viền phát sáng)")
 TabVisuals:AddToggle("[RAID] Nuclear Reactor (Nhà máy hạt nhân & The Experiment)", "ESPNuclearReactor", Visuals.RefreshESP)
+TabVisuals:AddToggle("[RAID] Nuclear bị bỏ hoang (Abandoned Nuclear / Ruins)", "ESPAbandonedNuclear", Visuals.RefreshESP)
 TabVisuals:AddToggle("[RAID] Military Base & Lab (Căn cứ quân sự & Exterminator Boss)", "ESPMilitaryBase", Visuals.RefreshESP)
 TabVisuals:AddToggle("[SPECIAL] Weapon Upgrader (Pack-A-Punch / Nâng cấp vũ khí)", "ESPWeaponUpgrader", Visuals.RefreshESP)
+TabVisuals:AddToggle("[RAID] Ancient Tomb, Mansion, Bunker & Alien Cave", "ESPRaidStructures", Visuals.RefreshESP)
 TabVisuals:AddToggle("[EVENT] Halloween Event (Vạc phù thuỷ, Bí ngô & Dullahan)", "ESPHalloweenEvent", Visuals.RefreshESP)
 
 TabVisuals:AddSection("Environment, Lighting & Performance")

@@ -76,9 +76,10 @@ if GameInfo and GameInfo:FindFirstChild("Colors") then
     pcall(function() ColorsModule = require(GameInfo.Colors) end)
 end
 
-local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealth, health, maxHealth, studsOffset)
+local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealth, health, maxHealth, studsOffset, isInfiniteDistance)
     if not obj or not obj.Parent then return end
     studsOffset = studsOffset or Vector3.new(0, 2.5, 0)
+    local targetMaxDist = isInfiniteDistance and 0 or (Config.ESPMaxDistance or 3000)
 
     local entry = ActiveESPElements[obj]
     if not entry then
@@ -131,7 +132,7 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
                 bb.Size = UDim2.fromOffset(165, hasHealth and 32 or 22)
                 bb.StudsOffset = studsOffset
                 bb.Adornee = adornee
-                bb.MaxDistance = Config.ESPMaxDistance or 1200
+                bb.MaxDistance = targetMaxDist
                 bb.Parent = FOVScreenGui
 
                 local container = Instance.new("Frame")
@@ -189,7 +190,7 @@ local function ApplyComprehensiveESP(obj, color, labelText, allowChams, hasHealt
 
             entry.Billboard.Adornee = adornee
             entry.Billboard.StudsOffset = studsOffset
-            entry.Billboard.MaxDistance = Config.ESPMaxDistance or 1200
+            entry.Billboard.MaxDistance = targetMaxDist
             entry.Billboard.Enabled = true
 
             if entry.Container then
@@ -263,34 +264,39 @@ end
 
 local function GetCrateColorAndName(crate)
     local rawName = crate.Name
-    local lower = rawName:lower()
-    local color = Color3.fromRGB(255, 255, 255) -- Mặc định rương thường: Trắng viền
-    local cleanName = rawName
+    local rarity = crate:GetAttribute("Rarity") or ""
+    local tier = crate:GetAttribute("Tier")
+    local combined = (rawName .. " " .. rarity):lower()
 
-    if lower:find("emerald") then
-        color = Color3.fromRGB(46, 204, 113) -- Xanh lá (Emerald Crate)
-    elseif lower:find("ruby") then
-        color = Color3.fromRGB(239, 68, 68) -- Đỏ (Ruby Crate)
-    elseif lower:find("diamond") then
-        color = Color3.fromRGB(56, 189, 248) -- Xanh ngọc / Kim cương (Diamond Crate)
-    elseif lower:find("gold") or lower:find("airdrop") then
-        color = Color3.fromRGB(250, 204, 21) -- Vàng (Gold / Airdrop Crate)
-    elseif lower:find("amethyst") or lower:find("purple") or lower:find("void") then
-        color = Color3.fromRGB(168, 85, 247) -- Tím (Amethyst Crate)
-    elseif lower:find("sapphire") then
-        color = Color3.fromRGB(37, 99, 235) -- Xanh sapphire (Sapphire Crate)
-    elseif lower:find("silver") then
-        color = Color3.fromRGB(203, 213, 225) -- Bạc (Silver Crate)
-    elseif lower:find("bronze") or lower:find("copper") then
-        color = Color3.fromRGB(249, 115, 22) -- Đồng (Bronze / Copper Crate)
-    elseif lower:find("obsidian") or lower:find("titanium") then
-        color = Color3.fromRGB(148, 163, 184) -- Kim loại / Titan
-    else
-        -- Rương thường màu trắng viền
-        color = Color3.fromRGB(255, 255, 255)
+    local color = Color3.fromRGB(255, 255, 255)
+    local displayName = "[CRATE] " .. (rarity ~= "" and rarity or (rawName ~= "Default" and rawName or "Supply"))
+    if tier then
+        displayName = displayName .. " [T" .. tostring(tier) .. "]"
     end
 
-    return color, cleanName
+    if combined:find("emerald") then
+        color = Color3.fromRGB(46, 204, 113) -- Xanh lá (Emerald Crate)
+    elseif combined:find("ruby") then
+        color = Color3.fromRGB(239, 68, 68) -- Đỏ (Ruby Crate)
+    elseif combined:find("diamond") then
+        color = Color3.fromRGB(56, 189, 248) -- Xanh ngọc / Kim cương (Diamond Crate)
+    elseif combined:find("gold") or combined:find("airdrop") then
+        color = Color3.fromRGB(250, 204, 21) -- Vàng (Gold / Airdrop Crate)
+    elseif combined:find("amethyst") or combined:find("purple") or combined:find("void") then
+        color = Color3.fromRGB(168, 85, 247) -- Tím (Amethyst Crate)
+    elseif combined:find("sapphire") then
+        color = Color3.fromRGB(37, 99, 235) -- Xanh sapphire (Sapphire Crate)
+    elseif combined:find("silver") then
+        color = Color3.fromRGB(203, 213, 225) -- Bạc (Silver Crate)
+    elseif combined:find("bronze") or combined:find("copper") then
+        color = Color3.fromRGB(249, 115, 22) -- Đồng (Bronze / Copper Crate)
+    elseif combined:find("obsidian") or combined:find("titanium") then
+        color = Color3.fromRGB(148, 163, 184) -- Kim loại / Titan
+    else
+        color = Color3.fromRGB(255, 255, 255) -- Mặc định: Trắng viền
+    end
+
+    return color, displayName
 end
 
 -- ============================================================================
@@ -311,51 +317,119 @@ local function RescanSpecialLandmarks()
     local mapFolder = Workspace:FindFirstChild("Map")
     local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
 
-    -- 1. Quét Tiles trong Map (Nuclear Reactor, Military Base, Power Plants, Upgrader, Halloween...)
+    -- 1. Quét Tiles trong Map (Nuclear Reactor, Nuclear bị bỏ hoang, Military Base, Weapon Upgrader, Raids...)
     if tilesFolder then
         for _, tile in ipairs(tilesFolder:GetChildren()) do
             local tName = tile.Name
             local lower = tName:lower()
+            local assets = tile:FindFirstChild("Assets")
 
-            -- A. Nuclear Reactor Raid (path: workspace.Map.Tiles["Nuclear Reactor"].Assets.PowerPlant)
+            -- A. Nuclear Reactor & Nuclear bị bỏ hoang (Abandoned Nuclear)
+            -- Path ví dụ: workspace.Map.Tiles["Nuclear Reactor"].Assets.PowerPlant
             if lower:find("nuclear") or lower:find("reactor") then
-                local assets = tile:FindFirstChild("Assets")
-                local powerPlant = (assets and assets:FindFirstChild("PowerPlant")) or tile:FindFirstChild("PowerPlant", true)
-                local targetObj = powerPlant or tile
-                table.insert(list, {
-                    Type = "NuclearReactor",
-                    Obj = targetObj,
-                    Name = "[RAID] Nuclear Reactor",
-                    Color = Color3.fromRGB(168, 85, 247), -- Neon Purple
-                    Offset = Vector3.new(0, 7.0, 0),
-                    CanChams = true,
-                })
+                local powerPlant = (assets and (assets:FindFirstChild("PowerPlant") or assets:FindFirstChild("Reactor") or assets:FindFirstChild("Building")))
+                    or tile:FindFirstChild("PowerPlant", true) or tile:FindFirstChildWhichIsA("Model") or tile
+                local isAbandoned = lower:find("abandoned") or lower:find("ruin") or lower:find("old") or lower:find("broken") or lower:find("hoang")
 
-            -- B. Military Base & Military Lab Raid
+                if isAbandoned then
+                    table.insert(list, {
+                        Type = "AbandonedNuclear",
+                        Obj = powerPlant or tile,
+                        Name = "[RAID] Nuclear Bị Bỏ Hoang",
+                        Color = Color3.fromRGB(249, 115, 22), -- Toxic Amber-Orange
+                        Offset = Vector3.new(0, 7.0, 0),
+                        CanChams = true,
+                        IsInfiniteRange = true,
+                    })
+                else
+                    table.insert(list, {
+                        Type = "NuclearReactor",
+                        Obj = powerPlant or tile,
+                        Name = "[RAID] Nuclear Reactor",
+                        Color = Color3.fromRGB(168, 85, 247), -- Neon Purple
+                        Offset = Vector3.new(0, 7.0, 0),
+                        CanChams = true,
+                        IsInfiniteRange = true,
+                    })
+                end
+
+            -- B. Military Base & Military Lab Raid (Căn cứ quân sự & Phòng thí nghiệm Exterminator)
             elseif lower:find("military") then
-                local labTag = lower:find("lab") and "[RAID] Military Lab" or "[RAID] Military Base"
+                local baseModel = (assets and (assets:FindFirstChild("MilitaryBase") or assets:FindFirstChild("Base") or assets:FindFirstChild("Lab")))
+                    or tile:FindFirstChildWhichIsA("Model") or tile
+                local isLab = lower:find("lab")
                 table.insert(list, {
                     Type = "MilitaryBase",
-                    Obj = tile,
-                    Name = labTag,
+                    Obj = baseModel or tile,
+                    Name = isLab and "[RAID] Military Lab" or "[RAID] Military Base",
                     Color = Color3.fromRGB(34, 197, 94), -- Military Emerald Green
                     Offset = Vector3.new(0, 7.5, 0),
                     CanChams = true,
+                    IsInfiniteRange = true,
                 })
 
-            -- C. Weapon Upgrader (Pack-A-Punch)
+            -- C. Weapon Upgrader (Pack-A-Punch / Máy nâng cấp vũ khí)
             elseif lower:find("upgrader") or lower:find("pack") then
-                local upgraderModel = tile:FindFirstChild("Upgrader", true) or tile
+                local upgraderModel = (assets and (assets:FindFirstChild("Upgrader") or assets:FindFirstChild("Weapon Upgrader") or assets:FindFirstChild("PackAPunch")))
+                    or tile:FindFirstChild("Upgrader", true) or tile:FindFirstChildWhichIsA("Model") or tile
                 table.insert(list, {
                     Type = "WeaponUpgrader",
-                    Obj = upgraderModel,
-                    Name = "[SPECIAL] Weapon Upgrader",
-                    Color = Color3.fromRGB(56, 189, 248), -- Cyan
+                    Obj = upgraderModel or tile,
+                    Name = "[SPECIAL] Weapon Upgrader (Pack-A-Punch)",
+                    Color = Color3.fromRGB(56, 189, 248), -- Neon Cyan
                     Offset = Vector3.new(0, 4.5, 0),
                     CanChams = true,
+                    IsInfiniteRange = true,
                 })
 
-            -- D. Halloween Event (Cauldron, Pumpkin, Witch, Dullahan)
+            -- D. Các công trình Raid đặc biệt: Ancient Tomb, Haunted Mansion, Nuclear Bunker, Alien Cave
+            elseif lower:find("tomb") then
+                local tombModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
+                table.insert(list, {
+                    Type = "RaidStructure",
+                    Obj = tombModel or tile,
+                    Name = "[RAID] Ancient Tomb",
+                    Color = Color3.fromRGB(239, 68, 68), -- Crimson
+                    Offset = Vector3.new(0, 6.0, 0),
+                    CanChams = true,
+                    IsInfiniteRange = true,
+                })
+            elseif lower:find("mansion") then
+                local mansionModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
+                table.insert(list, {
+                    Type = "RaidStructure",
+                    Obj = mansionModel or tile,
+                    Name = "[RAID] Haunted Mansion",
+                    Color = Color3.fromRGB(192, 132, 252), -- Neon Violet
+                    Offset = Vector3.new(0, 8.0, 0),
+                    CanChams = true,
+                    IsInfiniteRange = true,
+                })
+            elseif lower:find("bunker") then
+                local bunkerModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
+                table.insert(list, {
+                    Type = "RaidStructure",
+                    Obj = bunkerModel or tile,
+                    Name = "[SPECIAL] Nuclear Bunker",
+                    Color = Color3.fromRGB(245, 158, 11), -- Gold
+                    Offset = Vector3.new(0, 5.0, 0),
+                    CanChams = true,
+                    IsInfiniteRange = true,
+                })
+            elseif lower:find("cave") then
+                local caveModel = (assets and assets:FindFirstChildWhichIsA("Model")) or tile:FindFirstChildWhichIsA("Model") or tile
+                local isAlien = lower:find("alien")
+                table.insert(list, {
+                    Type = "RaidStructure",
+                    Obj = caveModel or tile,
+                    Name = isAlien and "[RAID] Alien Cave" or "[POI] Cave",
+                    Color = Color3.fromRGB(20, 184, 166), -- Teal
+                    Offset = Vector3.new(0, 5.0, 0),
+                    CanChams = true,
+                    IsInfiniteRange = true,
+                })
+
+            -- E. Halloween Event (Cauldron, Pumpkin, Witch, Dullahan)
             elseif lower:find("halloween") or lower:find("pumpkin") or lower:find("cauldron") or lower:find("dullahan") or lower:find("witch") then
                 table.insert(list, {
                     Type = "HalloweenEvent",
@@ -364,10 +438,11 @@ local function RescanSpecialLandmarks()
                     Color = Color3.fromRGB(249, 115, 22), -- Pumpkin Orange
                     Offset = Vector3.new(0, 5.0, 0),
                     CanChams = true,
+                    IsInfiniteRange = true,
                 })
 
-            -- E. Nhiệm vụ Power Plants & Radio Tower
-            elseif tName == "Power Plant" or tName == "Big Power Plant" then
+            -- F. Nhiệm vụ Power Plants & Radio Tower (Escape Plan)
+            elseif tName == "Power Plant" or tName == "Big Power Plant" or lower:find("power plant") then
                 table.insert(list, {
                     Type = "Objective",
                     Obj = tile,
@@ -376,8 +451,9 @@ local function RescanSpecialLandmarks()
                     Offset = Vector3.new(0, 6.0, 0),
                     CanChams = true,
                     IsPowerPlant = true,
+                    IsInfiniteRange = true,
                 })
-            elseif tName == "Radio Tower" then
+            elseif tName == "Radio Tower" or lower:find("radio tower") then
                 table.insert(list, {
                     Type = "Objective",
                     Obj = tile,
@@ -386,6 +462,7 @@ local function RescanSpecialLandmarks()
                     Offset = Vector3.new(0, 8.0, 0),
                     CanChams = true,
                     IsRadioTower = true,
+                    IsInfiniteRange = true,
                 })
             end
         end
@@ -401,10 +478,11 @@ local function RescanSpecialLandmarks()
                 table.insert(list, {
                     Type = "WeaponUpgrader",
                     Obj = st,
-                    Name = "[SPECIAL] Weapon Upgrader",
+                    Name = "[SPECIAL] Weapon Upgrader (Pack-A-Punch)",
                     Color = Color3.fromRGB(56, 189, 248),
                     Offset = Vector3.new(0, 4.0, 0),
                     CanChams = true,
+                    IsInfiniteRange = true,
                 })
             elseif sLower:find("halloween") or sLower:find("pumpkin") or sLower:find("cauldron") or sLower:find("altar") then
                 table.insert(list, {
@@ -414,6 +492,7 @@ local function RescanSpecialLandmarks()
                     Color = Color3.fromRGB(249, 115, 22),
                     Offset = Vector3.new(0, 3.5, 0),
                     CanChams = true,
+                    IsInfiniteRange = true,
                 })
             end
         end
@@ -519,6 +598,7 @@ local function RefreshESP()
     if Config.ItemESP then
         local droppedFolder = Workspace:FindFirstChild("DroppedItems")
         if droppedFolder then
+            local highlightRange = Config.ESPItemHighlightRange or 80
             for _, item in ipairs(droppedFolder:GetChildren()) do
                 if not item:GetAttribute("OnShelf") then
                     local cat = Utils.ClassifyItem(item)
@@ -544,11 +624,12 @@ local function RefreshESP()
                                 table.insert(textParts, "(" .. dist .. "m)")
                             end
 
-                            local prio = dist + 50
-                            if cat == "Gun" or cat == "Fuel" or cat == "Blueprint" then
-                                prio = dist - 200
-                            elseif cat == "Medical" or cat == "Food" then
-                                prio = dist - 50
+                            -- Khi lại gần (<= 80 studs) mới hiển thị viền phát sáng (Chams Outline)
+                            -- Giúp giữ trọn vẹn 30 slot highlight của Roblox cho các công trình raid và quái vật!
+                            local isClose = (dist <= highlightRange)
+                            local prio = dist + 200
+                            if isClose then
+                                prio = dist - 150 -- Ưu tiên viền phát sáng khi người chơi lại gần!
                             end
 
                             table.insert(candidates, {
@@ -558,7 +639,8 @@ local function RefreshESP()
                                 Text = table.concat(textParts, " "),
                                 HasHealth = false,
                                 StudsOffset = Vector3.new(0, 1.4, 0),
-                                CanChams = true,
+                                CanChams = isClose,
+                                IsInfiniteDistance = false,
                             })
                         end
                     end
@@ -577,65 +659,74 @@ local function RefreshESP()
                 if not crate:GetAttribute("Opened") then
                     local pos = crate:GetPivot().Position
                     local dist = math.round((pos - myPos).Magnitude)
-                    if dist <= maxDist then
-                        local crateColor, crateCleanName = GetCrateColorAndName(crate)
-                        local textParts = { crateCleanName }
-                        if Config.ESPShowDistance then
-                            table.insert(textParts, "(" .. dist .. "m)")
-                        end
-                        table.insert(candidates, {
-                            Obj = crate,
-                            Color = crateColor,
-                            Priority = dist - 150,
-                            Text = table.concat(textParts, " "),
-                            HasHealth = false,
-                            StudsOffset = Vector3.new(0, 2.2, 0),
-                            CanChams = true,
-                        })
+                    local crateColor, crateCleanName = GetCrateColorAndName(crate)
+                    local textParts = { crateCleanName }
+                    if Config.ESPShowDistance then
+                        table.insert(textParts, "(" .. dist .. "m)")
                     end
+                    table.insert(candidates, {
+                        Obj = crate,
+                        Color = crateColor,
+                        Priority = -95000 + dist, -- Độ ưu tiên cực cao ngang hàng POI để luôn có viền phát sáng và không bị giới hạn tag
+                        Text = table.concat(textParts, " "),
+                        HasHealth = false,
+                        StudsOffset = Vector3.new(0, 2.2, 0),
+                        CanChams = true,
+                        IsInfiniteDistance = true,
+                    })
                 end
             end
         end
     end
 
     -- 4. Công trình đặc biệt (Raid Landmarks, Weapon Upgrader, Halloween Event & Objectives)
+    -- MỖI CÔNG TRÌNH NÀY ĐỀU HIỂN THỊ BẤT KỂ BAO XA (VÔ HẠN TẦM ESP) VÀ CÓ VIỀN PHÁT SÁNG!
     local landmarks = RescanSpecialLandmarks()
     for _, lm in ipairs(landmarks) do
         local obj = lm.Obj
         if obj and obj.Parent then
             local pos = obj:GetPivot().Position
             local dist = math.round((pos - myPos).Magnitude)
-            if dist <= maxDist then
+            local isInRange = lm.IsInfiniteRange or (dist <= maxDist)
+
+            if isInRange then
                 local shouldShow = false
                 local color = lm.Color
                 local textParts = { lm.Name }
-                local prio = dist - 1200
+                local prio = -100000 + dist -- Luôn ưu tiên cực cao để luôn có viền Highlight và không bị giới hạn tag
                 local allowChams = lm.CanChams
 
                 if lm.Type == "NuclearReactor" and Config.ESPNuclearReactor then
                     shouldShow = true
-                    prio = dist - 2500
+                    prio = -100000 + dist
+                elseif lm.Type == "AbandonedNuclear" and (Config.ESPAbandonedNuclear ~= false) then
+                    shouldShow = true
+                    prio = -99000 + dist
                 elseif lm.Type == "MilitaryBase" and Config.ESPMilitaryBase then
                     shouldShow = true
-                    prio = dist - 2400
+                    prio = -98000 + dist
                 elseif lm.Type == "WeaponUpgrader" and Config.ESPWeaponUpgrader then
                     shouldShow = true
-                    prio = dist - 2200
+                    prio = -97000 + dist
+                elseif lm.Type == "RaidStructure" and (Config.ESPRaidStructures ~= false) then
+                    shouldShow = true
+                    prio = -96000 + dist
                 elseif lm.Type == "HalloweenEvent" and Config.ESPHalloweenEvent then
                     shouldShow = true
-                    prio = dist - 2000
+                    prio = -95000 + dist
                 elseif lm.Type == "Objective" and Config.ObjectiveESP then
                     shouldShow = true
+                    prio = -94000 + dist
                     if lm.IsPowerPlant then
                         local isRepaired = obj:GetAttribute("Repaired") == true
                         color = isRepaired and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(250, 204, 21)
                         table.insert(textParts, isRepaired and "[ACTIVE]" or "[REPAIR NEEDED]")
-                        allowChams = not isRepaired
+                        allowChams = true
                     elseif lm.IsRadioTower then
                         local isFixed = Workspace:GetAttribute("RadioTowerFixed") == true
                         color = isFixed and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(56, 189, 248)
                         table.insert(textParts, isFixed and "[ACTIVE]" or "[SIGNAL INACTIVE]")
-                        allowChams = not isFixed
+                        allowChams = true
                     end
                 end
 
@@ -651,6 +742,7 @@ local function RefreshESP()
                         HasHealth = false,
                         StudsOffset = lm.Offset or Vector3.new(0, 5.0, 0),
                         CanChams = allowChams,
+                        IsInfiniteDistance = lm.IsInfiniteRange == true,
                     })
                 end
             end
@@ -784,7 +876,7 @@ local function RefreshESP()
         if allowChams then
             hlCount = hlCount + 1
         end
-        ApplyComprehensiveESP(c.Obj, c.Color, c.Text, allowChams, c.HasHealth, c.Health, c.MaxHealth, c.StudsOffset)
+        ApplyComprehensiveESP(c.Obj, c.Color, c.Text, allowChams, c.HasHealth, c.Health, c.MaxHealth, c.StudsOffset, c.IsInfiniteDistance)
     end
 
     for obj, _ in pairs(ActiveESPElements) do

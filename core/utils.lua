@@ -135,6 +135,7 @@ Utils.KnownGuns = {
     ["Flamethrower"] = true, ["Grenade Launcher"] = true, ["M32 Grenade Launcher"] = true, ["M32"] = true,
     ["RPG"] = true, ["Double RPG"] = true, ["RPG-7"] = true, ["Rocket Launcher"] = true,
     ["Explosive Crossbow"] = true, ["Crossbow"] = true,
+    ["Deathbringer Cannon"] = true, ["Ion Shotgun"] = true,
     ["Raygun"] = true, ["Ray Gun"] = true, ["Double Raygun"] = true, ["Freeze Ray"] = true, ["Railgun"] = true, ["MediGun"] = true,
 }
 
@@ -149,7 +150,8 @@ Utils.KnownMelees = {
     ["Hammer"] = true, ["Repair Hammer"] = true,
     -- Advanced & Wonder Melee
     ["Spear"] = true, ["Katana"] = true, ["Flame Katana"] = true, ["Golden Katana"] = true,
-    ["Scythe"] = true, ["Dark Scythe"] = true, ["Chainsaw"] = true,
+    ["Scythe"] = true, ["Dark Scythe"] = true, ["Infernal Scythe"] = true, ["Chainsaw"] = true,
+    ["Energy Blade"] = true, ["Trident"] = true,
     ["Zweihänder"] = true, ["Zweihander"] = true, ["Flame Zweihänder"] = true,
     ["Power Hammer"] = true, ["Scorchblade"] = true, ["Bloodthirster"] = true,
     ["Ice Staff"] = true,
@@ -195,7 +197,7 @@ Utils.KnownResources = {
     ["Battery"] = true, ["Batteries"] = true,
     ["Screws"] = true, ["Screw"] = true,
     ["Heart"] = true, ["Hearts"] = true, ["Zombie Heart"] = true, ["Blood Moon Heart"] = true,
-    ["Alien Core"] = true, ["Power Cell"] = true, ["Alien Crystal"] = true, ["Green Alien Crystal"] = true,
+    ["Alien Core"] = true, ["Bloater Core"] = true, ["Power Cell"] = true, ["Alien Crystal"] = true, ["Green Alien Crystal"] = true,
 }
 
 Utils.KnownBlueprints = {
@@ -365,7 +367,32 @@ end
 
 function Utils.IsBloaterMob(mob)
     if not mob then return false end
-    return string.find(mob.Name, "Bloater") ~= nil
+    local n = mob.Name:lower()
+    return n:find("bloater") ~= nil or mob:GetAttribute("Bloater") == true or mob:GetAttribute("Type") == "Bloater" or mob:GetAttribute("Variant") == "Bloater"
+end
+
+function Utils.IsCrawlerMob(mob)
+    if not mob then return false end
+    local n = mob.Name:lower()
+    return n:find("crawler") ~= nil or mob:GetAttribute("Crawler") == true or mob:GetAttribute("Type") == "Crawler" or mob:GetAttribute("Variant") == "Crawler"
+end
+
+function Utils.IsTreeOrGrass(inst)
+    if not inst then return false end
+    local cur = inst
+    while cur and cur ~= Workspace do
+        local n = cur.Name:lower()
+        if n:find("tree") or n:find("grass") or n:find("trunk") or n:find("foliage")
+            or n:find("branch") or n:find("bush") or n:find("shrub") or n:find("flora")
+            or n:find("leaves") or n:find("wood") then
+            return true
+        end
+        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") then
+            return true
+        end
+        cur = cur.Parent
+    end
+    return false
 end
 
 local IsTeleporting = false

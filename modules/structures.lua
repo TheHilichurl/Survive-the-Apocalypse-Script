@@ -24,6 +24,7 @@ local UpgradableStructuresData = Hub.GameData and Hub.GameData.UpgradableStructu
 
 local Structures = {}
 local LastRepairTime = 0
+local LastAmmoCraftTime = 0
 local MerchantCache = {}
 
 local function RunStructuresAndCraftingStep()
@@ -94,18 +95,86 @@ local function RunStructuresAndCraftingStep()
         end
     end
 
-    -- Auto Craft Ammo
-    if Config.AutoCraftAmmo then
-        local ammoFolder = LocalPlayer:FindFirstChild("Ammo")
-        local ammoType = Config.AutoCraftAmmoType or "Medium"
-        local curAmmo = ammoFolder and ammoFolder:GetAttribute(ammoType) or 0
-        if curAmmo < (Config.AutoCraftAmmoThreshold or 60) and (Workspace:GetAttribute("Scrap") or 0) >= 15 then
-            local crates = CollectionService:GetTagged("AmmoCrate")
-            local crate = crates[1] or (Workspace:FindFirstChild("Structures") and Workspace.Structures:FindFirstChild("Ammo Crate"))
-            if crate and crate:FindFirstChild("CraftAmmo") then
-                task.spawn(function()
-                    pcall(function() crate.CraftAmmo:InvokeServer(ammoType) end)
-                end)
+    -- Smart Auto Craft Ammo with customizable Max Cap
+    if Config.AutoCraftAmmo and (os.clock() - LastAmmoCraftTime) >= 0.4 then
+        local teamScrap = Workspace:GetAttribute("Scrap") or 0
+        if teamScrap >= 15 then
+            local taggedCrates = CollectionService:GetTagged("AmmoCrate")
+            local activeCrate = nil
+            for _, c in ipairs(taggedCrates) do
+                if c and c:FindFirstChild("CraftAmmo") then
+                    activeCrate = c
+                    break
+                end
+            end
+            if not activeCrate then
+                local structs = Workspace:FindFirstChild("Structures")
+                if structs then
+                    for _, st in ipairs(structs:GetChildren()) do
+                        if st.Name == "Ammo Crate" and st:FindFirstChild("CraftAmmo") then
+                            activeCrate = st
+                            break
+                        end
+                    end
+                end
+            end
+
+            if activeCrate and activeCrate:FindFirstChild("CraftAmmo") then
+                local ammoFolder = LocalPlayer:FindFirstChild("Ammo")
+                local maxCap = tonumber(Config.AutoCraftAmmoMaxCap) or tonumber(Config.AutoCraftAmmoThreshold) or 120
+                local mode = Config.AutoCraftAmmoType or "Smart"
+                local targetTypes = {}
+
+                local function DetectGunAmmoType(tool)
+                    if not tool then return nil end
+                    local stats = tool:FindFirstChild("Stats")
+                    if stats then
+                        local at = stats:GetAttribute("AmmoType")
+                        if at and (at == "Pistol" or at == "Medium" or at == "Long" or at == "Shells") then
+                            return at
+                        end
+                    end
+                    local n = tool.Name:lower()
+                    if n:find("shotgun") or n:find("aa-12") or n:find("double barrel") then
+                        return "Shells"
+                    elseif n:find("sniper") or n:find("svd") or n:find("rifle") or n:find("ray gun") then
+                        return "Long"
+                    elseif n:find("ak") or n:find("lmg") or n:find("minigun") or n:find("assault") or n:find("smg") then
+                        return "Medium"
+                    elseif n:find("pistol") or n:find("revolver") or n:find("uzi") or n:find("deagle") or n:find("desert eagle") then
+                        return "Pistol"
+                    end
+                    return nil
+                end
+
+                if mode == "Smart" or mode:find("Smart") then
+                    local equippedTool = char:FindFirstChildWhichIsA("Tool")
+                    local detected = DetectGunAmmoType(equippedTool)
+                    if not detected and bp then
+                        for _, t in ipairs(bp:GetChildren()) do
+                            if t:IsA("Tool") then
+                                detected = DetectGunAmmoType(t)
+                                if detected then break end
+                            end
+                        end
+                    end
+                    table.insert(targetTypes, detected or "Medium")
+                elseif mode == "All" or mode:find("All") then
+                    targetTypes = { "Medium", "Long", "Pistol", "Shells" }
+                else
+                    table.insert(targetTypes, mode)
+                end
+
+                for _, aType in ipairs(targetTypes) do
+                    local curAmmo = ammoFolder and (ammoFolder:GetAttribute(aType) or ammoFolder:GetAttribute(aType:sub(1,1):upper() .. aType:sub(2):lower())) or 0
+                    if curAmmo < maxCap then
+                        LastAmmoCraftTime = os.clock()
+                        task.spawn(function()
+                            pcall(function() activeCrate.CraftAmmo:InvokeServer(aType) end)
+                        end)
+                        break
+                    end
+                end
             end
         end
     end

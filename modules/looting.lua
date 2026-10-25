@@ -17,6 +17,7 @@ local Utils = Hub.Utils
 local PickUpItemRemote = Hub.Remotes and Hub.Remotes.PickUpItem
 local AdjustBackpackRemote = Hub.Remotes and Hub.Remotes.AdjustBackpack
 local firetouchinterest_fn = Hub.Compatibility and Hub.Compatibility.firetouchinterest
+local fireproximityprompt_fn = Hub.Compatibility and Hub.Compatibility.fireproximityprompt
 
 local Looting = {}
 
@@ -1406,35 +1407,51 @@ local function RunLootingAndSurvivalStep()
     end
 
     -- 6. Tự động mở Crates: Cobalt firesignal(Event.OnClientEvent) + server sync
+    -- 6. Tự động mở Crates: Cobalt firesignal(Event.OnClientEvent) + ProximityPrompt bypass
     if Config.AutoOpenCrates then
         local mapFolder = Workspace:FindFirstChild("Map")
         local cratesFolder = mapFolder and mapFolder:FindFirstChild("Crates")
+        local crateList = {}
         if cratesFolder then
-            for _, crate in ipairs(cratesFolder:GetChildren()) do
-                if not crate:GetAttribute("Opened") and not OpenedCratesHistory[crate] then
-                    local dist = (crate:GetPivot().Position - root.Position).Magnitude
-                    if dist <= (Config.AutoOpenCratesRange or 25) then
-                        local logic = crate:FindFirstChild("Logic")
-                        local crateOpened = logic and logic:FindFirstChild("CrateOpened")
-                        if crateOpened then
-                            OpenedCratesHistory[crate] = true
-                            -- Cobalt method: firesignal on CrateOpened.OnClientEvent
-                            if firesignal_fn and crateOpened.OnClientEvent then
-                                pcall(firesignal_fn, crateOpened.OnClientEvent)
-                            end
-                            if crateOpened:IsA("RemoteEvent") then
-                                pcall(function() crateOpened:FireServer() end)
-                            end
-                        end
-                        local prompt = crate:FindFirstChildWhichIsA("ProximityPrompt", true)
-                        if prompt and prompt.Enabled then
-                            if fireproximityprompt_fn then
-                                pcall(fireproximityprompt_fn, prompt)
-                            else
-                                Utils.SafeTriggerPrompt(prompt)
-                            end
+            for _, c in ipairs(cratesFolder:GetChildren()) do
+                table.insert(crateList, c)
+            end
+        end
+        local taggedCrates = CollectionService:GetTagged("Crate")
+        for _, tc in ipairs(taggedCrates) do
+            if not table.find(crateList, tc) then
+                table.insert(crateList, tc)
+            end
+        end
+
+        for _, crate in ipairs(crateList) do
+            if not crate:GetAttribute("Opened") and not OpenedCratesHistory[crate] then
+                local dist = (crate:GetPivot().Position - root.Position).Magnitude
+                if dist <= (Config.AutoOpenCratesRange or 30) then
+                    local prompt = crate:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    local logic = crate:FindFirstChild("Logic")
+                    local crateOpened = logic and logic:FindFirstChild("CrateOpened")
+                    OpenedCratesHistory[crate] = true
+
+                    if prompt and prompt.Enabled then
+                        if fireproximityprompt_fn then
+                            pcall(fireproximityprompt_fn, prompt)
+                        else
+                            Utils.SafeTriggerPrompt(prompt)
                         end
                     end
+
+                    if crateOpened then
+                        if firesignal_fn and crateOpened.OnClientEvent then
+                            pcall(firesignal_fn, crateOpened.OnClientEvent)
+                        end
+                        if crateOpened:IsA("RemoteEvent") then
+                            pcall(function() crateOpened:FireServer() end)
+                        end
+                    end
+
+                    local r = crate:GetAttribute("Rarity") or crate.Name
+                    Utils.NotifyGame("Đã tự động mở rương [" .. tostring(r) .. "]!", Color3.fromRGB(56, 189, 248))
                 end
             end
         end
