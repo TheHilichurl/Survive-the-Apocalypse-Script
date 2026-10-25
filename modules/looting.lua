@@ -1036,28 +1036,36 @@ local function ProcessNewlySpawnedLoot()
 
     for _, item in ipairs(queue) do
         if item and item.Parent and item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
-            if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) and not IsItemAlreadyAtBaseOrDelivered(item) then
+            if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) then
                 local itemPos = item:GetPivot().Position
                 local dist = (itemPos - root.Position).Magnitude
-                if dist <= 15 then
-                    local cat = Utils.ClassifyItem(item)
+                local cat = Utils.ClassifyItem(item)
 
-                    -- 1. Nếu là Food VÀ đủ điều kiện tự động ăn -> Ăn ngay lập tức!
-                    if cat == "Food" and Config.AutoEat and hungerPct < hungerThreshold and dist <= pickupRadius then
+                -- 1. Nếu là Food VÀ đủ điều kiện tự động ăn (Đói < threshold) -> Ăn ngay (ÁP DỤNG CẢ TRONG BASE LẪN NGOÀI MAP!)
+                if cat == "Food" and Config.AutoEat and hungerPct < hungerThreshold then
+                    local maxEatRange = isAtBase and math.min(Config.GeneratorUnloadRange or 50.0, 35) or pickupRadius
+                    if dist <= maxEatRange then
                         RecordItemPickupAttempt(item)
                         if PickUpItemRemote then
                             pcall(function() PickUpItemRemote:FireServer(item) end)
                         end
+                        local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt and prompt.Enabled then
+                            Utils.SafeTriggerPrompt(prompt)
+                        end
                         hungerPct = GetPlayerHungerPercent(char)
+                    end
 
-                    -- 2. Nếu là vật phẩm cất vào Backpack Sack (Scrap, Fuel, Battery, Heart, Screws, hoặc Food khi no bụng):
+                -- 2 & 3. Các vật phẩm khác: Chỉ nhặt khi chưa ở Base
+                elseif not IsItemAlreadyAtBaseOrDelivered(item) and dist <= 15 then
+                    -- Nếu là vật phẩm cất vào Backpack Sack (Scrap, Fuel, Battery, Heart, Screws, hoặc Food khi no bụng):
                     -- Chỉ gom vào Backpack sack khi ở ngoài map (not isAtBase)
-                    elseif IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) then
+                    if IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) then
                         if dist <= sackRadius and not IsBackpackFull() then
                             table.insert(sackCandidates, item)
                         end
 
-                    -- 3. Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...)
+                    -- Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...)
                     elseif not IsBackpackSackItem(item) and Config.AutoPickup and ShouldPickupItem(item) then
                         if dist <= pickupRadius then
                             table.insert(inventoryCandidates, item)
@@ -1299,26 +1307,32 @@ local function RunLootingAndSurvivalStep()
     -- Tự động hoàn thành / sửa chữa Trạm phát điện, Máy phát điện, Radio Tower & Máy nghiền
     AutoCompleteObjectivesAndStations(root, genPart, shredPart)
 
-    -- 0. Tự động xả Backpack sack và các đồ vật khi đến gần Generator (mốc khoảng 5 studs quanh Generator)
-    local isNearGenerator = (distToGen <= (Config.GeneratorUnloadRange or 5.0))
+    -- 0. Tự động xả Backpack sack và các đồ vật khi đến gần Generator (mốc khoảng 50 studs quanh Generator)
+    local isNearGenerator = (distToGen <= (Config.GeneratorUnloadRange or 50.0))
     if isNearGenerator then
         if Config.AutoEmptyBackpackAtBase and not IsDroppingBackpack and not IsHandlingBackpackEquip then
             UnloadBackpackAtBase(genPart, shredPart, root)
         end
     end
 
-    -- 1. Tự động ăn đồ ăn thông minh:
+    -- 1. Tự động ăn đồ ăn thông minh (Áp dụng cả ngoài map LẪN trong Base khi đói):
     -- CHỈ ĂN KHI: AutoEat được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
-    -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên mặt đất sẽ được gom vào danh sách cất vào Backpack Sack ở Mục 3!
+    -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên sàn giữ nguyên cho base.
     if Config.AutoEat and hungerPct < hungerThreshold then
         if droppedFolder then
             for _, item in ipairs(droppedFolder:GetChildren()) do
-                if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) and not IsItemAlreadyAtBaseOrDelivered(item) then
+                -- Đồ ăn trong Base VẪN ĐƯỢC ĂN BÌNH THƯỜNG khi đói, không bị chặn bởi IsItemAlreadyAtBaseOrDelivered
+                if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) then
                     local dist = (item:GetPivot().Position - root.Position).Magnitude
-                    if dist <= pickupRadius then
+                    local maxEatRange = isAtBase and math.min(Config.GeneratorUnloadRange or 50.0, 35) or pickupRadius
+                    if dist <= maxEatRange then
                         RecordItemPickupAttempt(item)
                         if PickUpItemRemote then
                             pcall(function() PickUpItemRemote:FireServer(item) end)
+                        end
+                        local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt and prompt.Enabled then
+                            Utils.SafeTriggerPrompt(prompt)
                         end
                         hungerPct = GetPlayerHungerPercent(char)
                         if hungerPct >= hungerThreshold then
@@ -1329,29 +1343,42 @@ local function RunLootingAndSurvivalStep()
             end
         end
 
+        -- Ăn các Tool đồ ăn đang có trong túi đồ cá nhân (Roblox Backpack) hoặc trên tay
         if hungerPct < hungerThreshold then
+            local foodTools = {}
             for _, tool in ipairs(bp:GetChildren()) do
                 if tool:IsA("Tool") and Utils.ClassifyItem(tool) == "Food" then
-                    local prevTool = char:FindFirstChildOfClass("Tool")
-                    if prevTool and (prevTool.Name == "Backpack" or prevTool:GetAttribute("ToolType") == "Backpack") then
-                        prevTool = LastDesiredEquippedTool
-                    end
-                    pcall(function()
+                    table.insert(foodTools, tool)
+                end
+            end
+            for _, tool in ipairs(char:GetChildren()) do
+                if tool:IsA("Tool") and Utils.ClassifyItem(tool) == "Food" then
+                    table.insert(foodTools, tool)
+                end
+            end
+
+            for _, tool in ipairs(foodTools) do
+                local prevTool = char:FindFirstChildOfClass("Tool")
+                if prevTool and (prevTool.Name == "Backpack" or prevTool:GetAttribute("ToolType") == "Backpack" or Utils.ClassifyItem(prevTool) == "Food") then
+                    prevTool = LastDesiredEquippedTool
+                end
+                pcall(function()
+                    if tool.Parent ~= char then
                         hum:EquipTool(tool)
-                        tool:Activate()
-                        if PickUpItemRemote then
-                            PickUpItemRemote:FireServer(tool)
-                        end
+                    end
+                    tool:Activate()
+                    if PickUpItemRemote then
+                        PickUpItemRemote:FireServer(tool)
+                    end
+                end)
+                if prevTool and prevTool.Parent == bp and prevTool ~= tool then
+                    task.defer(function()
+                        pcall(function() hum:EquipTool(prevTool) end)
                     end)
-                    if prevTool and prevTool.Parent == bp then
-                        task.defer(function()
-                            pcall(function() hum:EquipTool(prevTool) end)
-                        end)
-                    end
-                    hungerPct = GetPlayerHungerPercent(char)
-                    if hungerPct >= hungerThreshold then
-                        break
-                    end
+                end
+                hungerPct = GetPlayerHungerPercent(char)
+                if hungerPct >= hungerThreshold then
+                    break
                 end
             end
         end

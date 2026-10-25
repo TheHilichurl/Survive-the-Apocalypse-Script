@@ -145,7 +145,7 @@ stateDiagram-v2
     BaseHoldout --> CheckSurvival : Bình minh tới
 
     StateBaseLogistics --> RefuelGenerator : Đang có bình xăng
-    StateBaseLogistics --> UnloadBackpack : Ba lô đầy (cách 5 studs)
+    StateBaseLogistics --> UnloadBackpack : Ba lô đầy (cách 50 studs quanh Generator)
     RefuelGenerator --> CheckSurvival
     UnloadBackpack --> CheckSurvival
 
@@ -168,7 +168,9 @@ stateDiagram-v2
 - **Tần suất kiểm tra**: Mỗi 0.1 giây.
 - **Hành vi**:
   - Khi `Humanoid.Health < 40`: Tạm dừng di chuyển, tự động cầm `Medkit` hoặc `Bandage`, kích hoạt remote sử dụng.
-  - Khi `Character:GetAttribute("Hunger") < 40`: Tự động lấy đồ ăn (`MRE`, `Beans`, `Canned Food`) trong ba lô ra ăn.
+  - Khi `Character:GetAttribute("Hunger") < 40`: Tự động kích hoạt cơ chế ăn thông minh:
+    - Nếu có đồ ăn trong túi (`Backpack`) hoặc trên tay: Trang bị và ăn ngay (`tool:Activate()`).
+    - Nếu đồ ăn rơi trên mặt đất (ngoài map hoặc **ngay tại Base trong phạm vi 50 studs quanh Generator**): Nhặt và ăn ngay mà không bị chặn bởi cờ đã lưu trữ tại Base.
   - Khi `Character:GetAttribute("InPoison") == true`: Lập tức quay đầu 180 độ di chuyển thoát khỏi vùng sương mù độc hoặc bức xạ.
 
 #### State 1: Night Panic & Base Holdout (P1 - Căn Cứ Ban Đêm)
@@ -184,7 +186,7 @@ stateDiagram-v2
   - `Workspace:GetAttribute("FuelPercentage") < 0.25` (Máy phát sắp hết xăng).
   - HOẶC số lượng món đồ trong ba lô `>= BackpackCapacity`.
 - **Hành vi**:
-  - Di chuyển đến phạm vi **5 studs quanh Generator** (`GeneratorUnloadRange = 5.0`).
+  - Di chuyển đến phạm vi **50 studs quanh Generator** (`GeneratorUnloadRange = 50.0`).
   - Nếu mang bình xăng (`Fuel`): Nạp trực tiếp vào máy phát điện.
   - Nếu ba lô đầy: Tự động kích hoạt cơ chế xả đồ theo lưới sàn 4x4 (khoảng cách 1.2 studs, rơi tự nhiên không đè chồng, không gây văng giật lag).
   - Tự động nạp phế liệu để nâng cấp `GeneratorLevel` lên cấp tối đa (Level 6).
@@ -218,8 +220,8 @@ stateDiagram-v2
 | **Trời bắt đầu tối** | `Workspace@Countdown <= 15` hoặc `Workspace@SunSetting == true` | Hủy toàn bộ Waypoint nhặt đồ, chạy gấp về Base Generator với tốc độ 26.5 studs/s. |
 | **Đêm buông xuống** | `Workspace@Night == true` | Neo chặt vị trí quanh máy phát điện (< 15 studs), bật KillAura + AutoShoot bảo vệ Base. |
 | **Máy phát điện yếu xăng** | `Workspace@FuelPercentage < 0.25` | Chuyển mục tiêu sang tìm bình xăng gần nhất, nhặt và mang về đổ cho máy phát. |
-| **Ba lô đầy đồ** | `BackpackItems >= Capacity` (ví dụ: 10/10 hoặc 20/20) | Ngừng nhặt thêm đồ, đi về Generator cách 5 studs để xả tài nguyên và thức ăn. |
-| **Người chơi bị đói** | `Character@Hunger < 40` | Tự động trang bị đồ ăn có trong người, ăn cho đến khi Hunger đạt > 85. |
+| **Ba lô đầy đồ** | `BackpackItems >= Capacity` (ví dụ: 10/10 hoặc 20/20) | Ngừng nhặt thêm đồ, đi về Generator cách 50 studs để xả tài nguyên và thức ăn. |
+| **Người chơi bị đói** | `Character@Hunger < 40` | Tự động ăn đồ ăn (cả đồ ăn ngoài map lẫn đồ ăn tích trữ trong Base trong phạm vi 50 studs quanh Generator) cho đến khi Hunger đạt > 85. |
 | **Người chơi tụt máu** | `Humanoid.Health < 40` | Tìm chỗ nấp gần nhất, kích hoạt Medkit/Bandage hồi máu (miễn giảm làm chậm). |
 | **Dính Bão Tuyết** | `_G.inBlizzard == true` hoặc nhiệt độ môi trường giảm sâu | Bật chế độ chạy ổn định, hạn chế đi vào góc gió xoáy, ưu tiên quay về vùng có lò sưởi. |
 | **Dính Độc / Phóng xạ** | `Character@InPoison == true` hoặc bước vào ô `Irradiated: True` mà không có Gas Mask | Lập tức lùi bước 20 studs về vùng an toàn, dùng thuốc giải hoặc Medkit. |
