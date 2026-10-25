@@ -436,8 +436,13 @@ function Utils.ClassifyItem(item)
     local name = item.Name
     local sName = name:lower()
 
+    -- 0. Kỹ năng chủ động của Class (Quickdraw, Outlaw abilities, Dash...) -> TUYỆT ĐỐI là Ability, không nhầm sang Gun
+    if toolType == "Ability" or itemType == "Ability" or item:GetAttribute("AbilityNum") ~= nil
+        or name == "Quickdraw" or string.find(sName, "quickdraw") ~= nil
+        or item:FindFirstChild("Activate") ~= nil then
+        return "Ability"
     -- 1. Bản vẽ thiết kế (Blueprints / Schematics)
-    if itemType == "Blueprint" or toolType == "Blueprint" or (Utils.KnownBlueprints and Utils.KnownBlueprints[name]) or string.find(sName, "blueprint") ~= nil or string.find(sName, "schematic") ~= nil or string.find(sName, "bản vẽ") ~= nil then
+    elseif itemType == "Blueprint" or toolType == "Blueprint" or (Utils.KnownBlueprints and Utils.KnownBlueprints[name]) or string.find(sName, "blueprint") ~= nil or string.find(sName, "schematic") ~= nil or string.find(sName, "bản vẽ") ~= nil then
         return "Blueprint"
     -- 2. Tear Gas & tất cả các vật phẩm Throwable đều là Tiêu hao (Consumable)
     elseif Utils.IsThrowableOrConsumable(item) then
