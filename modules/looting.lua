@@ -1132,16 +1132,17 @@ local LastObjectiveActionTime = 0
 local function TriggerPhysicalAndRemoteComplete(targetObj, root)
     if not (targetObj and root) then return end
 
-    -- 1. ProximityPrompts: Kích hoạt tức thì kể cả HoldDuration (fireproximityprompt bypass hold hoàn toàn)
+    -- 1. ProximityPrompts: Kích hoạt đè giữ liên tục (Hold E trên PC / Hold nút trên Mobile)
     for _, desc in ipairs(targetObj:GetDescendants()) do
         if desc:IsA("ProximityPrompt") and desc.Enabled then
             local pName = (desc.Parent and desc.Parent.Name or ""):lower()
             local ppName = (desc.Parent and desc.Parent.Parent and desc.Parent.Parent.Name or ""):lower()
             local isGasPump = pName:find("pump") or ppName:find("pump")
-            -- Bỏ qua Gas Pump nếu người chơi chưa bật AutoInteractObjectives; còn Trạm phát điện, Máy phát điện, Radio Tower -> FIX NGAY!
+            -- Bỏ qua Gas Pump nếu người chơi chưa bật AutoInteractObjectives; còn Trạm phát điện, Máy phát điện, Radio Tower -> SỬA NGAY!
             if not isGasPump or Config.AutoInteractObjectives then
-                if fireproximityprompt_fn then
-                    pcall(fireproximityprompt_fn, desc)
+                local holdDur = desc.HoldDuration or 0
+                if holdDur > 0 then
+                    Utils.HoldPromptContinuous(desc, holdDur + 0.5)
                 else
                     Utils.SafeTriggerPrompt(desc)
                 end
@@ -1189,51 +1190,47 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
     if (now - LastObjectiveActionTime) < 0.20 then return end
     LastObjectiveActionTime = now
 
+    -- Nếu đang đè giữ 1 prompt nào đó, không quét prompt mới
+    if Utils.IsHoldingPrompt and Utils.IsHoldingPrompt() then
+        return
+    end
+
     -- A. Trạm phát điện (Power Plant / Big Power Plant / Radio Tower) trên bản đồ (workspace.Map.Tiles)
     local mapFolder = Workspace:FindFirstChild("Map")
     local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
     if tilesFolder then
         for _, tile in ipairs(tilesFolder:GetChildren()) do
-            local dist = (tile:GetPivot().Position - root.Position).Magnitude
-            if dist <= 55 then
-                local tName = tile.Name:lower()
-                local isPowerPlant = tName:find("power") or tName:find("electric") or tName:find("substation") or tName:find("generator")
-                local isRadioTower = tName:find("radio") or tName:find("tower")
-                local needsRepair = (tile:GetAttribute("Repaired") ~= true) or (isRadioTower and Workspace:GetAttribute("RadioTowerFixed") ~= true)
+            local tName = tile.Name:lower()
+            local isPowerPlant = tName:find("power") or tName:find("electric") or tName:find("substation")
+            local isRadioTower = tName:find("radio") or tName:find("tower")
 
-                if isPowerPlant or isRadioTower or needsRepair or Config.AutoElectricRepair or Config.AutoInteractObjectives then
-                    TriggerPhysicalAndRemoteComplete(tile, root)
+            if isPowerPlant or isRadioTower then
+                local isRepaired = (tile:GetAttribute("Repaired") == true) or (isRadioTower and Workspace:GetAttribute("RadioTowerFixed") == true)
 
-                    -- Tự động gửi remote sửa điện thành công khi đến gần công trình
-                    if Config.AutoElectricRepair then
-                        for _, desc in ipairs(tile:GetDescendants()) do
-                            if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
-                                local rName = desc.Name:lower()
-                                if rName:find("repair") or rName:find("fix") or rName:find("electric") or rName:find("complete") or rName:find("power") then
-                                    pcall(function()
-                                        if desc:IsA("RemoteEvent") then
-                                            desc:FireServer()
-                                            desc:FireServer(true)
-                                        else
-                                            desc:InvokeServer()
-                                            desc:InvokeServer(true)
-                                        end
-                                    end)
-                                end
-                            end
+                if not isRepaired then
+                    local controlBox = tile:FindFirstChild("Power Box", true) or tile:FindFirstChild("CircuitBox", true)
+                    local boxPart = controlBox or tile
+                    local distToBox = (boxPart:GetPivot().Position - root.Position).Magnitude
+
+                    -- Kiểm tra nếu người chơi đứng gần hộp điện trong phạm vi an toàn của server (Server MaxActivationDistance là ~15.4-18.2 cho Power Box)
+                    if isPowerPlant and distToBox <= 22 then
+                        local prompt = controlBox and controlBox:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            or tile:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt and prompt.Enabled then
+                            local holdDur = prompt.HoldDuration or 10.0
+                            Utils.NotifyGame("Đang tự động đè giữ phím sửa Nhà máy phát điện (10s)...", Color3.fromRGB(250, 204, 21))
+                            Utils.HoldPromptContinuous(prompt, holdDur + 0.8, function()
+                                Utils.NotifyGame("Đã sửa xong Nhà máy phát điện thành công!", Color3.fromRGB(74, 222, 128))
+                            end)
+                            return
                         end
-                        local remotesFolder = Services.ReplicatedStorage:FindFirstChild("Remotes")
-                        if remotesFolder then
-                            for _, r in ipairs(remotesFolder:GetDescendants()) do
-                                if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
-                                    local rName = r.Name:lower()
-                                    if rName:find("electric") or rName:find("powerplant") or rName:find("repairpower") or rName:find("fixedpower") then
-                                        pcall(function()
-                                            if r:IsA("RemoteEvent") then r:FireServer(tile, true) else r:InvokeServer(tile, true) end
-                                        end)
-                                    end
-                                end
-                            end
+                    elseif isRadioTower and distToBox <= 15 then
+                        local prompt = controlBox and controlBox:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            or tile:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt and prompt.Enabled then
+                            Utils.SafeTriggerPrompt(prompt)
+                            Utils.NotifyGame("Đã sửa xong Radio Tower!", Color3.fromRGB(74, 222, 128))
+                            return
                         end
                     end
                 end
@@ -1451,72 +1448,77 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- 6. Tự động mở Crates: Cobalt firesignal(Event.OnClientEvent) + server sync
-    -- 6. Tự động mở Crates: Cobalt firesignal(Event.OnClientEvent) + ProximityPrompt bypass
-    if Config.AutoOpenCrates then
+    -- 6. Tự động mở Crates (Rương đè giữ 2s): Hỗ trợ cả trên PC và Mobile
+    if Config.AutoOpenCrates and not (Utils.IsHoldingPrompt and Utils.IsHoldingPrompt()) then
         local mapFolder = Workspace:FindFirstChild("Map")
-        local cratesFolder = mapFolder and mapFolder:FindFirstChild("Crates")
         local crateList = {}
+
+        local cratesFolder = mapFolder and mapFolder:FindFirstChild("Crates")
         if cratesFolder then
             for _, c in ipairs(cratesFolder:GetChildren()) do
                 table.insert(crateList, c)
             end
         end
-        local taggedCrates = CollectionService:GetTagged("Crate")
-        for _, tc in ipairs(taggedCrates) do
-            if not table.find(crateList, tc) then
-                table.insert(crateList, tc)
+
+        -- Quét cả rương trong Tiles (RewardCrates, MysteryBoxes, Crates, v.v.)
+        local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
+        if tilesFolder then
+            for _, tile in ipairs(tilesFolder:GetChildren()) do
+                for _, folderName in ipairs({"Crates", "RewardCrates", "MysteryBoxes", "CratesStage1", "CratesStage3"}) do
+                    local f = tile:FindFirstChild(folderName)
+                    if f then
+                        for _, c in ipairs(f:GetChildren()) do
+                            table.insert(crateList, c)
+                        end
+                    end
+                end
             end
         end
 
         for _, crate in ipairs(crateList) do
-            if not crate:GetAttribute("Opened") and not OpenedCratesHistory[crate] then
+            if not crate:GetAttribute("Opened") then
                 local dist = (crate:GetPivot().Position - root.Position).Magnitude
-                if dist <= (Config.AutoOpenCratesRange or 30) then
+                -- Server MaxActivationDistance cho rương là 10 studs, người chơi ở trong phạm vi <= 14 studs
+                if dist <= 14 then
                     local prompt = crate:FindFirstChildWhichIsA("ProximityPrompt", true)
-                    local logic = crate:FindFirstChild("Logic")
-                    local crateOpened = logic and logic:FindFirstChild("CrateOpened")
-                    OpenedCratesHistory[crate] = true
 
                     if prompt and prompt.Enabled then
-                        if fireproximityprompt_fn then
-                            pcall(fireproximityprompt_fn, prompt)
-                        else
-                            Utils.SafeTriggerPrompt(prompt)
-                        end
+                        local holdDur = prompt.HoldDuration or 2.0
+                        local crateName = crate.Name
+                        local r = crate:GetAttribute("Rarity") or crateName
+                        Utils.NotifyGame("Đang tự động đè mở rương [" .. tostring(r) .. "] (2s)...", Color3.fromRGB(56, 189, 248))
+                        Utils.HoldPromptContinuous(prompt, holdDur + 0.6, function()
+                            Utils.NotifyGame("Đã mở rương [" .. tostring(r) .. "] thành công!", Color3.fromRGB(74, 222, 128))
+                        end)
+                        break -- Chỉ giữ 1 rương tại một thời điểm
                     end
-
-                    if crateOpened then
-                        if firesignal_fn and crateOpened.OnClientEvent then
-                            pcall(firesignal_fn, crateOpened.OnClientEvent)
-                        end
-                        if crateOpened:IsA("RemoteEvent") then
-                            pcall(function() crateOpened:FireServer() end)
-                        end
-                    end
-
-                    local r = crate:GetAttribute("Rarity") or crate.Name
-                    Utils.NotifyGame("Đã tự động mở rương [" .. tostring(r) .. "]!", Color3.fromRGB(56, 189, 248))
                 end
             end
         end
     end
 
     -- 7. Tự động kích hoạt ProximityPrompts chung (nhưng không can thiệp vòi bơm xăng gas pump)
-    if Config.AutoInteractObjectives then
+    if Config.AutoInteractObjectives and not (Utils.IsHoldingPrompt and Utils.IsHoldingPrompt()) then
         local mapFolder = Workspace:FindFirstChild("Map")
         local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
         if tilesFolder then
             for _, tile in ipairs(tilesFolder:GetChildren()) do
-                if (tile:GetPivot().Position - root.Position).Magnitude <= 35 then
+                if (tile:GetPivot().Position - root.Position).Magnitude <= 55 then
                     for _, desc in ipairs(tile:GetDescendants()) do
                         if desc:IsA("ProximityPrompt") and desc.Enabled then
                             local pName = (desc.Parent and desc.Parent.Name or ""):lower()
                             local ppName = (desc.Parent and desc.Parent.Parent and desc.Parent.Parent.Name or ""):lower()
                             local isGasPump = pName:find("pump") or ppName:find("pump")
                             if not isGasPump then
-                                if fireproximityprompt_fn then
-                                    pcall(fireproximityprompt_fn, desc)
+                                local holdDur = desc.HoldDuration or 0
+                                if holdDur > 0 then
+                                    local parentPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent:IsA("Model") and desc.Parent:GetPivot() or nil)
+                                    local pPos = parentPart and (parentPart.Position or parentPart.p)
+                                    local distToPrompt = pPos and (pPos - root.Position).Magnitude or 99
+                                    if distToPrompt <= (desc.MaxActivationDistance + 4) then
+                                        Utils.HoldPromptContinuous(desc, holdDur + 0.5)
+                                        break
+                                    end
                                 else
                                     Utils.SafeTriggerPrompt(desc)
                                 end

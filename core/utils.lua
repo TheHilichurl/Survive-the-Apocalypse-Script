@@ -40,29 +40,182 @@ function Utils.IsCharacterAlive(char)
     return hum and hum.Health > 0
 end
 
+local VirtualInputManager = nil
+pcall(function()
+    VirtualInputManager = game:GetService("VirtualInputManager")
+end)
+
+local CurrentHoldingPrompt = nil
+
+function Utils.IsHoldingPrompt()
+    if CurrentHoldingPrompt and CurrentHoldingPrompt.Parent and CurrentHoldingPrompt.Enabled then
+        return true
+    end
+    CurrentHoldingPrompt = nil
+    return false
+end
+
 function Utils.SafeTriggerPrompt(prompt)
     if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled then
         return false
     end
-    -- If prompt requires holding (e.g. Gas Pump, Crate, crafting), DO NOT fake hold/cancel to avoid interrupting player's hold E
-    if prompt.HoldDuration and prompt.HoldDuration > 0 then
-        if fireproximityprompt_fn then
-            pcall(fireproximityprompt_fn, prompt)
-            return true
-        end
-        return false
+
+    local holdDur = prompt.HoldDuration or 0
+    if holdDur > 0 then
+        return Utils.HoldPromptContinuous(prompt, holdDur + 0.5)
     end
+
+    pcall(function()
+        if prompt.MaxActivationDistance < 35 then
+            prompt.MaxActivationDistance = 35
+        end
+        prompt.RequiresLineOfSight = false
+    end)
+
     if fireproximityprompt_fn then
         pcall(fireproximityprompt_fn, prompt)
-        return true
-    else
+    end
+
+    pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(0.04)
+        prompt:InputHoldEnd()
+    end)
+
+    return true
+end
+
+function Utils.HoldPromptContinuous(prompt, maxDuration, onCompleteCallback)
+    if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled then
+        return false
+    end
+
+    -- Khóa đơn luồng: Chỉ giữ 1 prompt tại một thời điểm để tránh Roblox hủy hold lẫn nhau
+    if CurrentHoldingPrompt then
+        if CurrentHoldingPrompt == prompt then
+            return true -- Đang giữ đúng prompt này
+        end
+        if CurrentHoldingPrompt.Parent and CurrentHoldingPrompt.Enabled then
+            return false -- Đang bận giữ prompt khác (ví dụ rương trước hoặc trạm điện)
+        end
+        CurrentHoldingPrompt = nil
+    end
+
+    CurrentHoldingPrompt = prompt
+
+    pcall(function()
+        if prompt.MaxActivationDistance < 35 then
+            prompt.MaxActivationDistance = 35
+        end
+        prompt.RequiresLineOfSight = false
+    end)
+
+    task.spawn(function()
+        local origHold = prompt.HoldDuration or 0
+        local holdTime = math.max(origHold, 0.1)
+        local waitLimit = maxDuration or (holdTime + 0.8)
+
+        -- 1. Nếu là prompt tức thì (HoldDuration <= 0)
+        if origHold <= 0 then
+            if fireproximityprompt_fn then
+                pcall(fireproximityprompt_fn, prompt)
+            end
+            pcall(function()
+                prompt:InputHoldBegin()
+                task.wait(0.04)
+                prompt:InputHoldEnd()
+            end)
+            if CurrentHoldingPrompt == prompt then
+                CurrentHoldingPrompt = nil
+            end
+            if onCompleteCallback then pcall(onCompleteCallback) end
+            return
+        end
+
+        -- 2. Với prompt có thời gian đè giữ (Crate = 2s, Power Plant = 10s, Gas Pump = 5s)
+        local isCompleted = false
+        local trigConn
+        trigConn = prompt.Triggered:Connect(function()
+            isCompleted = true
+        end)
+
+        -- Thử bypass tức thì 1 lần duy nhất nếu executor hỗ trợ
+        if fireproximityprompt_fn then
+            pcall(fireproximityprompt_fn, prompt, 0, true)
+            pcall(fireproximityprompt_fn, prompt)
+        end
+
+        task.wait(0.05)
+
+        -- Nếu prompt đã kích hoạt thành công hoặc đã bị vô hiệu hóa
+        if isCompleted or not prompt.Enabled or not prompt.Parent then
+            if trigConn then trigConn:Disconnect() end
+            if CurrentHoldingPrompt == prompt then
+                CurrentHoldingPrompt = nil
+            end
+            if onCompleteCallback then pcall(onCompleteCallback) end
+            return
+        end
+
+        -- BẮT ĐẦU ĐÈ GIỮ LIÊN TỤC (Tương thích hoàn toàn cả PC và Mobile):
+        -- Gọi InputHoldBegin trên ProximityPrompt để động cơ Roblox bắt đầu tính thời gian hold
         pcall(function()
             prompt:InputHoldBegin()
-            task.wait()
+        end)
+
+        -- Giả lập đè phím E trên PC (nếu có VirtualInputManager)
+        if VirtualInputManager then
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            end)
+        end
+
+        -- Giữ liên tục trong suốt waitLimit mà KHÔNG ngắt quãng
+        local elapsed = 0
+        while elapsed < waitLimit do
+            if isCompleted or not prompt.Enabled or not prompt.Parent then
+                break
+            end
+
+            -- Nếu người chơi di chuyển quá xa khỏi đối tượng (> 25 studs) -> Hủy giữ để tránh lỗi
+            local char = Utils.GetCharacter()
+            local root = Utils.GetRootPart(char)
+            if char and root and prompt.Parent then
+                local objPos = prompt.Parent:IsA("Model") and prompt.Parent:GetPivot().Position or (prompt.Parent:IsA("BasePart") and prompt.Parent.Position or nil)
+                if objPos and (objPos - root.Position).Magnitude > 25 then
+                    break
+                end
+            end
+
+            task.wait(0.08)
+            elapsed = elapsed + 0.08
+        end
+
+        -- KẾT THÚC ĐÈ GIỮ VÀ GIẢI PHÓNG INPUT:
+        pcall(function()
             prompt:InputHoldEnd()
         end)
-        return true
-    end
+
+        if VirtualInputManager then
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+            end)
+        end
+
+        if trigConn then
+            trigConn:Disconnect()
+        end
+
+        if CurrentHoldingPrompt == prompt then
+            CurrentHoldingPrompt = nil
+        end
+
+        if isCompleted or not prompt.Enabled or not prompt.Parent then
+            if onCompleteCallback then pcall(onCompleteCallback) end
+        end
+    end)
+
+    return true
 end
 
 function Utils.NotifyGame(msg, color, soundType)
