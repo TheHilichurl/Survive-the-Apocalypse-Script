@@ -18,6 +18,15 @@ local Players = Services.Players
 local Config = Hub.Config
 local Utils = Hub.Utils
 local BulletModule = Hub.GameModules and Hub.GameModules.Bullet
+if not BulletModule and Services.ReplicatedStorage then
+    pcall(function()
+        local modFolder = Services.ReplicatedStorage:FindFirstChild("Modules")
+        local combatFolder = modFolder and modFolder:FindFirstChild("Combat")
+        if combatFolder and combatFolder:FindFirstChild("Bullet") then
+            BulletModule = require(combatFolder.Bullet)
+        end
+    end)
+end
 local ShakeModule = Hub.GameModules and Hub.GameModules.Shake
 local PickUpItemRemote = Hub.Remotes and Hub.Remotes.PickUpItem
 
@@ -1359,6 +1368,80 @@ local function RunKillAuraAndBreakAuraStep()
     end)
 end
 
+-- Tính toán chuỗi nảy đạn (Ricochet) giữa các mục tiêu theo cơ chế class Outlaw / RicochetPerk
+local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces, maxRadius, myChar)
+    local hitDataList = {
+        {
+            HitChar = startChar,
+            HitPart = startPart,
+            HitPos = startPos,
+            Ricochet = nil,
+        }
+    }
+    local effectResultsList = {}
+    local visited = { [startChar] = true }
+
+    if not maxBounces or maxBounces <= 0 then
+        return hitDataList, effectResultsList
+    end
+
+    local currentPos = startPos
+    local charsFolder = Workspace:FindFirstChild("Characters")
+    local candidates = {}
+    if charsFolder then
+        for _, c in ipairs(charsFolder:GetChildren()) do
+            if c ~= myChar and c ~= startChar and not c:GetAttribute("Dead") and c.Name ~= "Forcefield" then
+                local hum = c:FindFirstChildOfClass("Humanoid") or c:FindFirstChild("MockHumanoid")
+                local projHp = c:GetAttribute("ProjectedHealth") or 100
+                if hum and hum.Health > 0 and projHp > 0 and not Players:GetPlayerFromCharacter(c) then
+                    local p = c:FindFirstChild("Torso") or c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c.PrimaryPart
+                    if p then
+                        table.insert(candidates, { Model = c, Part = p })
+                    end
+                end
+            end
+        end
+    end
+
+    for bounce = 1, maxBounces do
+        local bestCand = nil
+        local bestDist = maxRadius or 22.0
+
+        for _, cand in ipairs(candidates) do
+            if not visited[cand.Model] and not cand.Model:GetAttribute("Dead") then
+                local dist = (cand.Part.Position - currentPos).Magnitude
+                if dist <= bestDist then
+                    bestDist = dist
+                    bestCand = cand
+                end
+            end
+        end
+
+        if bestCand then
+            visited[bestCand.Model] = true
+            -- Đánh dấu mục tiêu trước đó là tia đạn nảy (Ricochet = true) sang mục tiêu tiếp theo
+            hitDataList[#hitDataList].Ricochet = true
+
+            local nextPos = bestCand.Part.Position
+            table.insert(hitDataList, {
+                HitChar = bestCand.Model,
+                HitPart = bestCand.Part,
+                HitPos = nextPos,
+                Ricochet = (bounce < maxBounces) or nil,
+            })
+            table.insert(effectResultsList, {
+                Origin = currentPos,
+                End = nextPos,
+            })
+            currentPos = nextPos
+        else
+            break
+        end
+    end
+
+    return hitDataList, effectResultsList
+end
+
 -- RenderStepped AutoShoot & Aim Loop
 local LastAutoShootTime = 0
 
@@ -1534,31 +1617,54 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             if shootRem then
                 local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or 1)
                 local myChar = Utils.GetCharacter()
-                local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
+                local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or myChar:GetAttribute("Perk") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
+                local charRicochetMax = (myChar and myChar:GetAttribute("RicochetMax")) or (LocalPlayer and LocalPlayer:GetAttribute("RicochetMax")) or (held and held:GetAttribute("RicochetMax")) or 0
+                local isAutomatic = stats and stats:GetAttribute("Automatic") == true
 
-                -- Tạo cấu trúc pelletResults chính xác 100% với server game
-                -- HitData LUÔN chứa mục tiêu hợp lệ để server trừ máu, TUYỆT ĐỐI KHÔNG gửi HitData = {} rỗng gây băng đạn ảo!
+                -- Outlaw có nội tại: "Bullets from non-auto guns bounce between enemies on penetration (Max 3)"
+                local ricochetMax = 0
+                if isOutlaw and not isAutomatic then
+                    ricochetMax = math.max(charRicochetMax, 3)
+                elseif charRicochetMax > 0 then
+                    ricochetMax = charRicochetMax
+                end
+
+                -- Tạo cấu trúc pelletResults chính xác 100% với server game:
+                -- Mục tiêu chính (Target 1) luôn trúng đích 100% (0% ghost bullets),
+                -- Đồng thời tính toán đầy đủ chuỗi nảy đạn (Ricochet) sang tối đa 3 quái xung quanh theo class Outlaw!
                 local pelletResults = {}
                 for pIdx = 1, pelletsCount do
-                    local hitEntry = {
-                        HitChar = targetModel,
-                        HitPart = targetPart,
-                        HitPos = hitPos,
+                    local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, ricochetMax, 22.0, myChar)
+
+                    local fullEffectResults = {
+                        {
+                            Origin = fireOrigin,
+                            End = hitPos,
+                        }
                     }
-                    if isOutlaw then
-                        hitEntry.Ricochet = true
+                    for _, rEff in ipairs(ricochetEffects) do
+                        table.insert(fullEffectResults, rEff)
                     end
 
                     pelletResults[pIdx] = {
                         Target = hitPos,
-                        HitData = { hitEntry },
-                        EffectResults = {
-                            {
-                                Origin = fireOrigin,
-                                End = hitPos,
-                            }
-                        },
+                        HitData = hitDataList,
+                        EffectResults = fullEffectResults,
                     }
+
+                    -- Hiệu ứng tia đạn nảy trực quan trên client
+                    if BulletModule and BulletModule.BulletEffect then
+                        for _, seg in ipairs(fullEffectResults) do
+                            pcall(function()
+                                BulletModule.BulletEffect(seg.Origin, seg.End, hitDataList, nil, {
+                                    Color = (stats and stats:GetAttribute("BulletColor")) or Color3.fromRGB(255, 179, 57),
+                                    Radius = (stats and stats:GetAttribute("BulletRadius")) or 0.08,
+                                    Range = (stats and stats:GetAttribute("BulletRange")) or 1000,
+                                    CustomBullet = stats and stats:GetAttribute("CustomBullet"),
+                                })
+                            end)
+                        end
+                    end
                 end
 
                 -- Bộ đếm sequence shot ID tuần tự (u14) strictly-increasing
