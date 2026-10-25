@@ -161,6 +161,9 @@ local function IsHostilePvEMob(model)
     if myChar and Utils.IsSameTeam(myChar, model) then
         return false, 0
     end
+    if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true or model:GetAttribute("Untargetable") == true then
+        return false, 0
+    end
     local hp = GetActualMobHP(model)
     if hp <= 0 then
         return false, 0
@@ -582,9 +585,8 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return a.Dist < b.Dist
     end)
 
-    -- Bước 3: Early Exit Raycast - Chỉ kiểm tra vật cản cho tối đa Top 3 mục tiêu tốt nhất!
-    -- Nếu mục tiêu số 1 thông thoáng -> DỪNG NGAY LẬP TỨC (Break), tiết kiệm 95% CPU!
-    local checkLimit = checkLOS and math.min(#candidates, 8) or 1
+    -- Bước 3: Early Exit Raycast - Quét nhanh tối đa 20 mục tiêu tốt nhất để không bỏ sót quái
+    local checkLimit = checkLOS and math.min(#candidates, 20) or 1
     for i = 1, checkLimit do
         local entry = candidates[i]
         local model = entry.Model
@@ -883,7 +885,7 @@ local function TriggerAutomaticGunReload(gunTool)
                 for _ = 1, missing do
                     if not gunTool.Parent then break end
                     reloadOneRem:FireServer()
-                    task.wait(0.04)
+                    task.wait(0.01)
                 end
                 if reloadRem then
                     local newAmmo = reloadRem:InvokeServer(false)
@@ -901,11 +903,13 @@ local function TriggerAutomaticGunReload(gunTool)
                 syncAmmoRem:FireServer()
             end
         end)
-        task.wait(math.clamp(reloadTime, 0.4, 3.5))
+        -- Buffer siêu ngắn (0.15s) để server cập nhật, triệt tiêu hoàn toàn độ trễ chờ 3s
+        task.wait(0.15)
         if gunTool and gunTool.Parent then
             ShotsFiredSinceReload[gunTool] = 0
         end
         IsReloadingWeapon[gunTool] = nil
+        _G.shooting = false
     end)
     return true
 end
@@ -936,17 +940,43 @@ local function ApplyWeaponModsToTool(tool)
             stats:SetAttribute("Inaccuracy", base.Inaccuracy)
         end
 
-        -- KHÔNG CAN THIỆP VÀO TỐC ĐỘ BẮN HOẶC NẠP ĐẠN - DÙNG THUẦN CƠ CHẾ NGUYÊN BẢN CỦA GAME
-        if base.FireRate then stats:SetAttribute("FireRate", base.FireRate) end
-        if base.ReloadTime then stats:SetAttribute("ReloadTime", base.ReloadTime) end
-        if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", base.ReloadIndividualTime) end
-        if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
-        if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", base.ReloadAnimSpeed) end
+        -- Tăng tốc bắn và nạp đạn tùy biến (Fast Shoot & Fast Reload)
+        local fireMult = (Config.FastShoot and (Config.FireRateMultiplier or 2.5)) or 1.0
+        if fireMult > 1.0 and base.FireRate then
+            stats:SetAttribute("FireRate", base.FireRate * fireMult)
+            stats:SetAttribute("ShootAnimSpeed", (base.ShootAnimSpeed or 1) * fireMult)
+        elseif base.FireRate then
+            stats:SetAttribute("FireRate", base.FireRate)
+            if base.ShootAnimSpeed then stats:SetAttribute("ShootAnimSpeed", base.ShootAnimSpeed) end
+        end
 
-        if Config.AlwaysAutomatic then
+        local relMult = (Config.FastReload and (Config.ReloadSpeedMultiplier or 3.0)) or 1.0
+        if relMult > 1.0 then
+            if base.ReloadTime then stats:SetAttribute("ReloadTime", math.max(0.1, base.ReloadTime / relMult)) end
+            if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", math.max(0.02, base.ReloadIndividualTime / relMult)) end
+            if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", math.max(0.02, base.ReloadEndTime / relMult)) end
+            if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", (base.ReloadAnimSpeed or 1) * relMult) end
+        else
+            if base.ReloadTime then stats:SetAttribute("ReloadTime", base.ReloadTime) end
+            if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", base.ReloadIndividualTime) end
+            if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
+            if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", base.ReloadAnimSpeed) end
+        end
+
+        if Config.AlwaysAutomatic or Config.FastShoot then
             stats:SetAttribute("Automatic", true)
         elseif base.Automatic ~= nil then
             stats:SetAttribute("Automatic", base.Automatic)
+        end
+
+        local myChar = Utils.GetCharacter()
+        if myChar then
+            if fireMult > 1.0 then
+                myChar:SetAttribute("FireRate", fireMult - 1)
+            end
+            if relMult > 1.0 then
+                myChar:SetAttribute("ReloadSpeed", relMult - 1)
+            end
         end
 
         if Config.InstantCharge then
@@ -1362,7 +1392,8 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
     local frameTargetModel, frameTargetPart, frameFireOrigin = nil, nil, nil
 
     if needsTarget then
-        local weaponRange = math.min((stats and stats:GetAttribute("Range")) or 450, Config.AimMaxRange or 500)
+        local gunRange = (stats and (stats:GetAttribute("BulletRange") or stats:GetAttribute("Range"))) or 600
+        local weaponRange = math.min(gunRange, Config.AimMaxRange or 500)
 
         -- 1. Giữ khóa mục tiêu trước đó nếu còn hợp lệ (Target Retention / Stickiness - 0% CPU)
         if CurrentLockedTarget and CurrentLockedTarget.Parent then
@@ -1432,10 +1463,16 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
     curAmmo = curAmmo or 12
     local shotsFired = ShotsFiredSinceReload[held] or 0
 
-    if (curAmmo ~= nil and curAmmo <= 0) or (capacity > 0 and shotsFired >= capacity) then
+    -- Chỉ nạp đạn khi thực sự hết đạn (curAmmo <= 0)
+    -- Nếu súng còn đạn thì reset shotsFired và cho bắn lập tức, tuyệt đối không bị delay 3s
+    if curAmmo ~= nil and curAmmo <= 0 then
         HideVirtualBulletVisual()
         TriggerAutomaticGunReload(held)
         return
+    end
+
+    if curAmmo > 0 and shotsFired >= capacity then
+        ShotsFiredSinceReload[held] = 0
     end
 
     if IsReloadingWeapon[held] or held:GetAttribute("Reloading") == true then
@@ -1454,14 +1491,15 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
     if Config.AutoShoot then
         local now = os.clock()
-        -- Tính toán cooldown chuẩn theo đúng công thức của GunClient trong game: 60 / (FireRate * v27)
-        local baseFireRate = (OriginalWeaponStats[held] and OriginalWeaponStats[held].FireRate) or (stats and stats:GetAttribute("FireRate")) or 6
+        -- Tính toán cooldown có áp dụng hệ số tăng tốc FireRateMultiplier (FastShoot)
+        local baseFireRate = (OriginalWeaponStats[held] and OriginalWeaponStats[held].FireRate) or (stats and stats:GetAttribute("FireRate")) or 150
         local charFireRateBonus = char and char:GetAttribute("FireRate") or 0
-        local effectiveFireRate = baseFireRate * (1 + charFireRateBonus)
+        local fireMult = (Config.FastShoot and (Config.FireRateMultiplier or 2.5)) or 1.0
+        local effectiveFireRate = baseFireRate * (1 + charFireRateBonus) * fireMult
         local cooldown = (effectiveFireRate > 35) and (60 / effectiveFireRate) or (1 / math.max(effectiveFireRate, 0.5))
-        cooldown = math.clamp(cooldown, 0.05, 1.2)
+        cooldown = math.clamp(cooldown, 0.02, 0.8)
 
-        if (now - LastAutoShootTime) >= cooldown and _G.shooting ~= true then
+        if (now - LastAutoShootTime) >= cooldown then
             local aliveNow, hpNow = IsHostilePvEMob(targetModel)
             if not aliveNow or hpNow <= 0 then
                 ActiveShootTarget = nil

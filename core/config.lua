@@ -57,12 +57,16 @@ local Config = {
     AutoShoot = false,
     ShowVirtualBulletLine = true,
 
-    -- Weapon Mods (Thuần cơ chế game - Không can thiệp tốc độ bắn hoặc nạp đạn)
+    -- Weapon Mods & Boosts
     NoRecoil = false,
     NoCameraShake = false,
     NoSpread = false,
     AutoReload = true,
     AlwaysAutomatic = false,
+    FastShoot = true,             -- Bắn nhanh vượt giới hạn gốc của game
+    FireRateMultiplier = 2.5,     -- Hệ số tốc độ bắn (2.5x)
+    FastReload = true,            -- Nạp đạn siêu tốc (bỏ chờ 3s)
+    ReloadSpeedMultiplier = 3.0,  -- Hệ số tốc độ nạp đạn (3.0x)
     InstantCharge = false,
     MaxPenetration = false,
     BulletPreserve = false,
