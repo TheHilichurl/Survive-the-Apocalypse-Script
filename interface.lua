@@ -232,8 +232,9 @@ TabLooting:AddToggle("Auto Loot All Other Items (Blueprints, Guns, Ammo, Meds, T
 TabLooting:AddSlider("Auto Loot Radius (Giới hạn tối đa 15 Studs)", "AutoPickupRadius", 5, 15, 1)
 TabLooting:AddToggle("Ignore Items Stored on Base Shelves (OnShelf)", "AutoPickupIgnoreShelf")
 
-TabLooting:AddSection("Base Auto-Empty & Exact Type Sorting")
-TabLooting:AddToggle("Auto Empty & Sort Backpack at Base (Gas->Gen, Scrap->Shredder)", "AutoEmptyBackpackAtBase")
+TabLooting:AddSection("Generator Auto-Empty & Drop Setting")
+TabLooting:AddToggle("Auto Empty & Sort Backpack near Generator (Gas->Gen, Scrap->Shredder)", "AutoEmptyBackpackAtBase")
+TabLooting:AddSlider("Khoảng cách gần Generator kích hoạt xả đồ (Studs)", "GeneratorUnloadRange", 3, 15, 1)
 TabLooting:AddToggle("Auto Fuel Generator at Base (Gas Cans)", "AutoFuelGenerator")
 TabLooting:AddSlider("Fuel Generator When Below (%)", "AutoFuelThreshold", 20, 100, 5)
 TabLooting:AddToggle("Auto Feed Shredder/Scraper at Base (Scrap/Battery/Hearts)", "AutoShredResources")
