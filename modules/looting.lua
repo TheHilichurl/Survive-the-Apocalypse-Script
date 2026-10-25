@@ -35,6 +35,7 @@ local LastDesiredEquippedTool = nil
 local IsHandlingBackpackEquip = false
 local IsDroppingBackpack = false
 local LastUnloadTime = 0
+local LastAutoEatActionTime = 0
 
 local TouchAndFlyItemToBase
 local ThrowGasToGenerator
@@ -479,44 +480,28 @@ end
 local function GetPlayerHungerPercent(char)
     char = char or Utils.GetCharacter()
 
-    -- 1. Ưu tiên cao nhất: Thuộc tính "Hunger" trên Character (Chuẩn xác 100% từ Server của Game)
+    -- 1. Ưu tiên cao nhất: Thuộc tính "Hunger" trên Character (Chuẩn xác 100% từ Server của Game, dải 0 đến 100)
     if char then
         local rawHunger = char:GetAttribute("Hunger")
         if type(rawHunger) == "number" then
-            if rawHunger <= 1.05 and rawHunger > 0 then
-                return math.clamp(rawHunger * 100, 0, 100)
-            end
             return math.clamp(rawHunger, 0, 100)
-        end
-        local stats = char:FindFirstChild("Stats")
-        if stats then
-            local sHunger = stats:GetAttribute("Hunger")
-            if type(sHunger) == "number" then
-                if sHunger <= 1.05 and sHunger > 0 then
-                    return math.clamp(sHunger * 100, 0, 100)
-                end
-                return math.clamp(sHunger, 0, 100)
-            end
         end
     end
 
-    -- 2. Kiểm tra thuộc tính trên LocalPlayer
+    -- 2. Kiểm tra thuộc tính trên LocalPlayer nếu có
     local lpHunger = LocalPlayer:GetAttribute("Hunger")
     if type(lpHunger) == "number" then
-        if lpHunger <= 1.05 and lpHunger > 0 then
-            return math.clamp(lpHunger * 100, 0, 100)
-        end
         return math.clamp(lpHunger, 0, 100)
     end
 
-    -- 3. Kiểm tra GUI thanh đói của người chơi nếu thuộc tính chưa có (chỉ nhận khi scale > 0.01)
+    -- 3. Kiểm tra GUI thanh đói của người chơi nếu thuộc tính chưa đồng bộ
     local pGui = LocalPlayer:FindFirstChild("PlayerGui")
     local mainUI = pGui and pGui:FindFirstChild("MainUI")
     local hBar = mainUI and mainUI:FindFirstChild("HungerBar")
     local bar = hBar and hBar:FindFirstChild("Bar")
     if bar and bar:IsA("GuiObject") then
         local scale = bar.Size.X.Scale
-        if type(scale) == "number" and scale > 0.01 then
+        if type(scale) == "number" and scale > 0.001 then
             return math.clamp(scale * 100, 0, 100)
         end
     end
@@ -546,7 +531,7 @@ local function IsBackpackSackItem(item)
     if cat == "Food" then
         local char = Utils.GetCharacter()
         local hungerPct = GetPlayerHungerPercent(char)
-        local hungerThreshold = Config.AutoEatThreshold or 70
+        local hungerThreshold = Config.AutoEatThreshold or 40
         if Config.AutoEat and hungerPct < hungerThreshold then
             return false -- Đủ điều kiện tự động ăn -> nhặt/ăn trực tiếp
         else
@@ -1029,7 +1014,7 @@ local function ProcessNewlySpawnedLoot()
     local sackRadius = pickupRadius
 
     local hungerPct = GetPlayerHungerPercent(char)
-    local hungerThreshold = Config.AutoEatThreshold or 70
+    local hungerThreshold = Config.AutoEatThreshold or 40
 
     local sackCandidates = {}
     local inventoryCandidates = {}
@@ -1042,9 +1027,11 @@ local function ProcessNewlySpawnedLoot()
                 local cat = Utils.ClassifyItem(item)
 
                 -- 1. Nếu là Food VÀ đủ điều kiện tự động ăn (Đói < threshold) -> Ăn ngay (ÁP DỤNG CẢ TRONG BASE LẪN NGOÀI MAP!)
+                -- Rate limit 2.0s để server kịp đồng bộ Hunger, CHỈ ĂN TỐI ĐA 1 MÓN mỗi nhịp!
                 if cat == "Food" and Config.AutoEat and hungerPct < hungerThreshold then
-                    local maxEatRange = isAtBase and math.min(Config.GeneratorUnloadRange or 50.0, 35) or pickupRadius
-                    if dist <= maxEatRange then
+                    local now = os.clock()
+                    local maxEatRange = isAtBase and 35 or pickupRadius
+                    if dist <= maxEatRange and (now - LastAutoEatActionTime) >= 2.0 then
                         RecordItemPickupAttempt(item)
                         if PickUpItemRemote then
                             pcall(function() PickUpItemRemote:FireServer(item) end)
@@ -1053,6 +1040,7 @@ local function ProcessNewlySpawnedLoot()
                         if prompt and prompt.Enabled then
                             Utils.SafeTriggerPrompt(prompt)
                         end
+                        LastAutoEatActionTime = now
                         hungerPct = GetPlayerHungerPercent(char)
                     end
 
@@ -1324,7 +1312,7 @@ local function RunLootingAndSurvivalStep()
     -- Tuyệt đối không kéo đồ từ xa quá 15 studs
     local pickupRadius = math.min(Config.AutoPickupRadius or 15, 15)
     local hungerPct = GetPlayerHungerPercent(char)
-    local hungerThreshold = Config.AutoEatThreshold or 70
+    local hungerThreshold = Config.AutoEatThreshold or 40
 
     local genPart = Utils.GetGeneratorMainPart()
     local shredPart = Utils.GetShredderTargetPart()
@@ -1348,33 +1336,13 @@ local function RunLootingAndSurvivalStep()
     -- 1. Tự động ăn đồ ăn thông minh (Áp dụng cả ngoài map LẪN trong Base khi đói):
     -- CHỈ ĂN KHI: AutoEat được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
     -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên sàn giữ nguyên cho base.
+    -- BẢO VỆ CHỐNG ĂN SẠCH ĐỒ ĂN: Chỉ ăn đúng 1 món mỗi lần, sau đó chờ ít nhất 2.0s để server đồng bộ Hunger!
     if Config.AutoEat and hungerPct < hungerThreshold then
-        if droppedFolder then
-            for _, item in ipairs(droppedFolder:GetChildren()) do
-                -- Đồ ăn trong Base VẪN ĐƯỢC ĂN BÌNH THƯỜNG khi đói, không bị chặn bởi IsItemAlreadyAtBaseOrDelivered
-                if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) then
-                    local dist = (item:GetPivot().Position - root.Position).Magnitude
-                    local maxEatRange = isAtBase and math.min(Config.GeneratorUnloadRange or 50.0, 35) or pickupRadius
-                    if dist <= maxEatRange then
-                        RecordItemPickupAttempt(item)
-                        if PickUpItemRemote then
-                            pcall(function() PickUpItemRemote:FireServer(item) end)
-                        end
-                        local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                        if prompt and prompt.Enabled then
-                            Utils.SafeTriggerPrompt(prompt)
-                        end
-                        hungerPct = GetPlayerHungerPercent(char)
-                        if hungerPct >= hungerThreshold then
-                            break
-                        end
-                    end
-                end
-            end
-        end
+        local now = os.clock()
+        if (now - LastAutoEatActionTime) >= 2.0 then
+            local ateSomething = false
 
-        -- Ăn các Tool đồ ăn đang có trong túi đồ cá nhân (Roblox Backpack) hoặc trên tay
-        if hungerPct < hungerThreshold then
+            -- 1.1 Ưu tiên ăn đồ ăn dạng Tool đang có trong túi đồ cá nhân hoặc trên tay trước
             local foodTools = {}
             for _, tool in ipairs(bp:GetChildren()) do
                 if tool:IsA("Tool") and Utils.ClassifyItem(tool) == "Food" then
@@ -1387,7 +1355,8 @@ local function RunLootingAndSurvivalStep()
                 end
             end
 
-            for _, tool in ipairs(foodTools) do
+            if #foodTools > 0 then
+                local tool = foodTools[1]
                 local prevTool = char:FindFirstChildOfClass("Tool")
                 if prevTool and (prevTool.Name == "Backpack" or prevTool:GetAttribute("ToolType") == "Backpack" or Utils.ClassifyItem(prevTool) == "Food") then
                     prevTool = LastDesiredEquippedTool
@@ -1406,9 +1375,36 @@ local function RunLootingAndSurvivalStep()
                         pcall(function() hum:EquipTool(prevTool) end)
                     end)
                 end
-                hungerPct = GetPlayerHungerPercent(char)
-                if hungerPct >= hungerThreshold then
-                    break
+                LastAutoEatActionTime = now
+                ateSomething = true
+            end
+
+            -- 1.2 Nếu túi cá nhân không có, ăn ĐÚNG 1 món đồ ăn gần nhất trên sàn / trong base
+            if not ateSomething and droppedFolder then
+                local bestFood = nil
+                local bestDist = 9999
+                local maxEatRange = isAtBase and 35 or pickupRadius
+
+                for _, item in ipairs(droppedFolder:GetChildren()) do
+                    if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) then
+                        local dist = (item:GetPivot().Position - root.Position).Magnitude
+                        if dist <= maxEatRange and dist < bestDist then
+                            bestFood = item
+                            bestDist = dist
+                        end
+                    end
+                end
+
+                if bestFood then
+                    RecordItemPickupAttempt(bestFood)
+                    if PickUpItemRemote then
+                        pcall(function() PickUpItemRemote:FireServer(bestFood) end)
+                    end
+                    local prompt = bestFood:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt and prompt.Enabled then
+                        Utils.SafeTriggerPrompt(prompt)
+                    end
+                    LastAutoEatActionTime = now
                 end
             end
         end

@@ -119,7 +119,7 @@ local Config = {
     BackpackCapacity = 10,             -- Max sack capacity fallback per tier
     AutoLootWithoutEquip = true,       -- Never equip looted weapons/ammo to hand (Roblox inventory)
     AutoEmptyBackpackAtBase = true,     -- Auto unstore and sort items by type at Generator (Gas->Gen, Scrap->Shredder)
-    GeneratorUnloadRange = 50,         -- Khoảng cách đến gần Generator (50 studs) để kích hoạt xả đồ
+    GeneratorUnloadRange = 50,         -- Khoảng cách xả đồ quanh Generator (mặc định 50 studs, tối đa 10000)
     BaseUnloadRange = 110,             -- Phạm vi khuôn viên Base
     AutoFuelGenerator = true,
     AutoFuelThreshold = 95,
@@ -130,7 +130,7 @@ local Config = {
     BringDestination = "AutoByType",   -- AutoByType, BaseCenter, Generator, Shredder, Player
     BringCategoryFilter = "All",       -- All, Fuel, Resource, Gun, Melee, Ammo, Medical, Consumable, Food, Equipment
     AutoEat = false,
-    AutoEatThreshold = 70,             -- Below 70% Hunger -> Eat immediately; >= 70% -> Store into Backpack
+    AutoEatThreshold = 40,             -- Below 40% Hunger -> Eat immediately; >= 40% -> Store into Backpack
     AutoHeal = false,
     AutoHealThreshold = 55,
     NoSlowOnMedical = true,

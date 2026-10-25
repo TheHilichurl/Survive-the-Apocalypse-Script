@@ -234,7 +234,7 @@ TabLooting:AddToggle("Ignore Items Stored on Base Shelves (OnShelf)", "AutoPicku
 
 TabLooting:AddSection("Generator Auto-Empty & Drop Setting")
 TabLooting:AddToggle("Auto Empty & Sort Backpack near Generator (Gas->Gen, Scrap->Shredder)", "AutoEmptyBackpackAtBase")
-TabLooting:AddSlider("Khoảng cách gần Generator kích hoạt xả đồ (Studs)", "GeneratorUnloadRange", 3, 15, 1)
+TabLooting:AddSlider("Khoảng cách xả đồ quanh Generator (Studs, Max 10000)", "GeneratorUnloadRange", 10, 10000, 10)
 TabLooting:AddToggle("Auto Fuel Generator at Base (Gas Cans)", "AutoFuelGenerator")
 TabLooting:AddSlider("Fuel Generator When Below (%)", "AutoFuelThreshold", 20, 100, 5)
 TabLooting:AddToggle("Auto Feed Shredder/Scraper at Base (Scrap/Battery/Hearts)", "AutoShredResources")
