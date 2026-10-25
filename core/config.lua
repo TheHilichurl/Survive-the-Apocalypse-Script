@@ -217,6 +217,7 @@ local Config = {
     AutoRevealMap = false,
     AutoReturnAtNight = false,
     AutoFarmLoop = false,
+    AutoStartHardModeVote = false,     -- Tự động kích hoạt mở bầu chọn Hard Mode khi đến Overgrown_Reactor.Assets.Reactor2
     AutoVoteHardMode = false,
     HardModeVoteChoice = false,
     AutoVoteAdminPoll = false,

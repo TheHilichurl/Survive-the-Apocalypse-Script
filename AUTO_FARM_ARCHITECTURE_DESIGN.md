@@ -105,13 +105,15 @@ graph LR
    - **Quy trình Auto**: Tương tự căn cứ quân sự, mở cửa hầm và dọn quái dưới lòng đất.
 
 ### 3.2. Nhóm 2: Raid Auto Có Điều Kiện Tiên Quyết (Conditional-Auto)
-1. **Lò phản ứng Hạt nhân (Nuclear Reactor)**:
+1. **Nhà máy Nuclear Bị Bỏ Hoang / Lò phản ứng Hạt nhân (Overgrown_Reactor & Reactor2)**:
+   - **Path thực thể chuẩn**: `workspace.Map.Tiles.Overgrown_Reactor.Assets.Reactor2` (kèm ống kích hoạt `HardModeTube` / `HardModeVote`).
+   - **Tính năng đặc biệt**: Đây chính là nơi người chơi kích hoạt mở **Hard Mode** thông qua hệ thống bỏ phiếu (`ReplicatedStorage.Remotes.HardMode.VoteHardMode`).
    - **Cảnh báo cực đoan**: Khu vực này có cờ `Irradiated: True`. Người chơi không có trang bị bảo hộ sẽ bị gán trạng thái `InPoison` và tụt 10-15 HP/giây.
    - **Điều kiện tiên quyết bắt buộc (Safety Guard)**:
      - Phải có `Gas Mask` hoặc `Hazmat Suit` đang trang bị.
      - Phải có ít nhất 2 băng đạn dự trữ và súng có DPS > 80.
      - Lượng máu `Health >= 80%`.
-   - **Quy trình**: Bot chỉ cho phép tiến vào lò phản ứng khi thỏa mãn đủ 3 điều kiện trên. Bot dọn quái hạt nhân (`ClearReactor`), tương tác với cần gạt làm mát (`RaidStuff/Lever`) và thu thập thanh nhiên liệu hạt nhân (`Nuclear Rod` / `Nuclear Fuel`). Nếu mặt nạ phòng độc bị hỏng hoặc máu tụt dưới 40%, Bot lập tức kích hoạt quy trình rút lui khẩn cấp (Emergency Retreat).
+   - **Quy trình**: Bot chỉ cho phép tiến vào lò phản ứng khi thỏa mãn đủ 3 điều kiện trên. Bot dọn quái hạt nhân (`ClearReactor`), tương tác kích hoạt với `Reactor2` / `HardModeTube` nếu bật `AutoStartHardModeVote`, tương tác với cần gạt làm mát (`RaidStuff/Lever`) và thu thập thanh nhiên liệu hạt nhân (`Nuclear Rod` / `Nuclear Fuel`). Nếu mặt nạ phòng độc bị hỏng hoặc máu tụt dưới 40%, Bot lập tức kích hoạt quy trình rút lui khẩn cấp (Emergency Retreat).
 
 ### 3.3. Nhóm 3: Khu vực Khuyến nghị Bán Tự Động (Semi-Auto Assist)
 1. **Hang Động Ngoài Hành Tinh (Alien Cave / Tomb)**:

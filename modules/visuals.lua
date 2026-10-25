@@ -453,18 +453,21 @@ local function RescanSpecialLandmarks()
             local lower = tName:lower()
             local assets = tile:FindFirstChild("Assets")
 
-            -- A. Nuclear Reactor & Nuclear bị bỏ hoang (Abandoned Nuclear)
-            -- Path ví dụ: workspace.Map.Tiles["Nuclear Reactor"].Assets.PowerPlant
-            if lower:find("nuclear") or lower:find("reactor") then
-                local isAbandoned = lower:find("abandoned") or lower:find("ruin") or lower:find("old") or lower:find("broken") or lower:find("hoang")
-                local targetModel = (assets and (assets:FindFirstChild("PowerPlant") or assets:FindFirstChild("Reactor") or assets:FindFirstChild("Building")))
-                    or tile:FindFirstChild("PowerPlant", true) or tile:FindFirstChildWhichIsA("Model") or tile
+            -- A. Nuclear Reactor & Nuclear bị bỏ hoang (Abandoned Nuclear / Overgrown_Reactor)
+            -- Path chuẩn: workspace.Map.Tiles.Overgrown_Reactor.Assets.Reactor2 (Nơi mở Hard Mode)
+            if lower:find("nuclear") or lower:find("reactor") or lower:find("overgrown") then
+                local isAbandoned = lower:find("abandoned") or lower:find("ruin") or lower:find("old") or lower:find("broken") or lower:find("hoang") or lower:find("overgrown")
+                local targetModel = (assets and (assets:FindFirstChild("Reactor2") or assets:FindFirstChild("Reactor") or assets:FindFirstChild("PowerPlant") or assets:FindFirstChild("Building")))
+                    or tile:FindFirstChild("Reactor2", true)
+                    or tile:FindFirstChild("HardModeTube", true)
+                    or tile:FindFirstChild("PowerPlant", true)
+                    or tile:FindFirstChildWhichIsA("Model") or tile
 
                 if isAbandoned then
                     table.insert(list, {
                         Type = "AbandonedNuclear",
                         Obj = targetModel,
-                        Name = "[RAID] Nuclear Bị Bỏ Hoang",
+                        Name = "[RAID] Nuclear Bị Bỏ Hoang (Hard Mode)",
                         Color = Color3.fromRGB(249, 115, 22), -- Toxic Amber-Orange
                         Offset = CalculateRoofOffset(targetModel, Vector3.new(0, 8.0, 0)),
                         CanChams = true,

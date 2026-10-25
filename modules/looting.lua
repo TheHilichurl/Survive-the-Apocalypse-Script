@@ -1235,6 +1235,33 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
                     end
                 end
             end
+
+            -- Xử lý Nhà máy Nuclear bị bỏ hoang (Overgrown_Reactor.Assets.Reactor2 / HardModeTube)
+            local isOvergrownReactor = tName:find("overgrown") or (tName:find("reactor") and not isPowerPlant)
+            if isOvergrownReactor then
+                local reactor2 = (tile:FindFirstChild("Assets") and tile.Assets:FindFirstChild("Reactor2"))
+                    or tile:FindFirstChild("Reactor2", true)
+                    or tile:FindFirstChild("HardModeTube", true)
+                if reactor2 then
+                    local dist = (reactor2:GetPivot().Position - root.Position).Magnitude
+                    if dist <= 22 and (Config.AutoInteractObjectives or Config.AutoStartHardModeVote) then
+                        local prompt = reactor2:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt and prompt.Enabled then
+                            local holdDur = prompt.HoldDuration or 0
+                            Utils.NotifyGame("Đang tự động tương tác Nuclear Reactor (Hard Mode)...", Color3.fromRGB(249, 115, 22))
+                            if holdDur > 0 then
+                                Utils.HoldPromptContinuous(prompt, holdDur + 0.8, function()
+                                    Utils.NotifyGame("Đã kích hoạt yêu cầu Hard Mode thành công!", Color3.fromRGB(74, 222, 128))
+                                end)
+                            else
+                                Utils.SafeTriggerPrompt(prompt)
+                                Utils.NotifyGame("Đã kích hoạt yêu cầu Hard Mode thành công!", Color3.fromRGB(74, 222, 128))
+                            end
+                            return
+                        end
+                    end
+                end
+            end
         end
     end
 
