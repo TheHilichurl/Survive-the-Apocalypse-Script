@@ -1166,8 +1166,194 @@ local function ApplyWorldVisuals()
             end
         end
     end
+
+    -- Update In-Game Map POI ESP
+    pcall(Visuals.UpdateInGameMapPOIESP)
 end
 
+-- ============================================================================
+-- IN-GAME MAP POI ESP (Render POI Icons directly onto PlayerGui.MainUI.Map)
+-- ============================================================================
+local DiscoveredPOICache = {}
+local LastMapPOIScan = 0
+
+local function ScanWorldForPOIs()
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local tilesFolder = mapFolder and mapFolder:FindFirstChild("Tiles")
+    local specialFolder = mapFolder and mapFolder:FindFirstChild("Special")
+
+    local function checkAndRecord(modelOrPart, defaultName)
+        if not modelOrPart then return end
+        local name = defaultName or modelOrPart.Name
+        local lower = name:lower()
+        local pos = modelOrPart:GetPivot().Position
+        local key = nil
+        local tag = nil
+        local col = nil
+
+        if lower:find("power plant") or name == "Power Plant" or name == "Big Power Plant" then
+            key = "PWR_" .. math.round(pos.X / 100) .. "_" .. math.round(pos.Z / 100)
+            tag = "⚡ PWR"
+            col = Color3.fromRGB(250, 204, 21)
+        elseif lower:find("radio tower") or name == "Radio Tower" then
+            key = "RADIO_TOWER"
+            tag = "📻 TWR"
+            col = Color3.fromRGB(56, 189, 248)
+        elseif lower:find("reactor") or lower:find("nuclear") then
+            key = "NUCLEAR_REACTOR"
+            tag = "☢️ NUC"
+            col = Color3.fromRGB(249, 115, 22)
+        elseif lower:find("upgrader") or lower:find("pack") then
+            key = "UPGRADER"
+            tag = "⚙️ UPG"
+            col = Color3.fromRGB(34, 211, 238)
+        elseif lower:find("military base") then
+            key = "MIL_BASE"
+            tag = "🎖️ BASE"
+            col = Color3.fromRGB(16, 185, 129)
+        elseif lower:find("military lab") or lower:find("lab") then
+            key = "MIL_LAB"
+            tag = "🧪 LAB"
+            col = Color3.fromRGB(16, 185, 129)
+        elseif lower:find("tomb") then
+            key = "TOMB"
+            tag = "💀 TOMB"
+            col = Color3.fromRGB(239, 68, 68)
+        elseif lower:find("mansion") then
+            key = "MANSION"
+            tag = "🏰 MANS"
+            col = Color3.fromRGB(168, 85, 247)
+        elseif lower:find("bunker") then
+            key = "BUNKER"
+            tag = "🛡️ BNK"
+            col = Color3.fromRGB(217, 119, 6)
+        elseif lower:find("alien") then
+            key = "ALIEN_CAVE"
+            tag = "👽 ALIEN"
+            col = Color3.fromRGB(20, 184, 166)
+        elseif lower:find("cave") then
+            key = "CAVE_" .. math.round(pos.X / 100) .. "_" .. math.round(pos.Z / 100)
+            tag = "⛰️ CAVE"
+            col = Color3.fromRGB(148, 163, 184)
+        elseif lower:find("hospital") then
+            key = "HOSPITAL"
+            tag = "🏥 HOSP"
+            col = Color3.fromRGB(244, 63, 94)
+        elseif lower:find("police") then
+            key = "POLICE"
+            tag = "👮 POL"
+            col = Color3.fromRGB(59, 130, 246)
+        elseif lower:find("outpost") then
+            key = "OUTPOST_" .. math.round(pos.X / 100) .. "_" .. math.round(pos.Z / 100)
+            tag = "🏕️ OUT"
+            col = Color3.fromRGB(180, 83, 9)
+        end
+
+        if key and tag and col then
+            DiscoveredPOICache[key] = {
+                Name = name,
+                Position = pos,
+                Color = col,
+                Tag = tag,
+            }
+        end
+    end
+
+    if tilesFolder then
+        for _, tile in ipairs(tilesFolder:GetChildren()) do
+            checkAndRecord(tile)
+        end
+    end
+    if specialFolder then
+        for _, sp in ipairs(specialFolder:GetChildren()) do
+            checkAndRecord(sp)
+        end
+    end
+
+    local structsFolder = Workspace:FindFirstChild("Structures")
+    if structsFolder then
+        for _, st in ipairs(structsFolder:GetChildren()) do
+            local sLower = st.Name:lower()
+            if sLower:find("upgrader") or sLower:find("pack") or sLower:find("halloween") or sLower:find("cauldron") then
+                checkAndRecord(st)
+            end
+        end
+    end
+end
+
+local function UpdateInGameMapPOIESP()
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    local mainUI = pgui and pgui:FindFirstChild("MainUI")
+    local mapGui = mainUI and mainUI:FindFirstChild("Map")
+    if not mapGui then return end
+
+    local container = mapGui:FindFirstChild("HilichurlMapPOIs")
+
+    if not Config.InGameMapPOIESP then
+        if container then container.Visible = false end
+        return
+    end
+
+    local now = os.clock()
+    if now - LastMapPOIScan >= 1.5 then
+        LastMapPOIScan = now
+        pcall(ScanWorldForPOIs)
+    end
+
+    if not container then
+        container = Instance.new("Frame")
+        container.Name = "HilichurlMapPOIs"
+        container.BackgroundTransparency = 1
+        container.Size = UDim2.new(1, 0, 1, 0)
+        container.Position = UDim2.new(0, 0, 0, 0)
+        container.ZIndex = 2500
+        container.Parent = mapGui
+    end
+    container.Visible = true
+
+    local mapScale = 0.014110000000000001 / 60
+
+    for poiKey, data in pairs(DiscoveredPOICache) do
+        local marker = container:FindFirstChild(poiKey)
+        if not marker then
+            marker = Instance.new("Frame")
+            marker.Name = poiKey
+            marker.Size = UDim2.new(0.034, 0, 0.034, 0)
+            marker.AnchorPoint = Vector2.new(0.5, 0.5)
+            marker.BackgroundColor3 = Color3.fromRGB(15, 17, 26)
+            marker.BackgroundTransparency = 0.15
+            marker.BorderSizePixel = 0
+            marker.ZIndex = 2501
+
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0.35, 0)
+            corner.Parent = marker
+
+            local stroke = Instance.new("UIStroke")
+            stroke.Color = data.Color
+            stroke.Thickness = 1.5
+            stroke.Parent = marker
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Name = "Tag"
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = data.Tag
+            lbl.TextColor3 = data.Color
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextScaled = true
+            lbl.ZIndex = 2502
+            lbl.Parent = marker
+
+            marker.Parent = container
+        end
+
+        marker.Position = UDim2.new(0.5 - data.Position.X * mapScale, 0, 0.5 - data.Position.Z * mapScale, 0)
+    end
+end
+
+Visuals.DiscoveredPOICache = DiscoveredPOICache
+Visuals.UpdateInGameMapPOIESP = UpdateInGameMapPOIESP
 Visuals.ESPContainer = ESPContainer
 Visuals.FOVScreenGui = FOVScreenGui
 Visuals.FOVCircleFrame = FOVCircleFrame

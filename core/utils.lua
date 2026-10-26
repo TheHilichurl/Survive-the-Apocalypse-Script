@@ -236,6 +236,16 @@ if LocalPlayer then
 end
 
 function Utils.NotifyGame(msg, color, soundType)
+    if Config.SuppressRoutinePopups then
+        local lower = tostring(msg):lower()
+        if lower:find("rương") or lower:find("crate") or lower:find("chest")
+            or lower:find("phát điện") or lower:find("generator") or lower:find("power plant")
+            or lower:find("sửa") or lower:find("repair") or lower:find("radio tower")
+            or lower:find("hard mode") or lower:find("fog") or lower:find("mở") then
+            return
+        end
+    end
+
     color = color or Color3.fromRGB(244, 114, 182) -- Sakura Rose
     if Hub.Window and type(Hub.Window.Notify) == "function" then
         pcall(function()
@@ -243,25 +253,27 @@ function Utils.NotifyGame(msg, color, soundType)
                 Title = "Hili Hub",
                 Content = tostring(msg),
                 Color = color,
-                Duration = 3
+                Duration = 2.5
             })
         end)
-    elseif _G.smallPopup and typeof(_G.smallPopup) == "Instance" and _G.smallPopup:IsA("BindableEvent") then
-        pcall(function()
-            _G.smallPopup:Fire("[Hili Hub] " .. tostring(msg), color, soundType or "Notification")
-        end)
-    elseif _G.popup and typeof(_G.popup) == "Instance" and _G.popup:IsA("BindableEvent") then
-        pcall(function()
-            _G.popup:Fire("[Hili Hub] " .. tostring(msg), color, soundType or "Notification")
-        end)
-    else
-        pcall(function()
-            StarterGui:SetCore("SendNotification", {
-                Title = "Hili Hub",
-                Text = tostring(msg),
-                Duration = 3,
-            })
-        end)
+    elseif not Config.SuppressRoutinePopups then
+        if _G.smallPopup and typeof(_G.smallPopup) == "Instance" and _G.smallPopup:IsA("BindableEvent") then
+            pcall(function()
+                _G.smallPopup:Fire("[Hili Hub] " .. tostring(msg), color, soundType or "Notification")
+            end)
+        elseif _G.popup and typeof(_G.popup) == "Instance" and _G.popup:IsA("BindableEvent") then
+            pcall(function()
+                _G.popup:Fire("[Hili Hub] " .. tostring(msg), color, soundType or "Notification")
+            end)
+        else
+            pcall(function()
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Hili Hub",
+                    Text = tostring(msg),
+                    Duration = 2.5,
+                })
+            end)
+        end
     end
 end
 

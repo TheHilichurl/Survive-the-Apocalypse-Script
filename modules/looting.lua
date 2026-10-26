@@ -1206,15 +1206,10 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
                             or tile:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt and prompt.Enabled then
                             if Config.InstantInteract then
-                                Utils.InstantCompletePrompt(prompt, function()
-                                    Utils.NotifyGame("Đã trực tiếp sửa xong Nhà máy phát điện!", Color3.fromRGB(74, 222, 128))
-                                end)
+                                Utils.InstantCompletePrompt(prompt)
                             else
                                 local holdDur = prompt.HoldDuration or 10.0
-                                Utils.NotifyGame("Đang tự động đè giữ phím sửa Nhà máy phát điện (10s)...", Color3.fromRGB(250, 204, 21))
-                                Utils.HoldPromptContinuous(prompt, holdDur + 0.8, function()
-                                    Utils.NotifyGame("Đã sửa xong Nhà máy phát điện thành công!", Color3.fromRGB(74, 222, 128))
-                                end)
+                                Utils.HoldPromptContinuous(prompt, holdDur + 0.8)
                             end
                             return
                         end
@@ -1223,7 +1218,6 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
                             or tile:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt and prompt.Enabled then
                             Utils.SafeTriggerPrompt(prompt)
-                            Utils.NotifyGame("Đã sửa xong Radio Tower!", Color3.fromRGB(74, 222, 128))
                             return
                         end
                     end
@@ -1242,14 +1236,10 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
                         local prompt = reactor2:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if prompt and prompt.Enabled then
                             local holdDur = prompt.HoldDuration or 0
-                            Utils.NotifyGame("Đang tự động tương tác Nuclear Reactor (Hard Mode)...", Color3.fromRGB(249, 115, 22))
                             if holdDur > 0 then
-                                Utils.HoldPromptContinuous(prompt, holdDur + 0.8, function()
-                                    Utils.NotifyGame("Đã kích hoạt yêu cầu Hard Mode thành công!", Color3.fromRGB(74, 222, 128))
-                                end)
+                                Utils.HoldPromptContinuous(prompt, holdDur + 0.8)
                             else
                                 Utils.SafeTriggerPrompt(prompt)
-                                Utils.NotifyGame("Đã kích hoạt yêu cầu Hard Mode thành công!", Color3.fromRGB(74, 222, 128))
                             end
                             return
                         end
@@ -1513,17 +1503,11 @@ local function RunLootingAndSurvivalStep()
 
                     if prompt and prompt.Enabled then
                         local crateName = crate.Name
-                        local r = crate:GetAttribute("Rarity") or crateName
                         if Config.InstantInteract then
-                            Utils.InstantCompletePrompt(prompt, function()
-                                Utils.NotifyGame("Đã trực tiếp mở rương [" .. tostring(r) .. "]!", Color3.fromRGB(74, 222, 128))
-                            end)
+                            Utils.InstantCompletePrompt(prompt)
                         else
                             local holdDur = prompt.HoldDuration or 2.0
-                            Utils.NotifyGame("Đang tự động đè mở rương [" .. tostring(r) .. "] (2s)...", Color3.fromRGB(56, 189, 248))
-                            Utils.HoldPromptContinuous(prompt, holdDur + 0.6, function()
-                                Utils.NotifyGame("Đã mở rương [" .. tostring(r) .. "] thành công!", Color3.fromRGB(74, 222, 128))
-                            end)
+                            Utils.HoldPromptContinuous(prompt, holdDur + 0.6)
                         end
                         break -- Chỉ xử lý 1 rương tại một thời điểm
                     end

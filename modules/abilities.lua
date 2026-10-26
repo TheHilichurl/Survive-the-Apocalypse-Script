@@ -314,6 +314,142 @@ local function RunAbilitiesAndToolsStep()
             end
         end
     end
+
+    -- Auto Heal (Medical supplies consumption on low HP)
+    pcall(Abilities.RunAutoHealStep)
+
+    -- Auto Revive (Nearby downed allies)
+    pcall(Abilities.RunAutoReviveStep)
+end
+
+local IsAutoHealing = false
+local LastAutoHealAttempt = 0
+
+function Abilities.RunAutoHealStep()
+    if not Config.AutoHeal then return end
+    if IsAutoHealing then return end
+
+    local char = Utils.GetCharacter()
+    local hum = Utils.GetHumanoid(char)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if not (char and hum and bp and hum.Health > 0) then return end
+
+    local maxHp = math.max(hum.MaxHealth, 1)
+    local hpPct = (hum.Health / maxHp) * 100
+    local threshold = Config.AutoHealThreshold or 50
+
+    if hpPct > threshold then return end
+    if char:GetAttribute("UsingMedical") == true then return end
+
+    local now = os.clock()
+    if now - LastAutoHealAttempt < 0.8 then return end
+    LastAutoHealAttempt = now
+
+    -- Find medical tool: Compound R > Medkit > Bandage
+    local medNames = { "Compound R", "Medkit", "Bandage" }
+    local medTool = nil
+    for _, name in ipairs(medNames) do
+        local found = char:FindFirstChild(name) or bp:FindFirstChild(name)
+        if found and found:IsA("Tool") then
+            medTool = found
+            break
+        end
+    end
+
+    if not medTool then return end
+
+    IsAutoHealing = true
+    task.spawn(function()
+        local prevTool = char:FindFirstChildOfClass("Tool")
+        if medTool.Parent ~= char then
+            pcall(function() hum:EquipTool(medTool) end)
+            task.wait(0.06)
+        end
+
+        local beginUse = medTool:FindFirstChild("BeginUse")
+        local endUse = medTool:FindFirstChild("EndUse")
+        local stats = medTool:FindFirstChild("Stats")
+        local baseTime = (stats and stats:GetAttribute("UseTime")) or 2.0
+        local medSpd = 1 + (char:GetAttribute("MedicalSpeed") or 0)
+        if medTool:GetAttribute("Drinkable") then
+            medSpd = medSpd * (1 + (char:GetAttribute("DrinkSpeed") or 0))
+        end
+        local waitDuration = math.max(0.2, baseTime / math.max(medSpd, 0.5))
+
+        if beginUse and beginUse:IsA("RemoteEvent") then
+            pcall(function() beginUse:FireServer() end)
+            task.wait(waitDuration)
+            if endUse and endUse:IsA("RemoteEvent") then
+                pcall(function() endUse:FireServer(true) end)
+            end
+        end
+
+        task.wait(0.08)
+        if prevTool and prevTool.Parent == bp then
+            pcall(function() hum:EquipTool(prevTool) end)
+        end
+        IsAutoHealing = false
+    end)
+end
+
+local LastAutoReviveAttempt = 0
+
+function Abilities.RunAutoReviveStep()
+    if not Config.AutoRevive then return end
+
+    local char = Utils.GetCharacter()
+    local root = Utils.GetRootPart(char)
+    local hum = Utils.GetHumanoid(char)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if not (char and root and hum and bp and hum.Health > 0) then return end
+
+    local now = os.clock()
+    if now - LastAutoReviveAttempt < 0.8 then return end
+
+    local reviveTool = char:FindFirstChild("Bandage") or bp:FindFirstChild("Bandage")
+        or char:FindFirstChild("Medkit") or bp:FindFirstChild("Medkit")
+    if not reviveTool then return end
+
+    local charactersFolder = Workspace:FindFirstChild("Characters")
+    if not charactersFolder then return end
+
+    local maxRange = Config.AutoReviveRange or 25
+
+    for _, allyChar in ipairs(charactersFolder:GetChildren()) do
+        if allyChar ~= char and allyChar:IsA("Model") then
+            local isAlly = game.Players:GetPlayerFromCharacter(allyChar) ~= nil
+            local downedFolder = allyChar:FindFirstChild("Downed")
+            local isDeadAttr = allyChar:GetAttribute("Dead") == true
+            if isAlly and (downedFolder or isDeadAttr) then
+                local allyRoot = allyChar:FindFirstChild("HumanoidRootPart") or allyChar:FindFirstChild("Torso") or allyChar.PrimaryPart
+                if allyRoot and (allyRoot.Position - root.Position).Magnitude <= maxRange then
+                    local revivePrompt = downedFolder and downedFolder:FindFirstChild("RevivePrompt")
+                        or allyChar:FindFirstChild("RevivePrompt", true)
+                    local trigger2 = revivePrompt and revivePrompt:FindFirstChild("Trigger2")
+                    if trigger2 and trigger2:IsA("RemoteEvent") then
+                        LastAutoReviveAttempt = now
+                        task.spawn(function()
+                            local prevTool = char:FindFirstChildOfClass("Tool")
+                            if reviveTool.Parent ~= char then
+                                pcall(function() hum:EquipTool(reviveTool) end)
+                                task.wait(0.06)
+                            end
+
+                            pcall(function()
+                                trigger2:FireServer(reviveTool)
+                            end)
+
+                            task.wait(0.08)
+                            if prevTool and prevTool.Parent == bp then
+                                pcall(function() hum:EquipTool(prevTool) end)
+                            end
+                        end)
+                        break
+                    end
+                end
+            end
+        end
+    end
 end
 
 Abilities.RunAbilitiesAndToolsStep = RunAbilitiesAndToolsStep

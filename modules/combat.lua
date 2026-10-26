@@ -960,9 +960,8 @@ local function TriggerAutomaticGunReload(gunTool)
     -- Tính toán thời gian nạp đạn thực tế có áp dụng FastReload (ReloadSpeedMultiplier)
     local baseReloadTime = (base and base.ReloadTime) or (stats and stats:GetAttribute("ReloadTime")) or 1.6
     local relMult = (Config.FastReload and (Config.ReloadSpeedMultiplier or 1.5)) or 1.0
-    relMult = math.clamp(relMult, 1.0, 3.0)
-    -- Giữ thời gian nạp trong khoảng 0.35s đến 0.70s: Đủ nhanh để đạt DPS cao nhưng đủ an toàn để server hoàn tất Reload
-    local reloadDuration = math.clamp(baseReloadTime / relMult, 0.35, 0.70)
+    -- Thời gian nạp đạn thực tế: Cho phép FastReload tăng tốc nhưng đảm bảo không mở khóa sớm hơn server
+    local reloadDuration = math.clamp(baseReloadTime / relMult, 0.65, 3.0)
 
     -- Số lượng đạn nạp vào băng
     local reloadAmount = cap
@@ -970,18 +969,16 @@ local function TriggerAutomaticGunReload(gunTool)
         reloadAmount = math.min(cap, reserveAmmo)
     end
 
-    -- 1. KHÓA TRẠNG THÁI RELOAD TRÊN CLIENT: Chặn AutoShoot bắn trong đúng khoảng reloadDuration
+    -- 1. KHÓA TRẠNG THÁI RELOAD TRÊN CLIENT: Chặn AutoShoot tuyệt đối trong suốt quá trình nạp
     IsReloadingWeapon[gunTool] = true
-    _G.shooting = os.clock() + reloadDuration + 0.1
-
-    -- 2. CẬP NHẬT AMMO LẬP TỨC TRÊN CLIENT để giải phóng trạng thái hết đạn (không bao giờ kẹt 0 viên)
-    pcall(function()
-        gunTool:SetAttribute("Ammo", reloadAmount)
-    end)
-    ShotsFiredSinceReload[gunTool] = 0
+    _G.shooting = os.clock() + reloadDuration + 0.2
 
     task.spawn(function()
-        -- Gửi Remote trực tiếp cho Server (KHÔNG dùng VirtualInputManager để không gây lỗi InvokeServer song song)
+        local serverAmmo = nil
+
+        -- Thực hiện theo đúng thứ tự Remote Spy thực tế:
+        -- Step 1: Gọi Reload:InvokeServer() để server thực hiện nạp và trừ đạn dự trữ
+        -- Step 2: Bắn SyncAmmo:FireServer() để đồng bộ chuẩn xác với server
         pcall(function()
             if isIndividual and reloadOneRem then
                 if reloadRem and reloadRem:IsA("RemoteFunction") then
@@ -989,8 +986,8 @@ local function TriggerAutomaticGunReload(gunTool)
                 end
                 local missing = math.clamp(cap - math.max(0, curAmmo), 1, (reserveAmmo or cap))
                 local indTime = (base and base.ReloadIndividualTime) or (stats and stats:GetAttribute("ReloadIndividualTime")) or 0.25
-                local stepWait = math.clamp(indTime / relMult, 0.03, 0.12)
-                task.wait(0.04)
+                local stepWait = math.clamp(indTime / relMult, 0.05, 0.2)
+                task.wait(0.05)
 
                 for i = 1, missing do
                     if not gunTool.Parent or not IsReloadingWeapon[gunTool] then break end
@@ -1003,41 +1000,40 @@ local function TriggerAutomaticGunReload(gunTool)
                 end
             elseif reloadRem then
                 if reloadRem:IsA("RemoteFunction") then
-                    local resAmmo = reloadRem:InvokeServer()
-                    if resAmmo and type(resAmmo) == "number" and resAmmo > 0 then
-                        pcall(function() gunTool:SetAttribute("Ammo", resAmmo) end)
+                    local sOk, sRes = pcall(function() return reloadRem:InvokeServer() end)
+                    if sOk and sRes and type(sRes) == "number" and sRes > 0 then
+                        serverAmmo = sRes
                     end
                 elseif reloadRem:IsA("RemoteEvent") then
                     reloadRem:FireServer()
                 end
             end
 
+            -- Đồng bộ đạn với Server qua SyncAmmo (khớp chính xác Cobalt Remote Spy)
             if syncAmmoRem and syncAmmoRem:IsA("RemoteEvent") then
                 syncAmmoRem:FireServer()
             end
         end)
 
-        -- CHỜ TRỌN VẸN reloadDuration: Trong suốt thời gian này, AutoShoot bị IsReloadingWeapon chặn hoàn toàn
-        -- Không có viên đạn nào bị bắn sớm -> Triệt tiêu 100% hiện tượng "băng đạn ảo" kéo về 2-3 viên!
+        -- CHỜ TRỌN VẸN reloadDuration để server hoàn tất việc xử lý hoạt ảnh và đồng bộ đạn
         task.wait(reloadDuration)
 
         if gunTool and gunTool.Parent then
-            local currentAmmoNow = gunTool:GetAttribute("Ammo") or 0
-            if currentAmmoNow <= 0 or currentAmmoNow < reloadAmount then
-                pcall(function()
-                    gunTool:SetAttribute("Ammo", reloadAmount)
-                end)
-            end
+            local finalAmmo = serverAmmo or reloadAmount
+            pcall(function()
+                gunTool:SetAttribute("Ammo", finalAmmo)
+            end)
             ShotsFiredSinceReload[gunTool] = 0
         end
 
-        -- MỞ KHÓA CHO PHÉP BẮN LẠI BĂNG ĐẠN MỚI
+        -- Buffer đệm 0.1s trước khi mở khóa bắn đợt đạn mới
+        task.wait(0.1)
         IsReloadingWeapon[gunTool] = nil
         _G.shooting = false
     end)
 
-    -- Guard timer an toàn
-    task.delay(reloadDuration + 0.3, function()
+    -- Guard timer an toàn đề phòng sự cố mạng
+    task.delay(reloadDuration + 0.8, function()
         if IsReloadingWeapon[gunTool] then
             IsReloadingWeapon[gunTool] = nil
             _G.shooting = false
