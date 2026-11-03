@@ -24,6 +24,10 @@ local Services = {
     StarterGui = game:GetService("StarterGui"),
     GuiService = game:GetService("GuiService"),
     VirtualUser = game:GetService("VirtualUser"),
+    VirtualInputManager = (function()
+        local ok, vim = pcall(game.GetService, game, "VirtualInputManager")
+        return ok and vim or nil
+    end)(),
     Workspace = game:GetService("Workspace"),
 }
 
@@ -53,6 +57,8 @@ local Compatibility = {
     gethui = rawget(_G, "gethui") or rawget(getfenv and getfenv() or {}, "gethui"),
     getcustomasset = rawget(_G, "getcustomasset") or rawget(_G, "getsynasset") or rawget(getfenv and getfenv() or {}, "getcustomasset") or rawget(getfenv and getfenv() or {}, "getsynasset"),
     firesignal = rawget(_G, "firesignal") or rawget(getfenv and getfenv() or {}, "firesignal"),
+    keypress = rawget(_G, "keypress") or rawget(getfenv and getfenv() or {}, "keypress"),
+    keyrelease = rawget(_G, "keyrelease") or rawget(getfenv and getfenv() or {}, "keyrelease"),
 }
 
 -- Game Remotes & Modules References
@@ -84,6 +90,7 @@ local GameModules = {
     Hitbox = SafeRequirePath(Modules, "Combat", "Hitbox"),
     Projectile = SafeRequirePath(Modules, "Combat", "Projectile"),
     Shake = SafeRequirePath(Modules, "VFX", "Shake"),
+    InputHandler = SafeRequirePath(Modules, "Utility", "InputHandler"),
     DroppedItemSwarm = SafeRequirePath(Modules, "Utility", "DroppedItemSwarm"),
     FormatNumber = SafeRequirePath(Modules, "Utility", "FormatNumber"),
 }

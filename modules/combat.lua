@@ -866,12 +866,57 @@ if ShakeModule then
     end
 end
 
--- Gun Reload & Magazine State Manager
+-- ============================================================================
+-- GUN RELOAD & MAGAZINE STATE MANAGER
+-- Cơ chế Auto Reload: Kích hoạt ngay lập tức khi vừa hết đạn, sau đó cứ 0.5s
+-- kích hoạt 1 lần bằng nút reload (PC: phím R | Mobile: nút Reload trong TouchButtons)
+-- ============================================================================
 local OriginalWeaponStats = setmetatable({}, { __mode = "k" })
 local IsReloadingWeapon = setmetatable({}, { __mode = "k" })
 local ShotsFiredSinceReload = setmetatable({}, { __mode = "k" })
 local GunSequentialShotCount = setmetatable({}, { __mode = "k" })
-local LastGunReloadAttempt = setmetatable({}, { __mode = "k" })
+local ActiveReloadLoops = setmetatable({}, { __mode = "k" })
+local AmmoListeners = setmetatable({}, { __mode = "k" })
+
+local function HasReserveAmmo(gunTool)
+    if not gunTool or not gunTool.Parent then return false end
+    if gunTool:GetAttribute("InfiniteAmmo") then return true end
+
+    local stats = gunTool:FindFirstChild("Stats")
+    local ammoType = (stats and stats:GetAttribute("AmmoType")) or gunTool:GetAttribute("AmmoType")
+    if not ammoType then return true end
+
+    if ammoType == "Fuel" then
+        return true
+    end
+
+    if ammoType == "Energy" then
+        local char = Utils.GetCharacter()
+        local energy = char and char:GetAttribute("AlienEnergy") or 0
+        local use = (stats and stats:GetAttribute("AmmoUse")) or 1
+        return energy >= use
+    end
+
+    if ammoType == "Grenade" then
+        local char = Utils.GetCharacter()
+        local bp = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+        local gTool = (bp and bp:FindFirstChild("Grenade")) or (char and char:FindFirstChild("Grenade"))
+        local st = gTool and (gTool:GetAttribute("Stacks") or 1) or 0
+        return st > 0
+    end
+
+    if LocalPlayer then
+        local ammoFolder = LocalPlayer:FindFirstChild("Ammo")
+        if ammoFolder then
+            local count = ammoFolder:GetAttribute(ammoType)
+            if type(count) == "number" then
+                return count > 0
+            end
+        end
+    end
+
+    return true
+end
 
 local function TriggerAutomaticGunReload(gunTool)
     if not gunTool or not gunTool.Parent then return false end
@@ -882,32 +927,29 @@ local function TriggerAutomaticGunReload(gunTool)
         return false
     end
 
-    if IsReloadingWeapon[gunTool] then
+    -- Nếu đang có vòng lặp reload 0.5s hoạt động cho súng này thì không tạo thêm
+    if ActiveReloadLoops[gunTool] then
         return true
     end
-
-    local now = os.clock()
-    if (now - (LastGunReloadAttempt[gunTool] or 0)) < 0.15 then
-        return false
-    end
-    LastGunReloadAttempt[gunTool] = now
 
     local stats = gunTool:FindFirstChild("Stats")
     if not OriginalWeaponStats[gunTool] and stats then
         OriginalWeaponStats[gunTool] = stats:GetAttributes()
     end
-    local base = OriginalWeaponStats[gunTool]
-    local cap = (stats and stats:GetAttribute("Capacity")) or gunTool:GetAttribute("Capacity") or 12
-    local ammoType = (stats and stats:GetAttribute("AmmoType")) or gunTool:GetAttribute("AmmoType")
-    local curAmmo = gunTool:GetAttribute("Ammo") or 0
 
-    -- Nếu trong băng đạn vẫn còn đầy thì không cần reload
-    if curAmmo >= cap then
+    local curAmmo = gunTool:GetAttribute("Ammo")
+    if curAmmo == nil and stats then
+        curAmmo = stats:GetAttribute("Ammo") or stats:GetAttribute("Capacity")
+    end
+
+    -- CHỈ RELOAD KHI NHẬN DIỆN ĐƯỢC HẾT ĐẠN (curAmmo <= 0)
+    if curAmmo ~= nil and curAmmo > 0 then
         ShotsFiredSinceReload[gunTool] = 0
         return false
     end
 
-    -- Vũ khí dùng nhiên liệu (vd: Flamethrower)
+    -- Vũ khí dùng nhiên liệu (vd: Flamethrower): Hỗ trợ nhặt bình nhiên liệu lân cận nếu có
+    local ammoType = (stats and stats:GetAttribute("AmmoType")) or gunTool:GetAttribute("AmmoType")
     if ammoType == "Fuel" then
         local root = Utils.GetRootPart()
         local dropped = Workspace:FindFirstChild("DroppedItems")
@@ -915,133 +957,88 @@ local function TriggerAutomaticGunReload(gunTool)
             for _, item in ipairs(dropped:GetChildren()) do
                 if Utils.ClassifyItem(item) == "Fuel" and (item:GetPivot().Position - root.Position).Magnitude <= 16 then
                     pcall(function() PickUpItemRemote:FireServer(item) end)
-                    ShotsFiredSinceReload[gunTool] = 0
-                    return true
+                    break
                 end
             end
         end
+    end
+
+    -- Nếu người chơi hết sạch đạn dự trữ (và không có InfiniteAmmo) thì dừng để tránh spam popup cảnh báo
+    if not HasReserveAmmo(gunTool) then
         return false
     end
 
-    -- Lấy lượng đạn dự trữ (hỗ trợ cả súng đạn thường, Grenade, súng Alien/Energy và súng Infinite)
-    local reserveAmmo = nil
-    if ammoType == "Energy" then
-        local char = Utils.GetCharacter()
-        local energy = char and char:GetAttribute("AlienEnergy") or 100
-        local use = (stats and stats:GetAttribute("AmmoUse")) or 1
-        reserveAmmo = math.floor(energy / math.max(use, 1))
-    elseif ammoType == "Grenade" then
-        local char = Utils.GetCharacter()
-        local bp = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
-        local gTool = (bp and bp:FindFirstChild("Grenade")) or (char and char:FindFirstChild("Grenade"))
-        reserveAmmo = gTool and (gTool:GetAttribute("Stacks") or 1) or 0
-    elseif LocalPlayer and ammoType then
-        local ammoFolder = LocalPlayer:FindFirstChild("Ammo") or LocalPlayer:WaitForChild("Ammo", 0.5)
-        if ammoFolder then
-            reserveAmmo = ammoFolder:GetAttribute(ammoType)
-        end
-    end
-
-    -- Súng InfiniteAmmo luôn nạp đầy
-    if gunTool:GetAttribute("InfiniteAmmo") then
-        reserveAmmo = cap
-    end
-
-    -- Chỉ hủy nạp khi chắc chắn 100% người chơi hết sạch đạn dự trữ
-    if reserveAmmo ~= nil and reserveAmmo <= 0 and not gunTool:GetAttribute("InfiniteAmmo") then
-        return false
-    end
-
-    local reloadRem = gunTool:FindFirstChild("Reload")
-    local reloadOneRem = gunTool:FindFirstChild("ReloadOne")
-    local syncAmmoRem = gunTool:FindFirstChild("SyncAmmo")
-    local isIndividual = stats and stats:GetAttribute("IndividualReload") == true
-
-    -- Tính toán thời gian nạp đạn thực tế có áp dụng FastReload (ReloadSpeedMultiplier)
-    local baseReloadTime = (base and base.ReloadTime) or (stats and stats:GetAttribute("ReloadTime")) or 1.6
-    local relMult = (Config.FastReload and (Config.ReloadSpeedMultiplier or 1.5)) or 1.0
-    -- Thời gian nạp đạn thực tế: Cho phép FastReload tăng tốc nhưng đảm bảo không mở khóa sớm hơn server
-    local reloadDuration = math.clamp(baseReloadTime / relMult, 0.65, 3.0)
-
-    -- Số lượng đạn nạp vào băng
-    local reloadAmount = cap
-    if reserveAmmo and reserveAmmo > 0 then
-        reloadAmount = math.min(cap, reserveAmmo)
-    end
-
-    -- 1. KHÓA TRẠNG THÁI RELOAD TRÊN CLIENT: Chặn AutoShoot tuyệt đối trong suốt quá trình nạp
+    -- Đánh dấu trạng thái reload
+    ActiveReloadLoops[gunTool] = true
     IsReloadingWeapon[gunTool] = true
-    _G.shooting = os.clock() + reloadDuration + 0.2
 
     task.spawn(function()
-        local serverAmmo = nil
+        -- [BƯỚC 1]: KÍCH HOẠT NGAY LẬP TỨC KHI VỪA HẾT ĐẠN (0ms delay)
+        -- Kích hoạt bằng nút reload: PC là phím R, Mobile là nút Reload trong TouchButtons
+        Utils.TriggerReloadAction()
 
-        -- Thực hiện theo đúng thứ tự Remote Spy thực tế:
-        -- Step 1: Gọi Reload:InvokeServer() để server thực hiện nạp và trừ đạn dự trữ
-        -- Step 2: Bắn SyncAmmo:FireServer() để đồng bộ chuẩn xác với server
-        pcall(function()
-            if isIndividual and reloadOneRem then
-                if reloadRem and reloadRem:IsA("RemoteFunction") then
-                    pcall(function() reloadRem:InvokeServer() end)
-                end
-                local missing = math.clamp(cap - math.max(0, curAmmo), 1, (reserveAmmo or cap))
-                local indTime = (base and base.ReloadIndividualTime) or (stats and stats:GetAttribute("ReloadIndividualTime")) or 0.25
-                local stepWait = math.clamp(indTime / relMult, 0.05, 0.2)
-                task.wait(0.05)
+        -- [BƯỚC 2]: CỨ 0.5S KÍCH HOẠT 1 LẦN CHO ĐẾN KHI CÓ ĐẠN LẠI HOẶC BỊ HỦY
+        while ActiveReloadLoops[gunTool] do
+            task.wait(0.5)
 
-                for i = 1, missing do
-                    if not gunTool.Parent or not IsReloadingWeapon[gunTool] then break end
-                    reloadOneRem:FireServer()
-                    task.wait(stepWait)
-                end
+            -- Điều kiện an toàn để ngắt vòng lặp:
+            -- 1. Tính năng AutoReload bị tắt
+            if not Config.AutoReload then break end
 
-                if reloadRem and reloadRem:IsA("RemoteFunction") then
-                    pcall(function() reloadRem:InvokeServer(false) end)
-                end
-            elseif reloadRem then
-                if reloadRem:IsA("RemoteFunction") then
-                    local sOk, sRes = pcall(function() return reloadRem:InvokeServer() end)
-                    if sOk and sRes and type(sRes) == "number" and sRes > 0 then
-                        serverAmmo = sRes
-                    end
-                elseif reloadRem:IsA("RemoteEvent") then
-                    reloadRem:FireServer()
-                end
+            -- 2. Vũ khí không còn được cầm trên tay (unequip / đổi súng khác / vứt súng)
+            local char = Utils.GetCharacter()
+            if not char or gunTool.Parent ~= char then break end
+
+            -- 3. Nhân vật đã chết
+            if not Utils.IsCharacterAlive(char) then break end
+
+            -- 4. Balo bị khóa do đang cast kỹ năng
+            if LocalPlayer:GetAttribute("BackpackLocked") == true then break end
+
+            -- 5. Súng đã hoàn tất nạp đạn (Ammo trong băng > 0)
+            local latestAmmo = gunTool:GetAttribute("Ammo")
+            if latestAmmo and latestAmmo > 0 then
+                ShotsFiredSinceReload[gunTool] = 0
+                break
             end
 
-            -- Đồng bộ đạn với Server qua SyncAmmo (khớp chính xác Cobalt Remote Spy)
-            if syncAmmoRem and syncAmmoRem:IsA("RemoteEvent") then
-                syncAmmoRem:FireServer()
-            end
-        end)
+            -- 6. Hết sạch đạn dự trữ
+            if not HasReserveAmmo(gunTool) then break end
 
-        -- CHỜ TRỌN VẸN reloadDuration để server hoàn tất việc xử lý hoạt ảnh và đồng bộ đạn
-        task.wait(reloadDuration)
-
-        if gunTool and gunTool.Parent then
-            local finalAmmo = serverAmmo or reloadAmount
-            pcall(function()
-                gunTool:SetAttribute("Ammo", finalAmmo)
-            end)
-            ShotsFiredSinceReload[gunTool] = 0
+            -- KÍCH HOẠT LẠI CƠ CHẾ NÚT RELOAD (PC: phím R | Mobile: nút reload)
+            Utils.TriggerReloadAction()
         end
 
-        -- Buffer đệm 0.1s trước khi mở khóa bắn đợt đạn mới
-        task.wait(0.1)
+        ActiveReloadLoops[gunTool] = nil
         IsReloadingWeapon[gunTool] = nil
         _G.shooting = false
     end)
 
-    -- Guard timer an toàn đề phòng sự cố mạng
-    task.delay(reloadDuration + 0.8, function()
-        if IsReloadingWeapon[gunTool] then
+    return true
+end
+
+local function SetupGunAmmoWatcher(gunTool)
+    if not gunTool or not gunTool:IsA("Tool") or AmmoListeners[gunTool] then return end
+
+    local conn = gunTool:GetAttributeChangedSignal("Ammo"):Connect(function()
+        local a = gunTool:GetAttribute("Ammo")
+        if a and a <= 0 then
+            -- NGAY KHI VỪA HẾT ĐẠN: Kích hoạt ngay lập tức!
+            if Config.AutoReload and not (LocalPlayer:GetAttribute("BackpackLocked") == true) then
+                local char = Utils.GetCharacter()
+                if char and gunTool.Parent == char then
+                    TriggerAutomaticGunReload(gunTool)
+                end
+            end
+        elseif a and a > 0 then
+            -- Khi đạn đã được nạp (> 0): Dừng ngay vòng lặp 0.5s
+            ActiveReloadLoops[gunTool] = nil
             IsReloadingWeapon[gunTool] = nil
-            _G.shooting = false
             ShotsFiredSinceReload[gunTool] = 0
+            _G.shooting = false
         end
     end)
-
-    return true
+    AmmoListeners[gunTool] = conn
 end
 
 -- Weapon Mods
@@ -1605,11 +1602,12 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
     -- AUTO RELOAD INDEPENDENT CHECK: Tự động nạp đạn độc lập, không phụ thuộc vào việc có bật AutoShoot hay không
     -- Hoạt động ngay cả khi người chơi bắn bằng tay, dùng chuột, mobile hoặc khi không có quái xung quanh
     if isGun and Config.AutoReload and not (LocalPlayer:GetAttribute("BackpackLocked") == true) then
+        SetupGunAmmoWatcher(held)
         local curAmmoVal = held:GetAttribute("Ammo")
         if curAmmoVal == nil and stats then
             curAmmoVal = stats:GetAttribute("Ammo") or stats:GetAttribute("Capacity")
         end
-        if curAmmoVal ~= nil and curAmmoVal <= 0 and not IsReloadingWeapon[held] then
+        if curAmmoVal ~= nil and curAmmoVal <= 0 and not ActiveReloadLoops[held] then
             TriggerAutomaticGunReload(held)
         end
     end
@@ -1702,7 +1700,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
     -- Nếu súng còn đạn thì reset shotsFired và cho bắn lập tức, tuyệt đối không bị delay 3s
     if curAmmo ~= nil and curAmmo <= 0 then
         HideVirtualBulletVisual()
-        if not IsReloadingWeapon[held] then
+        if not ActiveReloadLoops[held] then
             TriggerAutomaticGunReload(held)
         end
         return
@@ -1712,7 +1710,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         ShotsFiredSinceReload[held] = 0
     end
 
-    if IsReloadingWeapon[held] then
+    if IsReloadingWeapon[held] or ActiveReloadLoops[held] then
         HideVirtualBulletVisual()
         return
     end
@@ -1838,7 +1836,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                     held:SetAttribute("Ammo", nextAmmo)
                 end)
 
-                if nextAmmo <= 0 or (capacity > 0 and (ShotsFiredSinceReload[held] or 0) >= capacity) then
+                if nextAmmo <= 0 then
                     TriggerAutomaticGunReload(held)
                 end
             end
@@ -1870,6 +1868,17 @@ Combat.GetActualMobHP = GetActualMobHP
 Combat.IsHostilePvEMob = IsHostilePvEMob
 Combat.IsGunWeapon = IsGunWeapon
 Combat.BulletModule = BulletModule
+Combat.ActiveReloadLoops = ActiveReloadLoops
+Combat.TriggerAutomaticGunReload = TriggerAutomaticGunReload
+Combat.SetupGunAmmoWatcher = SetupGunAmmoWatcher
+Combat.Cleanup = function()
+    for tool, conn in pairs(AmmoListeners) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(AmmoListeners)
+    table.clear(ActiveReloadLoops)
+    table.clear(IsReloadingWeapon)
+end
 
 Hub.Combat = Combat
 return Hub

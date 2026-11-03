@@ -13,6 +13,9 @@ local Services = Hub.Services
 local LocalPlayer = Services.LocalPlayer
 local Workspace = Services.Workspace
 local StarterGui = Services.StarterGui
+local UserInputService = Services.UserInputService or game:GetService("UserInputService")
+local VirtualInputManager = Services.VirtualInputManager
+local VirtualUser = Services.VirtualUser
 local HitboxModule = Hub.GameModules and Hub.GameModules.Hitbox
 local fireproximityprompt_fn = Hub.Compatibility and Hub.Compatibility.fireproximityprompt
 
@@ -643,6 +646,169 @@ function Utils.GetShredderTargetPart()
         return shredder:FindFirstChild("Visual") or shredder:FindFirstChild("MainPart") or shredder.PrimaryPart or shredder:FindFirstChildWhichIsA("BasePart", true)
     end
     return nil
+end
+
+-- ============================================================================
+-- INPUT SIMULATION & PLATFORM DETECTION (PC & MOBILE)
+-- Hỗ trợ kích hoạt chuẩn xác: PC phím R | Mobile nút Reload (TouchButtons)
+-- ============================================================================
+function Utils.IsMobileInput()
+    if _G.preferredInput then
+        if _G.preferredInput == Enum.PreferredInput.Touch then
+            return true
+        elseif _G.preferredInput == Enum.PreferredInput.KeyboardAndMouse then
+            return false
+        end
+    end
+    local uis = Services.UserInputService or UserInputService or game:GetService("UserInputService")
+    if uis and uis.TouchEnabled and not uis.KeyboardEnabled then
+        return true
+    end
+    local devUI = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("DeviceSupportUI")
+    local tb = devUI and devUI:FindFirstChild("TouchButtons")
+    if tb and tb.Visible then
+        return true
+    end
+    return false
+end
+
+function Utils.GetMobileTouchButton(buttonName)
+    local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+    local devUI = pg and pg:FindFirstChild("DeviceSupportUI")
+    local tb = devUI and devUI:FindFirstChild("TouchButtons")
+    local btn = tb and tb:FindFirstChild(buttonName)
+    if btn and btn:IsA("GuiButton") then
+        return btn
+    end
+
+    local InputHandler = Hub.GameModules and Hub.GameModules.InputHandler
+    if InputHandler and type(InputHandler.GetMobileButton) == "function" then
+        local ok, b = pcall(InputHandler.GetMobileButton, buttonName)
+        if ok and b and b:IsA("GuiButton") then
+            return b
+        end
+    end
+    return nil
+end
+
+function Utils.PressKey(keyCode)
+    keyCode = keyCode or Enum.KeyCode.R
+    local vim = Services.VirtualInputManager or VirtualInputManager
+    if not vim then
+        pcall(function() vim = game:GetService("VirtualInputManager") end)
+    end
+    local kpress = Hub.Compatibility and Hub.Compatibility.keypress or rawget(_G, "keypress")
+    local krelease = Hub.Compatibility and Hub.Compatibility.keyrelease or rawget(_G, "keyrelease")
+    local vu = Services.VirtualUser or VirtualUser or game:GetService("VirtualUser")
+
+    task.spawn(function()
+        -- 1. VirtualInputManager Key Down (chuẩn engine Roblox)
+        if vim then
+            pcall(function()
+                vim:SendKeyEvent(true, keyCode, false, game)
+            end)
+        end
+
+        -- 2. Executor keypress fallback (Win32 virtual keys: 0x52 là phím 'R')
+        if kpress then
+            local vk = (keyCode == Enum.KeyCode.R and 0x52) or (keyCode.Value or 0x52)
+            pcall(kpress, vk)
+        end
+
+        -- 3. VirtualUser fallback
+        if vu then
+            pcall(function()
+                vu:SetKeyDown("0x72")
+            end)
+        end
+
+        task.wait(0.03)
+
+        -- VirtualInputManager Key Up
+        if vim then
+            pcall(function()
+                vim:SendKeyEvent(false, keyCode, false, game)
+            end)
+        end
+
+        if krelease then
+            local vk = (keyCode == Enum.KeyCode.R and 0x52) or (keyCode.Value or 0x52)
+            pcall(krelease, vk)
+        end
+
+        if vu then
+            pcall(function()
+                vu:SetKeyUp("0x72")
+            end)
+        end
+    end)
+end
+
+function Utils.ClickGuiButton(btn)
+    if not btn or not btn:IsA("GuiButton") then return false end
+    local fsignal = Hub.Compatibility and Hub.Compatibility.firesignal or rawget(_G, "firesignal")
+    local vim = Services.VirtualInputManager or VirtualInputManager
+    if not vim then
+        pcall(function() vim = game:GetService("VirtualInputManager") end)
+    end
+
+    task.spawn(function()
+        -- 1. firesignal: Kích hoạt trực tiếp các event binding của GunClient và InputHandler
+        if fsignal then
+            pcall(fsignal, btn.MouseButton1Down)
+            pcall(fsignal, btn.Activated)
+        end
+
+        -- 2. Tọa độ thực tế trên màn hình (Hardware Click/Touch)
+        if vim then
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            local midX = absPos.X + absSize.X * 0.5
+            local midY = absPos.Y + absSize.Y * 0.5
+
+            pcall(function()
+                vim:SendMouseButtonEvent(midX, midY, 0, true, game, 1)
+            end)
+            pcall(function()
+                vim:SendTouchEvent(1, 0, midX, midY)
+            end)
+
+            task.wait(0.03)
+
+            pcall(function()
+                vim:SendMouseButtonEvent(midX, midY, 0, false, game, 1)
+            end)
+            pcall(function()
+                vim:SendTouchEvent(1, 2, midX, midY)
+            end)
+        else
+            task.wait(0.03)
+        end
+
+        if fsignal then
+            pcall(fsignal, btn.MouseButton1Up)
+        end
+    end)
+    return true
+end
+
+function Utils.TriggerReloadAction()
+    local isMobile = Utils.IsMobileInput()
+    local reloadBtn = Utils.GetMobileTouchButton("Reload")
+
+    if isMobile and reloadBtn then
+        -- Mobile: Kích hoạt nút reload trên TouchButtons của game
+        Utils.ClickGuiButton(reloadBtn)
+    elseif not isMobile then
+        -- PC: Kích hoạt phím R
+        Utils.PressKey(Enum.KeyCode.R)
+    else
+        -- Fallback an toàn kép nếu thiết bị đặc biệt
+        if reloadBtn then
+            Utils.ClickGuiButton(reloadBtn)
+        end
+        Utils.PressKey(Enum.KeyCode.R)
+    end
 end
 
 Hub.Utils = Utils

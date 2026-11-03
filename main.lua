@@ -121,6 +121,9 @@ _G.STA_MasterHub_Cleanup = function()
             if Hub.Combat.KillAuraHighlight then Hub.Combat.KillAuraHighlight:Destroy() end
             if Hub.Combat.VirtualBulletPart then Hub.Combat.VirtualBulletPart:Destroy() end
         end)
+        if Hub.Combat.Cleanup then
+            pcall(Hub.Combat.Cleanup)
+        end
         if Hub.GameModules and Hub.GameModules.Bullet and Hub.Combat.OriginalBulletHitscan then
             Hub.GameModules.Bullet.BulletHitscan = Hub.Combat.OriginalBulletHitscan
         end
