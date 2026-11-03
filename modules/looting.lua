@@ -961,8 +961,8 @@ local function LootItemToBackpackNoEquip(item)
     end
     if Config.AutoPickupMethodPrompt then
         local pr = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if pr and (pr.HoldDuration == nil or pr.HoldDuration <= 0) then
-            Utils.SafeTriggerPrompt(pr)
+        if pr and pr.Enabled then
+            Utils.InstantCompletePrompt(pr)
         end
     end
 
@@ -1100,8 +1100,18 @@ local function SetupDroppedItemsWatcher()
             table.insert(NewlySpawnedQueue, child)
             if not SpawnProcessingScheduled then
                 SpawnProcessingScheduled = true
-                task.delay(0.04, ProcessNewlySpawnedLoot)
+                task.delay(0.02, ProcessNewlySpawnedLoot)
             end
+            -- Quét phụ trợ sau 0.12s để phòng trường hợp server nảy đồ vật lý hoặc nạp part chậm từ rương
+            task.delay(0.12, function()
+                if child and child.Parent and not IsItemAlreadyAtBaseOrDelivered(child) then
+                    local ch = Utils.GetCharacter()
+                    local r = Utils.GetRootPart(ch)
+                    if r and (child:GetPivot().Position - r.Position).Magnitude <= 15 then
+                        pcall(LootItemToBackpackNoEquip, child)
+                    end
+                end
+            end)
         end
     end
 
@@ -1503,13 +1513,27 @@ local function RunLootingAndSurvivalStep()
 
                     if prompt and prompt.Enabled then
                         local crateName = crate.Name
+                        local cratePivot = crate:GetPivot().Position
+                        local function OnCrateFinished()
+                            -- Quét nhặt tức thì toàn bộ vật phẩm văng ra từ rương
+                            task.defer(function()
+                                local df = Workspace:FindFirstChild("DroppedItems")
+                                if df then
+                                    for _, it in ipairs(df:GetChildren()) do
+                                        if (it:GetPivot().Position - cratePivot).Magnitude <= 15 then
+                                            pcall(LootItemToBackpackNoEquip, it)
+                                        end
+                                    end
+                                end
+                            end)
+                        end
                         if Config.InstantInteract then
-                            Utils.InstantCompletePrompt(prompt)
+                            Utils.InstantCompletePrompt(prompt, OnCrateFinished)
                         else
                             local holdDur = prompt.HoldDuration or 2.0
-                            Utils.HoldPromptContinuous(prompt, holdDur + 0.6)
+                            Utils.HoldPromptContinuous(prompt, holdDur + 0.6, OnCrateFinished)
                         end
-                        break -- Chỉ xử lý 1 rương tại một thời điểm
+                        break
                     end
                 end
             end
@@ -1552,72 +1576,8 @@ end
 
 -- Bring Items by Touching + Claiming Ownership + Flying Smoothly to Base by Item Type
 local function BringMatchingItems(bringAllMap)
-    local char = Utils.GetCharacter()
-    local root = Utils.GetRootPart(char)
-    if not (char and root) then return 0 end
-
-    local droppedFolder = Workspace:FindFirstChild("DroppedItems")
-    if not droppedFolder then return 0 end
-
-    local candidates = {}
-    for _, item in ipairs(droppedFolder:GetChildren()) do
-        if not (Config.AutoPickupIgnoreShelf and item:GetAttribute("OnShelf")) and not ActiveFlyingItems[item] and not IsItemAlreadyAtBaseOrDelivered(item) then
-            local cat = Utils.ClassifyItem(item)
-            if Config.BringCategoryFilter == "All" or Config.BringCategoryFilter == cat then
-                local itemPos = item:GetPivot().Position
-                local distToPlayer = (itemPos - root.Position).Magnitude
-                local targetCF = GetTargetCFrameForItemType(item, Config.BringDestination)
-                local distToTarget = (itemPos - targetCF.Position).Magnitude
-                if distToTarget > 10 and (bringAllMap or distToPlayer <= 35) then
-                    table.insert(candidates, {
-                        Item = item,
-                        Dist = distToPlayer,
-                        Tier = item:GetAttribute("Tier") or 1,
-                        Name = item.Name,
-                        TargetCF = targetCF,
-                    })
-                end
-            end
-        end
-    end
-
-    table.sort(candidates, function(a, b)
-        if Config.BringSortOrder == "Farthest First" then
-            return a.Dist > b.Dist
-        elseif Config.BringSortOrder == "Highest Tier" then
-            if a.Tier ~= b.Tier then return a.Tier > b.Tier end
-            return a.Dist < b.Dist
-        elseif Config.BringSortOrder == "Alphabetical" then
-            return a.Name < b.Name
-        end
-        return a.Dist < b.Dist
-    end)
-
-    local count = 0
-    local savedCF = root.CFrame
-    for _, entry in ipairs(candidates) do
-        local item = entry.Item
-        if item and item.Parent and not ActiveFlyingItems[item] then
-            local itemPos = item:GetPivot().Position
-            local dist = (itemPos - root.Position).Magnitude
-            if dist > 16 and bringAllMap then
-                Utils.SafeTeleportTo(itemPos + Vector3.new(0, 2, 0))
-                task.wait(0.14)
-            end
-            TouchAndFlyItemToBase(item, entry.TargetCF)
-            count = count + 1
-            if not bringAllMap and count >= 6 then
-                break
-            end
-            task.wait(0.08)
-        end
-    end
-
-    if bringAllMap and count > 0 and Config.BringDestination ~= "Player" then
-        task.wait(0.15)
-        Utils.SafeTeleportTo(savedCF)
-    end
-    return count
+    -- Tính năng hút đồ toàn map đã bị loại bỏ theo yêu cầu: Looting 100% chỉ nhặt đồ trong bán kính sát người <= 15 studs
+    return 0
 end
 
 Looting.RunLootingAndSurvivalStep = RunLootingAndSurvivalStep

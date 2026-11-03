@@ -33,6 +33,19 @@ local PickUpItemRemote = Hub.Remotes and Hub.Remotes.PickUpItem
 local Combat = {}
 
 local CurrentLockedTarget = nil
+local ObstacleCache = {} -- [mob] = expireTimestamp
+local FrameRaycastUsed = false -- Strictly at most 1 raycast per frame
+
+local function CleanObstacleCache()
+    local now = os.clock()
+    for m, exp in pairs(ObstacleCache) do
+        if now > exp or not m.Parent then
+            ObstacleCache[m] = nil
+        end
+    end
+end
+Combat.CleanObstacleCache = CleanObstacleCache
+
 local ActiveShootTarget = nil
 
 -- Virtual Bullet 3D Line Visualizer (Beam + Attachments)
@@ -519,24 +532,10 @@ local function FindUnobstructedPartOnMob(model)
         return part, origin, part.Position, nil
     end
 
+    -- Thực hiện đúng 1 tia Raycast duy nhất cho mục tiêu
     local isClear, hitPos = CheckRayUnobstructed(origin, part.Position, model)
     if isClear then
         return part, origin, hitPos or part.Position, nil
-    end
-
-    -- Nếu part ưu tiên bị che khuất bởi Map/Structures, thử kiểm tra các part khác
-    local candidatePartNames = { "UpperTorso", "Torso", "HumanoidRootPart", "Head" }
-    for _, name in ipairs(candidatePartNames) do
-        if name ~= preferredPart then
-            local altPart = model:FindFirstChild(name)
-            if altPart and altPart:IsA("BasePart") then
-                local altOrigin = GetWeaponFireOrigin(altPart.Position)
-                local isClearAlt, hitPosAlt = CheckRayUnobstructed(altOrigin, altPart.Position, model)
-                if isClearAlt then
-                    return altPart, altOrigin, hitPosAlt or altPart.Position, nil
-                end
-            end
-        end
     end
 
     return nil, nil, nil, nil
@@ -611,20 +610,31 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return a.Dist < b.Dist
     end)
 
-    -- Bước 3: Early Exit Raycast - Quét nhanh tối đa 20 mục tiêu tốt nhất để không bỏ sót quái
-    local checkLimit = checkLOS and math.min(#candidates, 20) or 1
-    for i = 1, checkLimit do
-        local entry = candidates[i]
+    -- Bước 3: Quét thông minh kết hợp ObstacleCache - TỐI ĐA ĐÚNG 1 RAYCAST MỖI FRAME
+    local now = os.clock()
+    for _, entry in ipairs(candidates) do
         local model = entry.Model
-        if checkLOS then
-            local clearPart, clearOrigin, hitPos = FindUnobstructedPartOnMob(model)
-            if clearPart then
-                return model, clearPart, clearOrigin, nil
-            end
-        else
+        if not checkLOS then
             local tPart = model:FindFirstChild(Config.AimPart or "Head") or model:FindFirstChild("Head") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
             if tPart and tPart:IsA("BasePart") then
                 return model, tPart, GetWeaponFireOrigin(tPart.Position), nil
+            end
+        else
+            local isBlocked = ObstacleCache[model] and (now < ObstacleCache[model])
+            if not isBlocked then
+                -- Nếu frame này đã sử dụng 1 raycast rồi -> Không thực hiện thêm raycast nào khác trong frame!
+                if FrameRaycastUsed then
+                    break
+                end
+
+                FrameRaycastUsed = true
+                local clearPart, clearOrigin, hitPos = FindUnobstructedPartOnMob(model)
+                if clearPart then
+                    return model, clearPart, clearOrigin, nil
+                else
+                    -- Bị cản bởi tường/cổng -> Đánh dấu cache 1.0s (bỏ qua hoàn toàn trong 1.0s tiếp theo mà không tốn raycast)
+                    ObstacleCache[model] = now + 1.0
+                end
             end
         end
     end
@@ -1076,19 +1086,11 @@ local function ApplyWeaponModsToTool(tool)
             if base.ShootAnimSpeed then stats:SetAttribute("ShootAnimSpeed", base.ShootAnimSpeed) end
         end
 
-        local relMult = (Config.FastReload and (Config.ReloadSpeedMultiplier or 1.5)) or 1.0
-        relMult = math.clamp(relMult, 1.0, 3.0)
-        if relMult > 1.0 then
-            if base.ReloadTime then stats:SetAttribute("ReloadTime", math.max(0.12, base.ReloadTime / relMult)) end
-            if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", math.max(0.06, base.ReloadIndividualTime / relMult)) end
-            if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", math.max(0.06, base.ReloadEndTime / relMult)) end
-            if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", (base.ReloadAnimSpeed or 1) * relMult) end
-        else
-            if base.ReloadTime then stats:SetAttribute("ReloadTime", base.ReloadTime) end
-            if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", base.ReloadIndividualTime) end
-            if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
-            if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", base.ReloadAnimSpeed) end
-        end
+        -- Tốc độ nạp đạn giữ nguyên chuẩn server gốc (Fast Reload đã được loại bỏ theo yêu cầu)
+        if base.ReloadTime then stats:SetAttribute("ReloadTime", base.ReloadTime) end
+        if base.ReloadIndividualTime then stats:SetAttribute("ReloadIndividualTime", base.ReloadIndividualTime) end
+        if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
+        if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", base.ReloadAnimSpeed) end
 
         if Config.AlwaysAutomatic or Config.FastShoot then
             stats:SetAttribute("Automatic", true)
@@ -1565,12 +1567,10 @@ local LastAutoShootTime = 0
 
 Hub.AddConnection(RunService.RenderStepped:Connect(function()
     EnsureBulletModuleHook()
+    FrameRaycastUsed = false -- Reset hạn mức: đúng tối đa 1 raycast duy nhất cho frame này
     local Camera = Services.Camera or Workspace.CurrentCamera
     if Hub.Visuals and Hub.Visuals.FOVCircleFrame then
-        local mousePos = UserInputService:GetMouseLocation()
-        Hub.Visuals.FOVCircleFrame.Position = UDim2.fromOffset(mousePos.X, mousePos.Y)
-        Hub.Visuals.FOVCircleFrame.Size = UDim2.fromOffset(Config.AimFOV * 2, Config.AimFOV * 2)
-        Hub.Visuals.FOVCircleFrame.Visible = Config.AimShowFOV and Config.Aimbot
+        Hub.Visuals.FOVCircleFrame.Visible = false -- Tắt hoàn toàn vẽ FOV
     end
     if Hub.IsLootingUnloading and Hub.IsLootingUnloading() then
         HideVirtualBulletVisual()
@@ -1632,13 +1632,33 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             local root = Utils.GetRootPart(char)
             local inRange = root and ((CurrentLockedTarget:GetPivot().Position - root.Position).Magnitude <= weaponRange)
             if stillAlive and remHP > 0 and inRange then
-                local clearPart, origin = FindUnobstructedPartOnMob(CurrentLockedTarget)
-                if clearPart then
-                    frameTargetModel = CurrentLockedTarget
-                    frameTargetPart = clearPart
-                    frameFireOrigin = origin
+                if Config.AimWallCheck ~= false then
+                    if not FrameRaycastUsed then
+                        FrameRaycastUsed = true
+                        local clearPart, origin = FindUnobstructedPartOnMob(CurrentLockedTarget)
+                        if clearPart then
+                            frameTargetModel = CurrentLockedTarget
+                            frameTargetPart = clearPart
+                            frameFireOrigin = origin
+                        else
+                            ObstacleCache[CurrentLockedTarget] = os.clock() + 1.0
+                            CurrentLockedTarget = nil
+                        end
+                    else
+                        local tPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head") or CurrentLockedTarget:FindFirstChild("Head") or CurrentLockedTarget.PrimaryPart
+                        if tPart then
+                            frameTargetModel = CurrentLockedTarget
+                            frameTargetPart = tPart
+                            frameFireOrigin = GetWeaponFireOrigin(tPart.Position)
+                        end
+                    end
                 else
-                    CurrentLockedTarget = nil
+                    local tPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head") or CurrentLockedTarget:FindFirstChild("Head") or CurrentLockedTarget.PrimaryPart
+                    if tPart then
+                        frameTargetModel = CurrentLockedTarget
+                        frameTargetPart = tPart
+                        frameFireOrigin = GetWeaponFireOrigin(tPart.Position)
+                    end
                 end
             else
                 CurrentLockedTarget = nil
@@ -1647,10 +1667,9 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             CurrentLockedTarget = nil
         end
 
-        -- 2. Nếu chưa có mục tiêu hoặc mục tiêu cũ bị mất, quét tìm mục tiêu mới (Early Exit Top 3)
+        -- 2. Nếu chưa có mục tiêu hoặc mục tiêu cũ bị mất, quét tìm mục tiêu mới (hạn mức <= 1 raycast)
         if not frameTargetModel then
-            local useFOV = Config.Aimbot and Config.AimShowFOV and not (Config.SilentAim or Config.AutoShoot)
-            local tModel, tPart, tOrigin = GetBestCombatTarget(weaponRange, useFOV, Config.AimWallCheck)
+            local tModel, tPart, tOrigin = GetBestCombatTarget(weaponRange, false, Config.AimWallCheck)
             if tModel and tPart then
                 frameTargetModel = tModel
                 frameTargetPart = tPart
@@ -1745,16 +1764,9 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                 return
             end
 
-            local isStillClear, exactHitPos = CheckRayUnobstructed(fireOrigin, targetPart.Position, targetModel)
-            if not isStillClear and Config.AimWallCheck then
-                ActiveShootTarget = nil
-                CurrentLockedTarget = nil
-                UpdateVirtualBulletVisual(fireOrigin, targetPart.Position, false)
-                return
-            end
-
+            -- Mục tiêu frameTargetModel đã được xác nhận Line Of Sight ở trên, không cần raycast thừa lần 2
             LastAutoShootTime = now
-            hitPos = exactHitPos or targetPart.Position
+            hitPos = targetPart.Position
 
             -- Bắn trực tiếp qua Remote Shoot của vũ khí theo đúng cấu trúc server game
             -- Tuyệt đối KHÔNG dùng chuột giả lập (VirtualInputManager/mouse1press) để không làm xoay hay giật camera người chơi

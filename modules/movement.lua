@@ -178,6 +178,18 @@ Hub.AddConnection(RunService.Heartbeat:Connect(function()
     end
 end))
 
+local function TeleportHomeVoid()
+    local char = Utils.GetCharacter()
+    local root = Utils.GetRootPart(char)
+    if not (char and root) then return end
+
+    local curPos = root.Position
+    -- Dịch chuyển nhân vật xuống dưới đáy bản đồ (vùng void) để game tự kéo về Base an toàn
+    root.CFrame = CFrame.new(curPos.X, -250, curPos.Z)
+    Utils.NotifyGame("Teleporting to Home via Void Recall...", Color3.fromRGB(56, 189, 248))
+end
+
+Movement.TeleportHomeVoid = TeleportHomeVoid
 Movement.RevealAllMapFog = RevealAllMapFog
 
 Hub.Movement = Movement

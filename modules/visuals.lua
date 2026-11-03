@@ -710,9 +710,7 @@ local function RefreshESP()
                         if Config.ESPShowHealth and not isDowned and maxHp > 0 then
                             table.insert(textParts, "[" .. math.round(hp) .. " HP]")
                         end
-                        if Config.ESPShowDistance then
-                            table.insert(textParts, "(" .. dist .. "m)")
-                        end
+                        -- ESPShowDistance removed as requested
                         table.insert(candidates, {
                             Obj = model,
                             Color = color,
@@ -741,9 +739,7 @@ local function RefreshESP()
                         if Config.ESPShowHealth and maxHp > 0 then
                             table.insert(textParts, "[" .. math.round(hp) .. "/" .. math.round(maxHp) .. "]")
                         end
-                        if Config.ESPShowDistance then
-                            table.insert(textParts, "(" .. dist .. "m)")
-                        end
+                        -- ESPShowDistance removed as requested
 
                         table.insert(candidates, {
                             Obj = model,
@@ -788,9 +784,7 @@ local function RefreshESP()
                                     table.insert(textParts, "[T" .. tier .. "]")
                                 end
                             end
-                            if Config.ESPShowDistance then
-                                table.insert(textParts, "(" .. dist .. "m)")
-                            end
+                            -- ESPShowDistance removed as requested
 
                             -- Khi lại gần (<= 80 studs) mới hiển thị viền phát sáng (Chams Outline)
                             -- Giúp giữ trọn vẹn 30 slot highlight của Roblox cho các công trình raid và quái vật!
@@ -829,9 +823,7 @@ local function RefreshESP()
                     local dist = math.round((pos - myPos).Magnitude)
                     local crateColor, crateCleanName = GetCrateColorAndName(crate)
                     local textParts = { crateCleanName }
-                    if Config.ESPShowDistance then
-                        table.insert(textParts, "(" .. dist .. "m)")
-                    end
+                    -- ESPShowDistance removed as requested
                     table.insert(candidates, {
                         Obj = crate,
                         Color = crateColor,
@@ -929,7 +921,7 @@ local function RefreshESP()
 
                     if shouldShow then
                         -- Đối với Raid và các mục tiêu quan trọng, luôn bổ sung khoảng cách rõ ràng
-                        table.insert(textParts, "(" .. dist .. "m)")
+                        -- distance removed
 
                         local renderObj = lm.HighlightObj or obj
                         table.insert(candidates, {
@@ -959,7 +951,7 @@ local function RefreshESP()
                     Obj = radio,
                     Color = Color3.fromRGB(168, 85, 247),
                     Priority = dist - 1000,
-                    Text = "[ESCAPE] Radio (" .. dist .. "m)",
+                    Text = "[ESCAPE] Radio",
                     HasHealth = false,
                     StudsOffset = Vector3.new(0, 2.5, 0),
                     CanChams = true,
@@ -983,9 +975,7 @@ local function RefreshESP()
                     if fuelLvl then
                         table.insert(textParts, "[Fuel: " .. math.round(fuelLvl) .. "%]")
                     end
-                    if Config.ESPShowDistance then
-                        table.insert(textParts, "(" .. dist .. "m)")
-                    end
+                    -- ESPShowDistance removed as requested
                     table.insert(candidates, {
                         Obj = gen,
                         Color = Color3.fromRGB(52, 211, 153), -- Xanh ngọc
@@ -1009,7 +999,7 @@ local function RefreshESP()
                         Obj = shredder,
                         Color = Color3.fromRGB(147, 197, 253),
                         Priority = dist + 100,
-                        Text = "[BASE] Shredder (" .. dist .. "m)",
+                        Text = "[BASE] Shredder",
                         HasHealth = false,
                         StudsOffset = Vector3.new(0, 3.5, 0),
                         CanChams = false,
@@ -1027,7 +1017,7 @@ local function RefreshESP()
                         Obj = wb,
                         Color = Color3.fromRGB(192, 132, 252),
                         Priority = dist + 120,
-                        Text = "[BASE] Workbench (" .. dist .. "m)",
+                        Text = "[BASE] Workbench",
                         HasHealth = false,
                         StudsOffset = Vector3.new(0, 3.0, 0),
                         CanChams = false,
@@ -1048,7 +1038,7 @@ local function RefreshESP()
                             Obj = sChild,
                             Color = color,
                             Priority = dist + 250,
-                            Text = tag .. " " .. sName .. " (" .. dist .. "m)",
+                            Text = tag .. " " .. sName,
                             HasHealth = false,
                             StudsOffset = Vector3.new(0, 2.0, 0),
                             CanChams = false,
@@ -1318,7 +1308,7 @@ local function UpdateInGameMapPOIESP()
         if not marker then
             marker = Instance.new("Frame")
             marker.Name = poiKey
-            marker.Size = UDim2.new(0.034, 0, 0.034, 0)
+            marker.Size = UDim2.new(0.025, 0, 0.025, 0)
             marker.AnchorPoint = Vector2.new(0.5, 0.5)
             marker.BackgroundColor3 = Color3.fromRGB(15, 17, 26)
             marker.BackgroundTransparency = 0.15
@@ -1331,7 +1321,7 @@ local function UpdateInGameMapPOIESP()
 
             local stroke = Instance.new("UIStroke")
             stroke.Color = data.Color
-            stroke.Thickness = 1.5
+            stroke.Thickness = 1.0
             stroke.Parent = marker
 
             local lbl = Instance.new("TextLabel")

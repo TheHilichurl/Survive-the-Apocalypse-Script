@@ -160,22 +160,31 @@ TabCombat:AddToggle("Enable Break Aura (Auto Farm Barrels, Scrap Piles, Cars)", 
 TabCombat:AddSlider("Break Aura Range (Studs)", "BreakAuraRange", 6, 25, 1)
 
 TabCombat:AddSection("Silent Aim (360 Omni-Lock PvE), Auto Shoot & Aimbot")
-TabCombat:AddToggle("Enable Silent Aim (Auto Lock All Mobs 360 deg & 100% Hit Anywhere)", "SilentAim")
-TabCombat:AddToggle("Enable Smart Auto Shoot (360 Off-Screen + Virtual Bullet + HP Check)", "AutoShoot")
+local SilentAimToggleRef, AutoShootToggleRef = nil, nil
+SilentAimToggleRef = TabCombat:AddToggle("Enable Silent Aim (Manual Click -> Bends Bullets to Nearest Mob)", "SilentAim", function(val)
+    if val and Config.AutoShoot then
+        Config.AutoShoot = false
+        if AutoShootToggleRef and AutoShootToggleRef.SetState then
+            AutoShootToggleRef:SetState(false)
+        end
+    end
+end)
+AutoShootToggleRef = TabCombat:AddToggle("Enable Smart Auto Shoot (Fully Automatic Firing at Clear Targets)", "AutoShoot", function(val)
+    if val and Config.SilentAim then
+        Config.SilentAim = false
+        if SilentAimToggleRef and SilentAimToggleRef.SetState then
+            SilentAimToggleRef:SetState(false)
+        end
+    end
+end)
 TabCombat:AddToggle("Draw Virtual Bullet Line to Target Before Shooting", "ShowVirtualBulletLine")
-TabCombat:AddToggle("Enable Camera Aimbot (PvE Mobs Only)", "Aimbot")
 TabCombat:AddDropdown("Target Priority (PvE Mobs)", "AimPriority", { "Nearest", "LowestHP", "SpecialsFirst" })
 TabCombat:AddSlider("Max Target Range (Studs)", "AimMaxRange", 50, 1000, 10)
-TabCombat:AddToggle("Show Camera Aimbot FOV Circle", "AimShowFOV")
-TabCombat:AddSlider("Camera Aimbot FOV Radius (px)", "AimFOV", 25, 500, 5)
-TabCombat:AddSlider("Camera Aimbot Smoothness", "AimSmoothness", 0.05, 1.0, 0.05)
-TabCombat:AddToggle("Aim Wall Check (Only Target Visible Mobs)", "AimWallCheck")
 
 TabCombat:AddSection("Gun Modifications & Auto Upgrades")
 TabCombat:AddToggle("Fast Fire Rate (Stable High DPS - Up to 13.3 rps)", "FastShoot", Combat.ApplyAllWeaponMods)
 TabCombat:AddSlider("Fire Rate Multiplier", "FireRateMultiplier", 1.0, 3.0, 0.05, Combat.ApplyAllWeaponMods)
-TabCombat:AddToggle("Fast Reload (Server Synchronized)", "FastReload", Combat.ApplyAllWeaponMods)
-TabCombat:AddSlider("Reload Speed Multiplier", "ReloadSpeedMultiplier", 1.0, 3.0, 0.1, Combat.ApplyAllWeaponMods)
+-- Fast Reload removed
 TabCombat:AddToggle("No Recoil", "NoRecoil", Combat.ApplyAllWeaponMods)
 TabCombat:AddToggle("No Camera Shake", "NoCameraShake")
 TabCombat:AddToggle("No Bullet Spread (100% Accuracy)", "NoSpread", Combat.ApplyAllWeaponMods)
@@ -248,24 +257,7 @@ TabLooting:AddToggle("Auto Fuel Generator at Base (Gas Cans)", "AutoFuelGenerato
 TabLooting:AddSlider("Fuel Generator When Below (%)", "AutoFuelThreshold", 20, 100, 5)
 TabLooting:AddToggle("Auto Feed Shredder/Scraper at Base (Scrap/Battery/Hearts)", "AutoShredResources")
 
-TabLooting:AddSection("Manual Item Bring to Base")
-TabLooting:AddDropdown("Fly Destination Mode", "BringDestination", { "AutoByType", "BaseCenter", "Generator", "Shredder", "Player" })
-TabLooting:AddDropdown("Item Category Filter", "BringCategoryFilter", {
-    "All", "Fuel", "Resource", "Gun", "Melee", "Ammo", "Medical", "Consumable", "Food", "Armor", "Blueprint", "Equipment"
-})
-TabLooting:AddDropdown("Item Sort Order", "BringSortOrder", {
-    "Nearest First", "Farthest First", "Highest Tier", "Alphabetical"
-})
-TabLooting:AddButton("Touch & Fly Nearby Items to Base by Type (35m)", function()
-    local c = Looting.BringMatchingItems(false)
-    Utils.NotifyGame("Launched " .. tostring(c) .. " nearby item(s) flying to Base (" .. Config.BringDestination .. ")!")
-end)
-TabLooting:AddButton("Collect & Fly Map Items to Base by Type", function()
-    task.spawn(function()
-        local c = Looting.BringMatchingItems(true)
-        Utils.NotifyGame("Launched " .. tostring(c) .. " map item(s) flying to Base (" .. Config.BringDestination .. ")!")
-    end)
-end)
+-- Manual Item Bring removed: Looting is strictly <= 15 studs
 
 TabLooting:AddSection("Smart Food, Auto Heal, Revive, Crates & Safe Interacting")
 TabLooting:AddToggle("Smart Food: Eat if Hunger < Threshold, Collect/Carry if >=", "AutoEat")
@@ -622,11 +614,21 @@ task.spawn(function()
     local lastESPTick = 0
     local lastModTick = 0
     local lastSlowTick = 0
+    local lastGCTick = 0
     while _G.STA_MasterHub_Loaded do
         local now = os.clock()
 
         pcall(Combat.RunKillAuraAndBreakAuraStep)
         pcall(Looting.RunLootingAndSurvivalStep)
+
+        -- Micro-Step GC Engine: Đúng mỗi 5s chạy 1 lần, dọn dẹp chính xác 10 KB không hơn
+        if not lastGCTick or (now - lastGCTick) >= 5.0 then
+            lastGCTick = now
+            pcall(collectgarbage, "step", 10)
+            if Combat and Combat.CleanObstacleCache then
+                pcall(Combat.CleanObstacleCache)
+            end
+        end
 
         if now - lastModTick >= 0.4 then
             lastModTick = now
