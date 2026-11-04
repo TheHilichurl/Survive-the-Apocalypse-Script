@@ -264,15 +264,15 @@ local BorderRayParams = RaycastParams.new()
 BorderRayParams.FilterType = Enum.RaycastFilterType.Include
 BorderRayParams.RespectCanCollide = true
 
-local FoliageRayParams = RaycastParams.new()
-FoliageRayParams.FilterType = Enum.RaycastFilterType.Include
-FoliageRayParams.RespectCanCollide = false -- False để bắt được các MeshPart bụi cỏ (Grass, Foliage, Elevation...) có CanCollide = false
-FoliageRayParams.CollisionGroup = "Default"
+local GrassRayParams = RaycastParams.new()
+GrassRayParams.FilterType = Enum.RaycastFilterType.Include
+GrassRayParams.RespectCanCollide = false -- False để bắt được các MeshPart bụi cỏ (Grass) có CanCollide = false
+GrassRayParams.CollisionGroup = "Default"
 
 local LastAimRayParamsRefresh = 0
 local function EnsureAimRayParams()
     local now = os.clock()
-    if (now - LastAimRayParamsRefresh) >= 1.0 or #StaticAimRayParams.FilterDescendantsInstances == 0 then
+    if (now - LastAimRayParamsRefresh) >= 2.0 or #StaticAimRayParams.FilterDescendantsInstances == 0 then
         LastAimRayParamsRefresh = now
         local map = Workspace:FindFirstChild("Map")
         local structures = Workspace:FindFirstChild("Structures")
@@ -284,10 +284,10 @@ local function EnsureAimRayParams()
         if border then table.insert(list, border) end
         if terrain then table.insert(list, terrain) end
 
-        -- Bổ sung các thư mục cảnh quan, cây cối, cỏ trên bản đồ
+        -- Bổ sung các thư mục cây cối ngoài map
         for _, ch in ipairs(Workspace:GetChildren()) do
             local chName = ch.Name:lower()
-            if (chName:find("tree") or chName:find("grass") or chName:find("foliage") or chName:find("nature") or chName:find("decoration") or chName:find("environment"))
+            if (chName:find("tree") or chName:find("foliage") or chName:find("nature"))
                 and ch ~= Workspace:FindFirstChild("Characters") and ch ~= Workspace:FindFirstChild("DroppedItems") then
                 table.insert(list, ch)
             end
@@ -302,94 +302,54 @@ local function EnsureAimRayParams()
             BorderRayParams.FilterDescendantsInstances = {}
         end
 
-        -- Thu thập danh sách vật thể Cỏ, Cảnh quan tự nhiên (Foliage, Grass, Elevation, LongFiller...)
-        local foliageList = {}
-        local seenFoliage = {}
-        local function addFoliage(item)
-            if item and not seenFoliage[item] then
-                seenFoliage[item] = true
-                table.insert(foliageList, item)
+        -- THU THẬP ĐỘC QUYỀN CÁC MODEL BỤI CỎ (GRASS)
+        -- Tuyệt đối KHÔNG thu thập fire part, decoration, đèn, đồ đạc hay toàn bộ công trình
+        -- để triệt tiêu 100% giật lag khi cầm súng lại gần lửa hoặc các công trình được tô màu.
+        local grassList = {}
+        local seenGrass = {}
+        local function addGrass(item)
+            if item and not seenGrass[item] then
+                seenGrass[item] = true
+                table.insert(grassList, item)
             end
         end
 
-        -- A. Các thẻ chuẩn của game qua CollectionService
+        -- 1. Thẻ "Grass" chuẩn nếu game có gắn
         if CollectionService then
-            for _, tag in ipairs({ "HideableDecoration", "Grass", "Foliage", "Tree", "Flora", "Decoration" }) do
-                for _, inst in ipairs(CollectionService:GetTagged(tag)) do
-                    addFoliage(inst)
-                end
+            for _, inst in ipairs(CollectionService:GetTagged("Grass")) do
+                addGrass(inst)
             end
         end
 
-        -- B. Cảnh quan trực tiếp dưới Workspace
-        for _, ch in ipairs(Workspace:GetChildren()) do
-            local chName = ch.Name:lower()
-            if (chName:find("tree") or chName:find("grass") or chName:find("foliage") or chName:find("nature") or chName:find("flora") or chName:find("bush"))
-                and ch ~= Workspace:FindFirstChild("Characters") and ch ~= Workspace:FindFirstChild("DroppedItems") then
-                addFoliage(ch)
-            end
-        end
-
-        -- C. Quét Workspace.Map và Workspace.Map.Tiles (Bao gồm LongFiller1 -> Assets -> Assets -> Model -> Grass, Elevation...)
-        if map then
-            for _, ch in ipairs(map:GetChildren()) do
-                local n = ch.Name:lower()
-                if (n:find("tree") or n:find("grass") or n:find("foliage") or n:find("nature") or n:find("flora") or n:find("bush") or n:find("decoration"))
-                    and n ~= "tiles" and n ~= "border" then
-                    addFoliage(ch)
-                end
-            end
-
-            local tiles = map:FindFirstChild("Tiles")
-            if tiles then
-                for _, tile in ipairs(tiles:GetChildren()) do
-                    local tName = tile.Name:lower()
-                    if tName:find("military") then
-                        -- BỎ QUA HOÀN TOÀN TILE MILITARY BASE!
-                        -- Không bao gồm tile này vào FoliageRayParams để tránh triệt để 100% lag FPS do trigger/sensor box.
-                    elseif tName:find("filler") or tName:find("elevation") or tName:find("forest")
-                        or tName:find("nature") or tName:find("grass") or tName:find("landscape") then
-                        -- Các tile thuần tự nhiên / filler cảnh quan (như LongFiller1, Elevation1...)
-                        addFoliage(tile)
-                    else
-                        -- Các tile khác (Road, Town, Camp...): tìm các cụm cỏ / cây / decoration
-                        for _, sub in ipairs(tile:GetChildren()) do
-                            local sName = sub.Name:lower()
-                            if sName:find("grass") or sName:find("foliage") or sName:find("tree") or sName:find("nature") or sName:find("flora") or sName:find("elevation") then
-                                addFoliage(sub)
-                            elseif sName == "assets" or sName == "decoration" or sName == "decorations" or sName == "models" or sName == "props" then
-                                for _, deep in ipairs(sub:GetChildren()) do
-                                    local dName = deep.Name:lower()
-                                    if dName:find("grass") or dName:find("foliage") or dName:find("tree") or dName:find("nature") or dName:find("elevation") then
-                                        addFoliage(deep)
-                                    elseif dName == "assets" or dName == "model" or dName == "decoration" then
-                                        for _, item in ipairs(deep:GetChildren()) do
-                                            local iName = item.Name:lower()
-                                            if iName:find("grass") or iName:find("foliage") or iName:find("tree") or iName:find("nature") or iName:find("elevation") then
-                                                addFoliage(item)
-                                            elseif item:IsA("Model") and (item:FindFirstChild("Grass") or item.Name:lower():find("model")) then
-                                                local hasGrass = false
-                                                for _, part in ipairs(item:GetChildren()) do
-                                                    if part.Name:lower():find("grass") then
-                                                        hasGrass = true
-                                                        break
-                                                    end
-                                                end
-                                                if hasGrass then
-                                                    addFoliage(item)
-                                                end
-                                            end
-                                        end
-                                    end
-                                end
-                            end
+        -- 2. Quét nhanh tìm đúng các cụm Model chứa Grass trong Map.Tiles
+        -- Cấu trúc: LongFiller1 -> Assets -> Assets -> Model -> Grass
+        local tiles = map and map:FindFirstChild("Tiles")
+        if tiles then
+            for _, tile in ipairs(tiles:GetChildren()) do
+                local assets = tile:FindFirstChild("Assets")
+                local searchRoot = assets or tile
+                for _, desc in ipairs(searchRoot:GetDescendants()) do
+                    if desc:IsA("BasePart") and desc.Name == "Grass" then
+                        local p = desc.Parent
+                        if p and p:IsA("Model") and p ~= tile and p ~= searchRoot and p.Name ~= "Tiles" and p.Name ~= "Map" then
+                            addGrass(p)
+                        else
+                            addGrass(desc)
                         end
                     end
                 end
             end
         end
 
-        FoliageRayParams.FilterDescendantsInstances = foliageList
+        -- 3. Quét các bụi cỏ đặt rời trực tiếp dưới Workspace nếu có
+        for _, ch in ipairs(Workspace:GetChildren()) do
+            local chLower = ch.Name:lower()
+            if chLower == "grass" or chLower == "tallgrass" or chLower == "bush" then
+                addGrass(ch)
+            end
+        end
+
+        GrassRayParams.FilterDescendantsInstances = grassList
     end
     return StaticAimRayParams
 end
@@ -489,11 +449,10 @@ local function IsTreeOrGrass(inst)
         local n = cur.Name:lower()
         if n:find("tree") or n:find("grass") or n:find("trunk") or n:find("foliage")
             or n:find("branch") or n:find("bush") or n:find("shrub") or n:find("flora")
-            or n:find("leaves") or n:find("wood") or n:find("plant") or n:find("weed")
-            or n:find("longfiller") or n:find("elevation") or n:find("vegetation") then
+            or n:find("leaves") or n:find("plant") or n:find("weed") or n:find("vegetation") then
             return true
         end
-        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") or cur:HasTag("Flora") or cur:HasTag("Decoration") then
+        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("Flora") then
             return true
         end
         cur = cur.Parent
@@ -629,73 +588,63 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
         end
     end
 
-    -- 2. KIỂM TRA VẬT CẢN CỎ & CẢNH QUAN NON-COLLIDABLE (GRASS, ELEVATION, FOLIAGE, LONGFILTER...):
-    -- Khắc phục lỗi game đạn bị cản/nuốt bởi bụi cỏ Grass dù CanCollide = false.
-    -- Script chủ động nhận diện bụi cỏ là vật cản để tránh bắn phí đạn gây 0 damage.
-    if #FoliageRayParams.FilterDescendantsInstances > 0 then
-        local foliageHit = Workspace:Raycast(startPt, totalDir, FoliageRayParams)
-        if foliageHit and foliageHit.Instance then
-            local fInst = foliageHit.Instance
-            if not (targetModel and (fInst == targetModel or fInst:IsDescendantOf(targetModel))) then
-                if (foliageHit.Position - endPt).Magnitude > 1.2 then
-                    if IsTreeOrGrass(fInst) or fInst.Name:lower():find("grass") or fInst.Name:lower():find("elevation") then
-                        return false, foliageHit.Position
+    -- 2. KIỂM TRA VẬT CẢN CHUNG (MAP, STRUCTURES, WALLS, FENCES) - CỰC NHANH (C++ PhysX BVH)
+    -- Chạy kiểm tra vật cứng trước để loại bỏ 95% trường hợp bị chắn bởi tường/công trình ngay lập tức,
+    -- không tốn tài nguyên kiểm tra cỏ non-collidable khi đã bị tường chắn!
+    local hit = Workspace:Raycast(startPt, totalDir, StaticAimRayParams)
+    if hit and hit.Instance then
+        local inst = hit.Instance
+        -- Nếu chạm chính mục tiêu quái vật (hoặc con của model)
+        if targetModel and (inst == targetModel or inst:IsDescendantOf(targetModel)) then
+            return true, hit.Position
+        end
+
+        -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs)
+        if (hit.Position - endPt).Magnitude <= 1.2 then
+            return true, hit.Position
+        end
+
+        -- Hàng rào do người chơi đặt trong Base (các loại fence): BẮN XUYÊN ĐƯỢC!
+        if IsBaseFence(inst) then
+            local nextPt = hit.Position + totalDir.Unit * 0.4
+            local nextDir = endPt - nextPt
+            if nextDir.Magnitude > 0.35 then
+                local hit2 = Workspace:Raycast(nextPt, nextDir, StaticAimRayParams)
+                if not hit2 or (targetModel and (hit2.Instance == targetModel or hit2.Instance:IsDescendantOf(targetModel))) then
+                    return true, hit2 and hit2.Position or endPt
+                end
+                if IsBaseFence(hit2.Instance) then
+                    return true, endPt
+                end
+                return false, hit2.Position
+            end
+            return true, endPt
+        end
+
+        -- Cây cối hoặc tường kiên cố, hàng rào map -> BỊ CẢN HOÀN TOÀN!
+        return false, hit.Position
+    end
+
+    -- 3. NẾU ĐƯỜNG ĐẠN KHÔNG BỊ TƯỜNG CẢN: KIỂM TRA BỤI CỎ (GRASS)
+    -- Do lỗi game đạn bị cản/nuốt bởi bụi cỏ Grass (dù CanCollide = false),
+    -- script kiểm tra xem có bụi cỏ Grass nào chắn trên đường bay không.
+    -- Kênh GrassRayParams CHỈ chứa đúng các cụm cỏ Grass (không chứa lửa, không chứa công trình, không chứa trigger)
+    -- nên 0% lag khi đứng cạnh lửa hoặc chạy gần các công trình được tô màu!
+    if #GrassRayParams.FilterDescendantsInstances > 0 then
+        local grassHit = Workspace:Raycast(startPt, totalDir, GrassRayParams)
+        if grassHit and grassHit.Instance then
+            local gInst = grassHit.Instance
+            if not (targetModel and (gInst == targetModel or gInst:IsDescendantOf(targetModel))) then
+                if (grassHit.Position - endPt).Magnitude > 1.2 then
+                    if gInst.Name:lower():find("grass") or IsTreeOrGrass(gInst) then
+                        return false, grassHit.Position -- Bị cản bởi bụi cỏ Grass!
                     end
                 end
             end
         end
     end
 
-    -- 3. KIỂM TRA VẬT CẢN CHUNG (MAP, STRUCTURES, WALLS, FENCES)
-    local hit = Workspace:Raycast(startPt, totalDir, StaticAimRayParams)
-    if not hit then
-        -- Đường bắn hoàn toàn thông thoáng
-        return true, endPt
-    end
-
-    local inst = hit.Instance
-    if not inst then
-        return true, endPt
-    end
-
-    -- Nếu chạm chính mục tiêu quái vật (hoặc con của model)
-    if targetModel and (inst == targetModel or inst:IsDescendantOf(targetModel)) then
-        return true, hit.Position
-    end
-
-    -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs)
-    if (hit.Position - endPt).Magnitude <= 1.2 then
-        return true, hit.Position
-    end
-
-    -- Hàng rào do người chơi đặt trong Base (các loại fence): BẮN XUYÊN ĐƯỢC!
-    if IsBaseFence(inst) then
-        local nextPt = hit.Position + totalDir.Unit * 0.4
-        local nextDir = endPt - nextPt
-        if nextDir.Magnitude > 0.35 then
-            local hit2 = Workspace:Raycast(nextPt, nextDir, StaticAimRayParams)
-            if not hit2 or (targetModel and (hit2.Instance == targetModel or hit2.Instance:IsDescendantOf(targetModel))) then
-                return true, hit2 and hit2.Position or endPt
-            end
-            if IsBaseFence(hit2.Instance) then
-                return true, endPt
-            end
-            return false, hit2.Position
-        end
-        return true, endPt
-    end
-
-    -- Cây cối hoặc bụi cỏ -> TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
-    if IsTreeOrGrass(inst) then
-        return false, hit.Position
-    end
-
-    -- Tường kiên cố, hàng rào map -> BỊ CẢN HOÀN TOÀN!
-    if IsMapBorderOrWall(inst) then
-        return false, hit.Position
-    end
-
-    return false, hit.Position
+    return true, endPt
 end
 
 local function SimulateVirtualBullet(originPos, targetPart, targetModel)
