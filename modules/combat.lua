@@ -669,9 +669,17 @@ local function FindUnobstructedPartOnMob(model)
 
     -- Xử lý riêng cho Military Turret / Công trình không có khung xương người:
     if model.Name == "Military Turret" or model.Name:find("Turret") then
-        local mainPart = model:FindFirstChild("MainPart", true)
+        local lr = model:FindFirstChild("LeftRight")
+        local mainPart = (lr and lr:FindFirstChild("MainPart")) or model:FindFirstChild("MainPart", true)
         if mainPart and mainPart:IsA("BasePart") then
             table.insert(partsToTry, mainPart)
+        end
+        if lr then
+            for _, m in ipairs(lr:GetChildren()) do
+                if m:IsA("BasePart") and m ~= mainPart and m.Name ~= "ZombieHitbox" and m.Name ~= "PlacementHitbox" and not m:GetAttribute("BulletUncollidable") then
+                    table.insert(partsToTry, m)
+                end
+            end
         end
     else
         local pref = model:FindFirstChild(preferredPart)
@@ -1903,7 +1911,15 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                         or CurrentLockedTarget:FindFirstChild("Torso")
                         or CurrentLockedTarget:FindFirstChild("HumanoidRootPart")
                         or CurrentLockedTarget.PrimaryPart
-                        or CurrentLockedTarget:FindFirstChildWhichIsA("BasePart", true)
+                        or CurrentLockedTarget:FindFirstChild("MainPart", true)
+                    if not tPart then
+                        for _, desc in ipairs(CurrentLockedTarget:GetDescendants()) do
+                            if desc:IsA("BasePart") and desc.Name ~= "ZombieHitbox" and desc.Name ~= "PlacementHitbox" and not desc:GetAttribute("BulletUncollidable") and desc.Transparency < 0.9 then
+                                tPart = desc
+                                break
+                            end
+                        end
+                    end
                     if tPart then
                         frameTargetModel = CurrentLockedTarget
                         frameTargetPart = tPart
