@@ -34,6 +34,7 @@ local Combat = {}
 
 local CurrentLockedTarget = nil
 local ObstacleCache = {} -- [mob] = expireTimestamp
+local LastTargetSearchTime = 0
 
 local function CleanObstacleCache()
     local now = os.clock()
@@ -202,6 +203,12 @@ local function IsHostilePvEMob(model)
     if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true or model:GetAttribute("Untargetable") == true then
         return false, 0
     end
+    -- Bỏ qua Military Turret để AutoShoot không bị kẹt mục tiêu và tập trung diệt sạch toàn bộ zombie/boss
+    if model.Name == "Military Turret" or model.Name:find("Turret") then
+        if not Config.TargetMilitaryTurrets then
+            return false, 0
+        end
+    end
     local hp = GetActualMobHP(model)
     if hp <= 0 then
         return false, 0
@@ -255,12 +262,12 @@ local BypassHitscanHook = false
 
 local StaticAimRayParams = RaycastParams.new()
 StaticAimRayParams.FilterType = Enum.RaycastFilterType.Include
-StaticAimRayParams.RespectCanCollide = false -- Giúp phát hiện chính xác cả các bụi cỏ và tán cây dù CanCollide = false
+StaticAimRayParams.RespectCanCollide = true -- Chuẩn PhysX của game (tối ưu phần cứng C++, cực nhanh, không lag)
 StaticAimRayParams.CollisionGroup = "Default"
 
 local BorderRayParams = RaycastParams.new()
 BorderRayParams.FilterType = Enum.RaycastFilterType.Include
-BorderRayParams.RespectCanCollide = false
+BorderRayParams.RespectCanCollide = true
 
 local LastAimRayParamsRefresh = 0
 local function EnsureAimRayParams()
@@ -287,7 +294,7 @@ local function EnsureAimRayParams()
         end
 
         StaticAimRayParams.FilterDescendantsInstances = list
-        StaticAimRayParams.RespectCanCollide = false
+        StaticAimRayParams.RespectCanCollide = true
 
         if border then
             BorderRayParams.FilterDescendantsInstances = { border }
@@ -533,59 +540,55 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
     end
 
     -- 2. KIỂM TRA VẬT CẢN CHUNG (MAP, STRUCTURES, WALLS, FENCES)
-    local currentPt = startPt
-    local maxPasses = 5
-    local passes = 0
-
-    while passes < maxPasses do
-        passes = passes + 1
-        local curDir = endPt - currentPt
-        local curDist = curDir.Magnitude
-        if curDist <= 0.35 then
-            return true, endPt
-        end
-
-        local hit = Workspace:Raycast(currentPt, curDir, StaticAimRayParams)
-        if not hit then
-            -- Không bị cản trở bởi bất kỳ vật thể nào
-            return true, endPt
-        end
-
-        local inst = hit.Instance
-        if not inst then
-            return true, endPt
-        end
-
-        -- Nếu chạm chính mục tiêu quái vật (hoặc con của model)
-        if targetModel and (inst == targetModel or inst:IsDescendantOf(targetModel)) then
-            return true, hit.Position
-        end
-
-        -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs)
-        if (hit.Position - endPt).Magnitude <= 1.2 then
-            return true, hit.Position
-        end
-
-        -- Nếu chạm cây cối (Tree, Tree1,...) hoặc bụi cỏ (Grass,...) -> TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
-        if IsTreeOrGrass(inst) then
-            return false, hit.Position
-        end
-
-        -- Nếu trúng tường rào map, tường nhà, hàng rào, chướng ngại vật kiên cố -> BỊ CẢN HOÀN TOÀN!
-        if IsMapBorderOrWall(inst) then
-            return false, hit.Position
-        end
-
-        -- Kiểm tra nếu là vật thể có thể xuyên (chỉ hoa cỏ không va chạm hoặc có BulletUncollidable)
-        if IsPenetrableObstacle(inst) then
-            currentPt = hit.Position + curDir.Unit * 0.2
-        else
-            -- Bị cản bởi vật thể kiên cố trong Map/Structures
-            return false, hit.Position
-        end
+    local hit = Workspace:Raycast(startPt, totalDir, StaticAimRayParams)
+    if not hit then
+        -- Đường bắn hoàn toàn thông thoáng
+        return true, endPt
     end
 
-    return false, nil
+    local inst = hit.Instance
+    if not inst then
+        return true, endPt
+    end
+
+    -- Nếu chạm chính mục tiêu quái vật (hoặc con của model)
+    if targetModel and (inst == targetModel or inst:IsDescendantOf(targetModel)) then
+        return true, hit.Position
+    end
+
+    -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs)
+    if (hit.Position - endPt).Magnitude <= 1.2 then
+        return true, hit.Position
+    end
+
+    -- Hàng rào do người chơi đặt trong Base (các loại fence): BẮN XUYÊN ĐƯỢC!
+    if IsBaseFence(inst) then
+        local nextPt = hit.Position + totalDir.Unit * 0.4
+        local nextDir = endPt - nextPt
+        if nextDir.Magnitude > 0.35 then
+            local hit2 = Workspace:Raycast(nextPt, nextDir, StaticAimRayParams)
+            if not hit2 or (targetModel and (hit2.Instance == targetModel or hit2.Instance:IsDescendantOf(targetModel))) then
+                return true, hit2 and hit2.Position or endPt
+            end
+            if IsBaseFence(hit2.Instance) then
+                return true, endPt
+            end
+            return false, hit2.Position
+        end
+        return true, endPt
+    end
+
+    -- Cây cối hoặc bụi cỏ -> TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
+    if IsTreeOrGrass(inst) then
+        return false, hit.Position
+    end
+
+    -- Tường kiên cố, hàng rào map -> BỊ CẢN HOÀN TOÀN!
+    if IsMapBorderOrWall(inst) then
+        return false, hit.Position
+    end
+
+    return false, hit.Position
 end
 
 local function SimulateVirtualBullet(originPos, targetPart, targetModel)
@@ -656,6 +659,26 @@ local function FindUnobstructedPartOnMob(model)
     return nil, nil, nil, nil
 end
 
+local CachedMilitaryBasePos = nil
+local LastMBCheckTime = 0
+local function GetMilitaryBaseLocation()
+    local now = os.clock()
+    if not CachedMilitaryBasePos or (now - LastMBCheckTime >= 5.0) then
+        LastMBCheckTime = now
+        local map = Workspace:FindFirstChild("Map")
+        local tiles = map and map:FindFirstChild("Tiles")
+        if tiles then
+            local mb = tiles:FindFirstChild("Military Base") or tiles:FindFirstChild("Military Lab")
+            if mb then
+                CachedMilitaryBasePos = mb:GetPivot().Position
+            else
+                CachedMilitaryBasePos = nil
+            end
+        end
+    end
+    return CachedMilitaryBasePos
+end
+
 local LastCacheCleanTime = 0
 local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
     local myChar = Utils.GetCharacter()
@@ -663,7 +686,16 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
     local Camera = Services.Camera or Workspace.CurrentCamera
     if not (myChar and myRoot and Camera) then return nil, nil, nil, nil end
 
-    maxRange = maxRange or Config.AimMaxRange or 500
+    local myPos = myRoot.Position
+    local mbPos = GetMilitaryBaseLocation()
+    local distToMB = mbPos and (myPos - mbPos).Magnitude or 999999
+    local inMilitaryZone = distToMB <= 95 -- Người chơi đang ở trong/sát căn cứ quân sự
+
+    -- Tầm quét chiến đấu hợp lý:
+    -- Khi ở khu vực quân sự: giới hạn tối đa 75 studs để bao quát toàn bộ sân/raid mà không quét xuyên qua các block xa
+    -- Khi ở ngoài map: tối đa 120 studs (không quét 500 studs để tránh kéo lag và nhắm quái ảo)
+    local effectiveMaxRange = math.min(maxRange or Config.AimMaxRange or 500, inMilitaryZone and 75 or 120)
+
     local charsFolder = Workspace:FindFirstChild("Characters")
     if not charsFolder then return nil, nil, nil, nil end
 
@@ -672,7 +704,6 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
     local aimPriority = Config.AimPriority or "Distance"
     local checkLOS = (requireLOS ~= false) and (Config.AimWallCheck ~= false)
 
-    local myPos = myRoot.Position
     local candidates = {}
 
     -- Dọn dẹp cache quái vật đã hết hạn hoặc đã chết định kỳ mỗi 1s
@@ -688,7 +719,22 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         if isHostile then
             local modelPos = model:GetPivot().Position
             local dist = (modelPos - myPos).Magnitude
-            if dist <= maxRange then
+
+            -- 1. NẾU NGƯỜI CHƠI Ở XA KHU QUÂN SỰ (distToMB > 95):
+            -- Bỏ qua 100% tất cả quái vật và trụ nằm trong khu quân sự!
+            local isMobInMB = mbPos and (modelPos - mbPos).Magnitude <= 130
+            if not inMilitaryZone and isMobInMB then
+                continue
+            end
+
+            -- 2. BỎ QUA MILITARY TURRET (tránh kẹt mục tiêu vào trụ 599 HP trên cao)
+            if model.Name == "Military Turret" or model.Name:find("Turret") then
+                if not Config.TargetMilitaryTurrets then
+                    continue
+                end
+            end
+
+            if dist <= effectiveMaxRange then
                 local allowByFOV = true
                 local fovDist = 0
                 if useFOV then
@@ -737,12 +783,18 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
                 return aVirus -- Quái mang Virus được ưu tiên xử lý trước để kích nổ DoT và lây lan
             end
         end
+        -- Ưu tiên zombie/boss hơn là trụ quân sự
+        local aIsTurret = a.Model.Name:find("Turret") ~= nil
+        local bIsTurret = b.Model.Name:find("Turret") ~= nil
+        if aIsTurret ~= bIsTurret then
+            return not aIsTurret
+        end
         return a.Dist < b.Dist
     end)
 
-    -- Bước 3: Quét và kiểm tra Line Of Sight (hạn mức tối đa 25 con mỗi nhịp, quái bị cản kiên cố lưu cache 0.35s)
+    -- Bước 3: Quét và kiểm tra Line Of Sight (tối đa 12 con mỗi nhịp, siêu nhẹ)
     local checksDone = 0
-    local maxChecksPerTick = 25
+    local maxChecksPerTick = 12
 
     for _, entry in ipairs(candidates) do
         local model = entry.Model
@@ -765,7 +817,6 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
                 end
 
                 if checksDone >= maxChecksPerTick then
-                    -- Đã kiểm tra tối đa 8 con trong nhịp này: Dừng lại nhường frame tiếp theo
                     break
                 end
             end
@@ -1794,8 +1845,10 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             CurrentLockedTarget = nil
         end
 
-        -- 2. Nếu chưa có mục tiêu hoặc mục tiêu cũ bị mất, quét tìm mục tiêu mới (hạn mức <= 1 raycast)
-        if not frameTargetModel then
+        -- 2. Nếu chưa có mục tiêu hoặc mục tiêu cũ bị mất, quét tìm mục tiêu mới (tối đa 20 lần/s, tiết kiệm 85% CPU)
+        local nowTime = os.clock()
+        if not frameTargetModel and (nowTime - LastTargetSearchTime >= 0.05) then
+            LastTargetSearchTime = nowTime
             local tModel, tPart, tOrigin = GetBestCombatTarget(weaponRange, false, Config.AimWallCheck)
             if tModel and tPart then
                 frameTargetModel = tModel

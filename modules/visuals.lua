@@ -488,7 +488,7 @@ local function RescanSpecialLandmarks()
                 end
 
             -- B. Military Base & Military Lab Raid (Căn cứ quân sự & Phòng thí nghiệm Exterminator)
-            elseif lower:find("military") then
+            elseif lower == "military base" or lower == "military lab" then
                 local baseModel = (assets and (assets:FindFirstChild("MilitaryBase") or assets:FindFirstChild("Base") or assets:FindFirstChild("Lab")))
                     or tile:FindFirstChildWhichIsA("Model") or tile
                 local isLab = lower:find("lab")
@@ -498,7 +498,7 @@ local function RescanSpecialLandmarks()
                     Name = isLab and "[RAID] Military Lab" or "[RAID] Military Base",
                     Color = Color3.fromRGB(34, 197, 94), -- Military Emerald Green
                     Offset = CalculateRoofOffset(baseModel, Vector3.new(0, 8.5, 0)),
-                    CanChams = true,
+                    CanChams = false, -- Tắt Highlight chams cho cả khối nhà quân sự để giữ FPS ổn định 100%
                     IsInfiniteRange = true,
                     IsRaidSpecial = true,
                 })

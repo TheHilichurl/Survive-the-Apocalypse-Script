@@ -71,6 +71,7 @@ local Config = {
     AimWallCheck = true,
     AutoShoot = false,
     ShowVirtualBulletLine = true,
+    TargetMilitaryTurrets = false,     -- Mặc định false: ưu tiên diệt sạch quái và boss, không kẹt vào trụ 599 HP
 
     -- Weapon Mods & Boosts
     NoRecoil = false,

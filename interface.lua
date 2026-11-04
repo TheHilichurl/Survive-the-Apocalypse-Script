@@ -208,6 +208,7 @@ end)
 TabCombat:AddToggle("Draw Virtual Bullet Line to Target Before Shooting", "ShowVirtualBulletLine")
 TabCombat:AddDropdown("Target Priority (PvE Mobs)", "AimPriority", { "Nearest", "LowestHP", "SpecialsFirst" })
 TabCombat:AddSlider("Max Target Range (Studs)", "AimMaxRange", 50, 1000, 10)
+TabCombat:AddToggle("Ngắm bắn cả Trụ quân sự (Military Turrets)", "TargetMilitaryTurrets")
 
 TabCombat:AddSection("Gun Modifications & Auto Upgrades")
 TabCombat:AddToggle("Fast Fire Rate (Stable High DPS - Up to 13.3 rps)", "FastShoot", Combat.ApplyAllWeaponMods)
