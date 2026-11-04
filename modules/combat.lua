@@ -203,12 +203,6 @@ local function IsHostilePvEMob(model)
     if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true or model:GetAttribute("Untargetable") == true then
         return false, 0
     end
-    -- Bỏ qua Military Turret để AutoShoot không bị kẹt mục tiêu và tập trung diệt sạch toàn bộ zombie/boss
-    if model.Name == "Military Turret" or model.Name:find("Turret") then
-        if not Config.TargetMilitaryTurrets then
-            return false, 0
-        end
-    end
     local hp = GetActualMobHP(model)
     if hp <= 0 then
         return false, 0
@@ -610,32 +604,46 @@ local function FindUnobstructedPartOnMob(model)
     local preferredPart = Config.AimPart or "Head"
 
     local partsToTry = {}
-    local pref = model:FindFirstChild(preferredPart)
-    if pref and pref:IsA("BasePart") then
-        table.insert(partsToTry, pref)
+
+    -- Xử lý riêng cho Military Turret / Công trình không có khung xương người:
+    if model.Name == "Military Turret" or model.Name:find("Turret") then
+        local mainPart = model:FindFirstChild("MainPart", true)
+        if mainPart and mainPart:IsA("BasePart") then
+            table.insert(partsToTry, mainPart)
+        end
+    else
+        local pref = model:FindFirstChild(preferredPart)
+        if pref and pref:IsA("BasePart") then
+            table.insert(partsToTry, pref)
+        end
+
+        local head = model:FindFirstChild("Head")
+        if head and head:IsA("BasePart") and head ~= pref then
+            table.insert(partsToTry, head)
+        end
+
+        local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
+        if torso and torso:IsA("BasePart") and torso ~= pref and torso ~= head then
+            table.insert(partsToTry, torso)
+        end
+
+        local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+        if root and root:IsA("BasePart") and root ~= pref and root ~= head and root ~= torso and root.Name ~= "ZombieHitbox" then
+            table.insert(partsToTry, root)
+        end
     end
 
-    local head = model:FindFirstChild("Head")
-    if head and head:IsA("BasePart") and head ~= pref then
-        table.insert(partsToTry, head)
-    end
-
-    local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
-    if torso and torso:IsA("BasePart") and torso ~= pref and torso ~= head then
-        table.insert(partsToTry, torso)
-    end
-
-    local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
-    if root and root:IsA("BasePart") and root ~= pref and root ~= head and root ~= torso then
-        table.insert(partsToTry, root)
-    end
-
-    -- Hỗ trợ các mục tiêu đặc biệt không có xương người chuẩn (ví dụ: Military Turret, Boss cơ khí, vật thể raid):
+    -- Hỗ trợ các mục tiêu đặc biệt không có xương người chuẩn (ví dụ: Boss cơ khí, vật thể raid):
     if #partsToTry == 0 then
-        for _, desc in ipairs(model:GetDescendants()) do
-            if desc:IsA("BasePart") and desc.Transparency < 0.9 and desc.Size.Magnitude > 0.4 then
-                table.insert(partsToTry, desc)
-                break
+        local mainPart = model:FindFirstChild("MainPart", true)
+        if mainPart and mainPart:IsA("BasePart") then
+            table.insert(partsToTry, mainPart)
+        else
+            for _, desc in ipairs(model:GetDescendants()) do
+                if desc:IsA("BasePart") and desc.Name ~= "ZombieHitbox" and desc.Transparency < 0.9 and desc.Size.Magnitude > 0.4 then
+                    table.insert(partsToTry, desc)
+                    break
+                end
             end
         end
     end
@@ -689,12 +697,12 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
     local myPos = myRoot.Position
     local mbPos = GetMilitaryBaseLocation()
     local distToMB = mbPos and (myPos - mbPos).Magnitude or 999999
-    local inMilitaryZone = distToMB <= 95 -- Người chơi đang ở trong/sát căn cứ quân sự
+    local inMilitaryZone = distToMB <= 120 -- Người chơi đang ở trong/sát căn cứ quân sự (120 studs)
 
     -- Tầm quét chiến đấu hợp lý:
-    -- Khi ở khu vực quân sự: giới hạn tối đa 75 studs để bao quát toàn bộ sân/raid mà không quét xuyên qua các block xa
+    -- Khi ở khu vực quân sự: 100 studs theo yêu cầu người chơi (bao quát toàn bộ căn cứ và tháp canh)
     -- Khi ở ngoài map: tối đa 120 studs (không quét 500 studs để tránh kéo lag và nhắm quái ảo)
-    local effectiveMaxRange = math.min(maxRange or Config.AimMaxRange or 500, inMilitaryZone and 75 or 120)
+    local effectiveMaxRange = math.min(maxRange or Config.AimMaxRange or 500, inMilitaryZone and 100 or 120)
 
     local charsFolder = Workspace:FindFirstChild("Characters")
     if not charsFolder then return nil, nil, nil, nil end
@@ -720,16 +728,16 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
             local modelPos = model:GetPivot().Position
             local dist = (modelPos - myPos).Magnitude
 
-            -- 1. NẾU NGƯỜI CHƠI Ở XA KHU QUÂN SỰ (distToMB > 95):
-            -- Bỏ qua 100% tất cả quái vật và trụ nằm trong khu quân sự!
+            -- 1. NẾU NGƯỜI CHƠI Ở XA KHU QUÂN SỰ (distToMB > 120):
+            -- Bỏ qua quái vật và trụ nằm sâu trong khu quân sự để không bắn qua tường rào quân sự từ xa
             local isMobInMB = mbPos and (modelPos - mbPos).Magnitude <= 130
             if not inMilitaryZone and isMobInMB then
                 continue
             end
 
-            -- 2. BỎ QUA MILITARY TURRET (tránh kẹt mục tiêu vào trụ 599 HP trên cao)
+            -- 2. MILITARY TURRET: Tự động ngắm bắn để phá huỷ theo yêu cầu
             if model.Name == "Military Turret" or model.Name:find("Turret") then
-                if not Config.TargetMilitaryTurrets then
+                if Config.TargetMilitaryTurrets == false then
                     continue
                 end
             end
@@ -771,7 +779,7 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return nil, nil, nil, nil
     end
 
-    -- Bước 2: Ưu tiên quái mang Virus (nếu bật HackerFocusVirusTarget) hoặc gần nhất trước tiên
+    -- Bước 2: Ưu tiên quái mang Virus (nếu bật HackerFocusVirusTarget) hoặc tự vệ cận chiến trước
     table.sort(candidates, function(a, b)
         if useFOV then
             return a.Score < b.Score
@@ -783,12 +791,15 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
                 return aVirus -- Quái mang Virus được ưu tiên xử lý trước để kích nổ DoT và lây lan
             end
         end
-        -- Ưu tiên zombie/boss hơn là trụ quân sự
-        local aIsTurret = a.Model.Name:find("Turret") ~= nil
-        local bIsTurret = b.Model.Name:find("Turret") ~= nil
-        if aIsTurret ~= bIsTurret then
-            return not aIsTurret
+
+        -- QUAN TRỌNG: Nếu có quái zombie áp sát cận chiến (<= 25 studs), ưu tiên diệt quái gần trước
+        -- để người chơi không bị zombie cào chết trong khi đang ngắm bắn trụ Turret từ xa!
+        local aIsCloseMob = a.Dist <= 25 and not (a.Model.Name:find("Turret"))
+        local bIsCloseMob = b.Dist <= 25 and not (b.Model.Name:find("Turret"))
+        if aIsCloseMob ~= bIsCloseMob then
+            return aIsCloseMob
         end
+
         return a.Dist < b.Dist
     end)
 
