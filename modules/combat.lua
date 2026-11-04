@@ -137,26 +137,6 @@ local function GetActualMobHP(model)
         end
     end
 
-    -- Xử lý chuyên biệt cho Military Turret:
-    local isTurret = (model.Name == "Military Turret" or model.Name:find("Turret") ~= nil)
-    if isTurret then
-        local tHp = (mockHum and (mockHum:GetAttribute("Health") or mockHum:GetAttribute("HP")))
-            or model:GetAttribute("Health")
-            or model:GetAttribute("HP")
-        if type(tHp) == "number" and tHp > 0 then
-            return tHp
-        end
-        local val = model:FindFirstChild("Health") or (mockHum and mockHum:FindFirstChild("Health"))
-        if val and (val:IsA("NumberValue") or val:IsA("IntValue")) and val.Value > 0 then
-            return val.Value
-        end
-        -- Mặc định 599 HP cho Military Turret nếu chưa chết
-        if model:GetAttribute("Dead") ~= true then
-            return 599
-        end
-        return 0
-    end
-
     local hp = model:GetAttribute("Health") or model:GetAttribute("HP")
     if type(hp) == "number" then
         if hp <= 0 then
@@ -220,15 +200,8 @@ local function IsHostilePvEMob(model)
     if myChar and Utils.IsSameTeam(myChar, model) then
         return false, 0
     end
-    local isTurret = (model.Name == "Military Turret" or model.Name:find("Turret") ~= nil)
-    if not isTurret then
-        if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true or model:GetAttribute("Untargetable") == true then
-            return false, 0
-        end
-    else
-        if model:GetAttribute("Dead") == true then
-            return false, 0
-        end
+    if model:GetAttribute("Dead") == true or model:GetAttribute("Untouchable") == true or model:GetAttribute("Untargetable") == true then
+        return false, 0
     end
     local hp = GetActualMobHP(model)
     if hp <= 0 then
@@ -577,9 +550,8 @@ local function CheckRayUnobstructed(startPt, endPt, targetModel)
         return true, hit.Position
     end
 
-    -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs, hoặc <= 3.5 studs với Military Turret do kích thước lớn)
-    local maxDistThreshold = (targetModel and (targetModel.Name == "Military Turret" or targetModel.Name:find("Turret") ~= nil)) and 3.5 or 1.2
-    if (hit.Position - endPt).Magnitude <= maxDistThreshold then
+    -- Nếu điểm va chạm chạm đích hoặc rất gần mục tiêu (<= 1.2 studs)
+    if (hit.Position - endPt).Magnitude <= 1.2 then
         return true, hit.Position
     end
 
@@ -638,12 +610,6 @@ local function FindUnobstructedPartOnMob(model)
         local mainPart = model:FindFirstChild("MainPart", true)
         if mainPart and mainPart:IsA("BasePart") then
             table.insert(partsToTry, mainPart)
-        end
-        for _, desc in ipairs(model:GetDescendants()) do
-            if desc:IsA("BasePart") and desc.Name ~= "ZombieHitbox" and desc.Transparency < 0.9 and desc ~= mainPart then
-                table.insert(partsToTry, desc)
-                if #partsToTry >= 3 then break end
-            end
         end
     else
         local pref = model:FindFirstChild(preferredPart)
@@ -798,37 +764,6 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
                         Dist = dist,
                         Score = score,
                     })
-                end
-            end
-        end
-    end
-
-    -- Hỗ trợ tìm kiếm Military Turret trong Tiles["Military Base"] nếu game đặt trực tiếp trong Map:
-    if Config.TargetMilitaryTurrets ~= false then
-        local map = Workspace:FindFirstChild("Map")
-        local tiles = map and map:FindFirstChild("Tiles")
-        local mb = tiles and (tiles:FindFirstChild("Military Base") or tiles:FindFirstChild("Military Lab"))
-        if mb then
-            for _, desc in ipairs(mb:GetDescendants()) do
-                if desc:IsA("Model") and (desc.Name == "Military Turret" or desc.Name:find("Turret")) then
-                    local isHostile, hp = IsHostilePvEMob(desc)
-                    if isHostile then
-                        local modelPos = desc:GetPivot().Position
-                        local dist = (modelPos - myPos).Magnitude
-                        if dist <= 200 then
-                            local alreadyIn = false
-                            for _, c in ipairs(candidates) do
-                                if c.Model == desc then alreadyIn = true break end
-                            end
-                            if not alreadyIn then
-                                table.insert(candidates, {
-                                    Model = desc,
-                                    Dist = dist,
-                                    Score = dist,
-                                })
-                            end
-                        end
-                    end
                 end
             end
         end
