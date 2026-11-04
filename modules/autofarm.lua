@@ -378,3 +378,4 @@ table.insert(Hub.Connections or {}, HeartbeatConn)
 Hub.AutoFarm = AutoFarm
 
 return AutoFarm
+
