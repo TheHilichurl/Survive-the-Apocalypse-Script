@@ -407,36 +407,53 @@ end
 local function IsMapBorderOrWall(inst)
     if not inst then return false end
 
-    -- Hàng rào do người chơi đặt trong Base (các loại fence): BẮN XUYÊN ĐƯỢC -> Không coi là tường cản
+    -- 1. Hàng rào do người chơi đặt trong Base (các loại fence): BẮN XUYÊN ĐƯỢC -> Không coi là tường cản
     if IsBaseFence(inst) then
         return false
     end
 
-    -- Hàng rào ở ngoài Map: TUYỆT ĐỐI KHÔNG XUYÊN -> Coi là tường cản kiên cố!
-    if IsMapFence(inst) then
-        return true
-    end
-
-    -- Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
+    -- 2. Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
     if IsTreeOrGrass(inst) then
         return true
     end
 
+    -- 3. Tường rào biên giới bản đồ (Border): TUYỆT ĐỐI KHÔNG XUYÊN!
     local map = Workspace:FindFirstChild("Map")
     local borderFolder = (map and map:FindFirstChild("Border")) or Workspace:FindFirstChild("Border")
     if borderFolder and (inst == borderFolder or inst:IsDescendantOf(borderFolder)) then
         return true
     end
+
+    -- 4. Hàng rào ở ngoài Map: TUYỆT ĐỐI KHÔNG XUYÊN!
+    if IsMapFence(inst) then
+        -- Cổng map nếu đã mở bằng Keycard/Lever (CanCollide = false) -> Cho phép bắn xuyên qua cổng đã mở!
+        if (inst.Name:lower():find("gate") or inst.Name:lower():find("door")) and not inst.CanCollide then
+            return false
+        end
+        return true
+    end
+
+    -- 5. Nếu vật thể KHÔNG CÓ VA CHẠM (CanCollide = false) và KHÔNG PHẢI cây cỏ / Border:
+    -- Đây là cổng đã mở, cửa đã mở, vùng không khí, trigger zone trong khu quân sự -> TUYỆT ĐỐI KHÔNG CẢN ĐẠN!
+    if not inst.CanCollide then
+        return false
+    end
+
+    -- 6. Nếu vật thể trong suốt (Transparency >= 0.8) -> Vùng cảm biến vô hình, không cản đạn
+    if inst.Transparency >= 0.8 then
+        return false
+    end
+
+    -- 7. Vật thể THỰC SỰ CÓ VA CHẠM (CanCollide = true): Kiểm tra xem có phải tường, nhà, công trình kiên cố cản đạn
     local name = inst.Name:lower()
     local p = inst.Parent
-    local pName = (p and p.Name or ""):lower()
-
     if name:find("border") or name:find("barrier") or name:find("wall") or name:find("fence")
         or name:find("gate") or name:find("door") or name:find("barricade") or name:find("shield")
         or name:find("sandbag") or name:find("pillar") or name:find("column") or name:find("rock")
-        or name:find("house") or name:find("building") or name:find("roof") or name:find("floor") then
+        or name:find("house") or name:find("building") or name:find("roof") then
         return true
     end
+
     while p and p ~= Workspace do
         local curPName = p.Name:lower()
         if curPName:find("border") or curPName:find("barrier") or curPName:find("wall") or curPName:find("fence")
@@ -445,6 +462,7 @@ local function IsMapBorderOrWall(inst)
         end
         p = p.Parent
     end
+
     return false
 end
 
@@ -459,6 +477,10 @@ local function IsPenetrableObstacle(inst)
 
     -- 2. Hàng rào ở ngoài MAP (hoặc rào tự nhiên trên bản đồ): TUYỆT ĐỐI KHÔNG XUYÊN!
     if IsMapFence(inst) then
+        -- Cổng map nếu đã mở (CanCollide = false) thì cho phép xuyên
+        if (inst.Name:lower():find("gate") or inst.Name:lower():find("door")) and not inst.CanCollide then
+            return true
+        end
         return false
     end
 
@@ -482,13 +504,9 @@ local function IsPenetrableObstacle(inst)
         return false
     end
 
-    -- 7. Chỉ các chi tiết hoa nhỏ, bụi rác nhỏ không va chạm (CanCollide = false) và KHÔNG PHẢI cây cỏ mới được coi là xuyên:
-    local name = inst.Name:lower()
-    if not IsTreeOrGrass(inst) and (name:find("flower") or name:find("dirt") or name:find("clutter") or name:find("trash") or inst.Transparency >= 0.85) then
-        return true
-    end
-
-    return false
+    -- 7. Các chi tiết không va chạm (CanCollide = false) và KHÔNG PHẢI cây cỏ:
+    -- (Bao gồm: cổng/cửa đã mở, vùng không khí/trigger zone trong khu quân sự, hoa, rác nhỏ, chi tiết decor xuyên thấu)
+    return true
 end
 
 local function CheckRayUnobstructed(startPt, endPt, targetModel)
@@ -609,6 +627,16 @@ local function FindUnobstructedPartOnMob(model)
         table.insert(partsToTry, root)
     end
 
+    -- Hỗ trợ các mục tiêu đặc biệt không có xương người chuẩn (ví dụ: Military Turret, Boss cơ khí, vật thể raid):
+    if #partsToTry == 0 then
+        for _, desc in ipairs(model:GetDescendants()) do
+            if desc:IsA("BasePart") and desc.Transparency < 0.9 and desc.Size.Magnitude > 0.4 then
+                table.insert(partsToTry, desc)
+                break
+            end
+        end
+    end
+
     if #partsToTry == 0 then return nil, nil, nil, nil end
 
     local origin = GetWeaponFireOrigin(partsToTry[1].Position)
@@ -712,9 +740,9 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return a.Dist < b.Dist
     end)
 
-    -- Bước 3: Quét và bắn theo nhịp - TỐI ĐA 8 CON MỖI NHỊP (Bị cản thì lưu cache 0.25s để phản hồi cực nhanh khi di chuyển)
+    -- Bước 3: Quét và kiểm tra Line Of Sight (hạn mức tối đa 25 con mỗi nhịp, quái bị cản kiên cố lưu cache 0.35s)
     local checksDone = 0
-    local maxChecksPerTick = 8
+    local maxChecksPerTick = 25
 
     for _, entry in ipairs(candidates) do
         local model = entry.Model
@@ -1747,7 +1775,12 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                         CurrentLockedTarget = nil
                     end
                 else
-                    local tPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head") or CurrentLockedTarget:FindFirstChild("Head") or CurrentLockedTarget.PrimaryPart
+                    local tPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head")
+                        or CurrentLockedTarget:FindFirstChild("Head")
+                        or CurrentLockedTarget:FindFirstChild("Torso")
+                        or CurrentLockedTarget:FindFirstChild("HumanoidRootPart")
+                        or CurrentLockedTarget.PrimaryPart
+                        or CurrentLockedTarget:FindFirstChildWhichIsA("BasePart", true)
                     if tPart then
                         frameTargetModel = CurrentLockedTarget
                         frameTargetPart = tPart
