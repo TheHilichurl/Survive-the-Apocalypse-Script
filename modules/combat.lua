@@ -34,7 +34,6 @@ local Combat = {}
 
 local CurrentLockedTarget = nil
 local ObstacleCache = {} -- [mob] = expireTimestamp
-local FrameRaycastUsed = false -- Strictly at most 1 raycast per frame
 
 local function CleanObstacleCache()
     local now = os.clock()
@@ -610,8 +609,11 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return a.Dist < b.Dist
     end)
 
-    -- Bước 3: Quét thông minh kết hợp ObstacleCache - TỐI ĐA ĐÚNG 1 RAYCAST MỖI FRAME
+    -- Bước 3: Quét và bắn theo nhịp - TỐI ĐA 3 CON MỖI NHỊP (Bị cản thì lưu cache để nhịp sau thử 3 con tiếp theo)
     local now = os.clock()
+    local checksDone = 0
+    local maxChecksPerTick = 3
+
     for _, entry in ipairs(candidates) do
         local model = entry.Model
         if not checkLOS then
@@ -622,18 +624,19 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         else
             local isBlocked = ObstacleCache[model] and (now < ObstacleCache[model])
             if not isBlocked then
-                -- Nếu frame này đã sử dụng 1 raycast rồi -> Không thực hiện thêm raycast nào khác trong frame!
-                if FrameRaycastUsed then
-                    break
-                end
-
-                FrameRaycastUsed = true
+                checksDone = checksDone + 1
                 local clearPart, clearOrigin, hitPos = FindUnobstructedPartOnMob(model)
                 if clearPart then
+                    -- Tìm thấy mục tiêu thông thoáng: Chọn ngay để bắn thật!
                     return model, clearPart, clearOrigin, nil
                 else
-                    -- Bị cản bởi tường/cổng -> Đánh dấu cache 1.0s (bỏ qua hoàn toàn trong 1.0s tiếp theo mà không tốn raycast)
+                    -- Bị tường/cổng chặn: Ghi nhớ vào cache 1.0s để nhịp sau tự động chuyển sang 3 con tiếp theo
                     ObstacleCache[model] = now + 1.0
+                end
+
+                if checksDone >= maxChecksPerTick then
+                    -- Đã kiểm tra tối đa 3 con trong nhịp này: Dừng lại để nhịp sau thử 3 con tiếp theo
+                    break
                 end
             end
         end
@@ -1567,7 +1570,6 @@ local LastAutoShootTime = 0
 
 Hub.AddConnection(RunService.RenderStepped:Connect(function()
     EnsureBulletModuleHook()
-    FrameRaycastUsed = false -- Reset hạn mức: đúng tối đa 1 raycast duy nhất cho frame này
     local Camera = Services.Camera or Workspace.CurrentCamera
     if Hub.Visuals and Hub.Visuals.FOVCircleFrame then
         Hub.Visuals.FOVCircleFrame.Visible = false -- Tắt hoàn toàn vẽ FOV
@@ -1633,24 +1635,14 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             local inRange = root and ((CurrentLockedTarget:GetPivot().Position - root.Position).Magnitude <= weaponRange)
             if stillAlive and remHP > 0 and inRange then
                 if Config.AimWallCheck ~= false then
-                    if not FrameRaycastUsed then
-                        FrameRaycastUsed = true
-                        local clearPart, origin = FindUnobstructedPartOnMob(CurrentLockedTarget)
-                        if clearPart then
-                            frameTargetModel = CurrentLockedTarget
-                            frameTargetPart = clearPart
-                            frameFireOrigin = origin
-                        else
-                            ObstacleCache[CurrentLockedTarget] = os.clock() + 1.0
-                            CurrentLockedTarget = nil
-                        end
+                    local clearPart, origin = FindUnobstructedPartOnMob(CurrentLockedTarget)
+                    if clearPart then
+                        frameTargetModel = CurrentLockedTarget
+                        frameTargetPart = clearPart
+                        frameFireOrigin = origin
                     else
-                        local tPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head") or CurrentLockedTarget:FindFirstChild("Head") or CurrentLockedTarget.PrimaryPart
-                        if tPart then
-                            frameTargetModel = CurrentLockedTarget
-                            frameTargetPart = tPart
-                            frameFireOrigin = GetWeaponFireOrigin(tPart.Position)
-                        end
+                        ObstacleCache[CurrentLockedTarget] = os.clock() + 1.0
+                        CurrentLockedTarget = nil
                     end
                 else
                     local tPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head") or CurrentLockedTarget:FindFirstChild("Head") or CurrentLockedTarget.PrimaryPart
