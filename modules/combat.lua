@@ -255,12 +255,12 @@ local BypassHitscanHook = false
 
 local StaticAimRayParams = RaycastParams.new()
 StaticAimRayParams.FilterType = Enum.RaycastFilterType.Include
-StaticAimRayParams.RespectCanCollide = true -- Khớp chuẩn engine game: bỏ qua hoàn toàn hoa cỏ non-collidable
+StaticAimRayParams.RespectCanCollide = false -- Giúp phát hiện chính xác cả các bụi cỏ và tán cây dù CanCollide = false
 StaticAimRayParams.CollisionGroup = "Default"
 
 local BorderRayParams = RaycastParams.new()
 BorderRayParams.FilterType = Enum.RaycastFilterType.Include
-BorderRayParams.RespectCanCollide = true
+BorderRayParams.RespectCanCollide = false
 
 local LastAimRayParamsRefresh = 0
 local function EnsureAimRayParams()
@@ -277,17 +277,17 @@ local function EnsureAimRayParams()
         if border then table.insert(list, border) end
         if terrain then table.insert(list, terrain) end
 
-        -- Bổ sung các thư mục cảnh quan, cây cối trên bản đồ (loại trừ các thư mục trang trí hoa cỏ nhỏ)
+        -- Bổ sung các thư mục cảnh quan, cây cối, cỏ trên bản đồ
         for _, ch in ipairs(Workspace:GetChildren()) do
             local chName = ch.Name:lower()
-            if (chName:find("tree") or chName:find("foliage") or chName:find("nature"))
+            if (chName:find("tree") or chName:find("grass") or chName:find("foliage") or chName:find("nature") or chName:find("decoration") or chName:find("environment"))
                 and ch ~= Workspace:FindFirstChild("Characters") and ch ~= Workspace:FindFirstChild("DroppedItems") then
                 table.insert(list, ch)
             end
         end
 
         StaticAimRayParams.FilterDescendantsInstances = list
-        StaticAimRayParams.RespectCanCollide = true
+        StaticAimRayParams.RespectCanCollide = false
 
         if border then
             BorderRayParams.FilterDescendantsInstances = { border }
@@ -298,58 +298,105 @@ local function EnsureAimRayParams()
     return StaticAimRayParams
 end
 
-local function IsPlayerPlacedFence(inst)
+-- Nhận diện tất cả các loại hàng rào (Fence, Electric Fence, Gate, Barbed Wire, Barrier...)
+local function IsAnyFenceType(inst)
     if not inst then return false end
-
-    -- Tên vật thể hoặc Model cha phải chứa từ khoá "fence"
-    local name = inst.Name:lower()
-    local parent = inst.Parent
-    local pName = (parent and parent.Name or ""):lower()
-    local isFence = name:find("fence") ~= nil or pName:find("fence") ~= nil
-
-    if not isFence then
-        return false
+    local cur = inst
+    while cur and cur ~= Workspace do
+        local n = cur.Name:lower()
+        if n:find("fence") or n:find("gate") or n:find("barbed") or n:find("wire") or n:find("barrier") then
+            return true
+        end
+        if cur:HasTag("Fence") or cur:HasTag("Gate") or cur:HasTag("Barricade") then
+            return true
+        end
+        if cur:GetAttribute("StructureType") == "Fence" or cur:GetAttribute("ItemType") == "Fence" or cur:GetAttribute("Type") == "Fence" then
+            return true
+        end
+        cur = cur.Parent
     end
+    return false
+end
 
-    -- Nếu nằm trong Workspace.Map (hoặc Tiles, Border) -> Đây là hàng rào tự nhiên trên bản đồ (KHÔNG BẮN XUYÊN)
+-- Hàng rào ĐƯỢC ĐẶT TRONG BASE (do người chơi xây dựng/đặt để thủ nhà): BẮN XUYÊN ĐƯỢC QUA!
+local function IsBaseFence(inst)
+    if not inst then return false end
+    if not IsAnyFenceType(inst) then return false end
+
+    -- 1. Nếu nằm trong Workspace.Map (hoặc Tiles, Border) -> Đây là hàng rào tự nhiên ngoài map (KHÔNG PHẢI TRONG BASE)
     local map = Workspace:FindFirstChild("Map")
     if map and inst:IsDescendantOf(map) then
         return false
     end
+    local border = (map and map:FindFirstChild("Border")) or Workspace:FindFirstChild("Border")
+    if border and (inst == border or inst:IsDescendantOf(border)) then
+        return false
+    end
 
-    -- Nếu nằm trong Workspace.Structures -> Đây là hàng rào do người chơi xây dựng/chế tạo (BẮN XUYÊN ĐƯỢC)
+    -- 2. Nếu nằm trong Workspace.Structures -> Đây là hàng rào do người chơi xây dựng/chế tạo trong Base (BẮN XUYÊN ĐƯỢC)
     local structures = Workspace:FindFirstChild("Structures")
     if structures and inst:IsDescendantOf(structures) then
         return true
     end
 
-    -- Kiểm tra thuộc tính do người chơi đặt
-    if inst:GetAttribute("Placed") or inst:GetAttribute("Owner") or inst:GetAttribute("Crafted")
-        or (parent and (parent:GetAttribute("Placed") or parent:GetAttribute("Owner") or parent:GetAttribute("Crafted"))) then
-        return true
+    -- 3. Kiểm tra thuộc tính do người chơi đặt ra
+    local cur = inst
+    while cur and cur ~= Workspace do
+        if cur:GetAttribute("Placed") or cur:GetAttribute("Owner") or cur:GetAttribute("Crafted") or cur:GetAttribute("Builder") then
+            return true
+        end
+        cur = cur.Parent
+    end
+
+    -- 4. Kiểm tra bán kính căn cứ Base (gần Workbench / BasePosition <= 120 studs)
+    local basePos = nil
+    if structures then
+        local wb = structures:FindFirstChild("Workbench") or structures:FindFirstChild("Crafting Table")
+        if wb then
+            basePos = wb:GetPivot().Position
+        end
+    end
+    if not basePos and Hub.AutoFarm and Hub.AutoFarm.BasePosition then
+        basePos = Hub.AutoFarm.BasePosition
+    end
+    if basePos and inst:IsA("BasePart") then
+        local dist = (inst.Position - basePos).Magnitude
+        if dist <= 120 and not (map and inst:IsDescendantOf(map)) then
+            return true
+        end
     end
 
     return false
 end
 
--- Nhận diện vật thể Cây (Tree, Trunk, Foliage, Branch) - TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
+-- Hàng rào Ở NGOÀI MAP (hàng rào tự nhiên map, rào căn cứ quân sự, nhà máy, viền map...) -> TUYỆT ĐỐI KHÔNG XUYÊN!
+local function IsMapFence(inst)
+    if not inst then return false end
+    if not IsAnyFenceType(inst) then return false end
+    return not IsBaseFence(inst)
+end
+
+local IsPlayerPlacedFence = IsBaseFence
+
+-- Nhận diện vật thể Cây (Tree, Tree1,...) và Bụi cỏ (Grass,...)
 local function IsTreeOrGrass(inst)
     if not inst then return false end
+    -- Hàng rào đặt trong Base (kể cả có từ khoá wood/gỗ) không bao giờ bị coi là cây cỏ
+    if IsBaseFence(inst) then
+        return false
+    end
     if Utils.IsTreeOrGrass then
         return Utils.IsTreeOrGrass(inst)
     end
-    if inst:IsA("Terrain") then return false end
     local cur = inst
     while cur and cur ~= Workspace do
         local n = cur.Name:lower()
-        if n:find("tree") or n:find("trunk") or n:find("foliage")
-            or n:find("branch") or n:find("bush") or n:find("shrub")
-            or n:find("leaves") then
-            if not cur:IsA("Tool") and not cur:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
-                return true
-            end
+        if n:find("tree") or n:find("grass") or n:find("trunk") or n:find("foliage")
+            or n:find("branch") or n:find("bush") or n:find("shrub") or n:find("flora")
+            or n:find("leaves") or n:find("wood") then
+            return true
         end
-        if cur:HasTag("Tree") or cur:HasTag("Foliage") then
+        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") then
             return true
         end
         cur = cur.Parent
@@ -359,14 +406,18 @@ end
 
 local function IsMapBorderOrWall(inst)
     if not inst then return false end
-    if inst:IsA("Terrain") then return false end
 
-    -- Hàng rào do người chơi đặt ra trong Workspace.Structures được game thiết kế cho đạn bắn xuyên qua
-    if IsPlayerPlacedFence(inst) then
+    -- Hàng rào do người chơi đặt trong Base (các loại fence): BẮN XUYÊN ĐƯỢC -> Không coi là tường cản
+    if IsBaseFence(inst) then
         return false
     end
 
-    -- Cây cối (Tree, Trunk, Foliage,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
+    -- Hàng rào ở ngoài Map: TUYỆT ĐỐI KHÔNG XUYÊN -> Coi là tường cản kiên cố!
+    if IsMapFence(inst) then
+        return true
+    end
+
+    -- Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
     if IsTreeOrGrass(inst) then
         return true
     end
@@ -383,7 +434,7 @@ local function IsMapBorderOrWall(inst)
     if name:find("border") or name:find("barrier") or name:find("wall") or name:find("fence")
         or name:find("gate") or name:find("door") or name:find("barricade") or name:find("shield")
         or name:find("sandbag") or name:find("pillar") or name:find("column") or name:find("rock")
-        or name:find("house") or name:find("building") or name:find("roof") then
+        or name:find("house") or name:find("building") or name:find("roof") or name:find("floor") then
         return true
     end
     while p and p ~= Workspace do
@@ -400,29 +451,40 @@ end
 local function IsPenetrableObstacle(inst)
     if not inst or not inst:IsA("BasePart") then return false end
 
-    -- 1. Hàng rào do người chơi đặt (Player-placed Fence / Electric Fence trong Structures):
-    -- Game cho phép đạn người chơi bắn xuyên qua để thủ nhà!
-    if IsPlayerPlacedFence(inst) then
+    -- 1. Hàng rào được đặt trong BASE (tất cả các loại fence: Fence, Electric Fence, Gate, Barbed Wire,...):
+    -- Game cho phép đạn người chơi bắn xuyên qua để thủ nhà theo yêu cầu!
+    if IsBaseFence(inst) then
         return true
     end
 
-    -- 2. Cây cối (Tree, Trunk, Foliage,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
+    -- 2. Hàng rào ở ngoài MAP (hoặc rào tự nhiên trên bản đồ): TUYỆT ĐỐI KHÔNG XUYÊN!
+    if IsMapFence(inst) then
+        return false
+    end
+
+    -- 3. Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
     if IsTreeOrGrass(inst) then
         return false
     end
 
-    -- 3. Tường rào map, hàng rào map, tường thành, công trình: TUYỆT ĐỐI KHÔNG XUYÊN!
+    -- 4. Tường rào map, hàng rào map, tường thành, công trình: TUYỆT ĐỐI KHÔNG XUYÊN!
     if IsMapBorderOrWall(inst) then
         return false
     end
 
-    -- 4. Thuộc tính xuyên thấu chính thức của game:
+    -- 5. Thuộc tính xuyên thấu chính thức của game:
     if inst:GetAttribute("BulletUncollidable") == true then
         return true
     end
 
-    -- 5. Mọi vật thể không va chạm vật lý (CanCollide = false) hoặc trong suốt (Transparency >= 0.85) được coi là xuyên
-    if not inst.CanCollide or inst.Transparency >= 0.85 then
+    -- 6. Mọi vật thể có va chạm vật lý (CanCollide = true) trong Map/Structures đều cản đạn:
+    if inst.CanCollide then
+        return false
+    end
+
+    -- 7. Chỉ các chi tiết hoa nhỏ, bụi rác nhỏ không va chạm (CanCollide = false) và KHÔNG PHẢI cây cỏ mới được coi là xuyên:
+    local name = inst.Name:lower()
+    if not IsTreeOrGrass(inst) and (name:find("flower") or name:find("dirt") or name:find("clutter") or name:find("trash") or inst.Transparency >= 0.85) then
         return true
     end
 
