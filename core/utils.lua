@@ -574,10 +574,11 @@ function Utils.IsTreeOrGrass(inst)
         local n = cur.Name:lower()
         if n:find("tree") or n:find("grass") or n:find("trunk") or n:find("foliage")
             or n:find("branch") or n:find("bush") or n:find("shrub") or n:find("flora")
-            or n:find("leaves") or n:find("wood") then
+            or n:find("leaves") or n:find("wood") or n:find("plant") or n:find("weed")
+            or n:find("longfiller") or n:find("elevation") or n:find("vegetation") then
             return true
         end
-        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") then
+        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") or cur:HasTag("Flora") or cur:HasTag("Decoration") then
             return true
         end
         cur = cur.Parent
