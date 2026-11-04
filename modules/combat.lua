@@ -601,10 +601,17 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return nil, nil, nil, nil
     end
 
-    -- Bước 2: Luôn ưu tiên quái gần nhất trước tiên
+    -- Bước 2: Ưu tiên quái mang Virus (nếu bật HackerFocusVirusTarget) hoặc gần nhất trước tiên
     table.sort(candidates, function(a, b)
         if useFOV then
             return a.Score < b.Score
+        end
+        if Config.HackerFocusVirusTarget then
+            local aVirus = a.Model:GetAttribute("HackerVirus") == true
+            local bVirus = b.Model:GetAttribute("HackerVirus") == true
+            if aVirus ~= bVirus then
+                return aVirus -- Quái mang Virus được ưu tiên xử lý trước để kích nổ DoT và lây lan
+            end
         end
         return a.Dist < b.Dist
     end)

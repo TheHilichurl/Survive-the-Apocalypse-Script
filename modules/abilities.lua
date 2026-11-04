@@ -181,38 +181,74 @@ local function RunAbilitiesAndToolsStep()
         end
     end
 
-    -- Hacker: Infiltrate
+    -- Hacker: Smart Infiltrate (Prioritize Highest Density Cluster)
     if Config.AutoHackerInfiltrate then
         local inf = char:FindFirstChild("Infiltrate") or bp:FindFirstChild("Infiltrate")
         if inf and not inf:GetAttribute("Cooldown") and inf:FindFirstChild("Use") then
             local charsFolder = Workspace:FindFirstChild("Characters")
             if charsFolder then
+                local bestTarget = nil
+                local maxDensity = -1
+                local candidateList = {}
+                local allAliveMobs = {}
+
                 for _, mob in ipairs(charsFolder:GetChildren()) do
-                    if mob ~= char and mob:GetAttribute("Zombie") and not mob:GetAttribute("Dead") and not mob:GetAttribute("HackerVirus") then
-                        if (mob:GetPivot().Position - root.Position).Magnitude <= 100 then
-                            pcall(function() inf.Use:FireServer(mob) end)
-                            break
+                    if mob ~= char and mob:IsA("Model") and not mob:GetAttribute("Dead") and mob:FindFirstChild("HumanoidRootPart") then
+                        table.insert(allAliveMobs, mob)
+                        if not mob:GetAttribute("HackerVirus") and not mob:GetAttribute("Untargetable") then
+                            local dist = (mob.HumanoidRootPart.Position - root.Position).Magnitude
+                            if dist <= 100 then
+                                table.insert(candidateList, { Mob = mob, Pos = mob.HumanoidRootPart.Position, Dist = dist })
+                            end
                         end
                     end
+                end
+
+                for _, cand in ipairs(candidateList) do
+                    local clusterScore = 0
+                    for _, other in ipairs(allAliveMobs) do
+                        if other ~= cand.Mob and (other.HumanoidRootPart.Position - cand.Pos).Magnitude <= 30 then
+                            clusterScore = clusterScore + 1
+                        end
+                    end
+                    -- Weighted score: density favored, then closer proximity
+                    local finalScore = clusterScore * 100 - cand.Dist
+                    if finalScore > maxDensity then
+                        maxDensity = finalScore
+                        bestTarget = cand.Mob
+                    end
+                end
+
+                if bestTarget then
+                    pcall(function() inf.Use:FireServer(bestTarget) end)
                 end
             end
         end
     end
 
-    -- Hacker: System Override
+    -- Hacker: Smart System Override (Cluster threshold / Boss / Panic trigger)
     if Config.AutoHackerOverride then
         local ovr = char:FindFirstChild("System Override") or bp:FindFirstChild("System Override")
         if ovr and not ovr:GetAttribute("Cooldown") and ovr:FindFirstChild("Use") then
             local infectedCount = 0
+            local hasInfectedBoss = false
             local charsFolder = Workspace:FindFirstChild("Characters")
             if charsFolder then
                 for _, mob in ipairs(charsFolder:GetChildren()) do
                     if mob:GetAttribute("HackerVirus") and not mob:GetAttribute("Dead") then
                         infectedCount = infectedCount + 1
+                        local mobName = mob.Name:lower()
+                        if mob:GetAttribute("Boss") or mob:GetAttribute("Special") or mobName:find("brute") or mobName:find("titan") or mobName:find("juggernaut") then
+                            hasInfectedBoss = true
+                        end
                     end
                 end
             end
-            if infectedCount >= (Config.HackerOverrideMinInfected or 3) then
+
+            local isPanic = (hum.Health / math.max(hum.MaxHealth, 1)) <= ((Config.HackerPanicOverrideHP or 35) / 100)
+            local threshold = Config.HackerOverrideMinInfected or 4
+
+            if (infectedCount >= threshold) or (hasInfectedBoss and infectedCount >= 1) or (isPanic and infectedCount >= 2) then
                 pcall(function() ovr.Use:FireServer() end)
             end
         end
