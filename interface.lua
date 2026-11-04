@@ -476,9 +476,10 @@ TabMovement:AddButton("Teleport to Base (Tự rơi khỏi map từ từ)", funct
         Utils.NotifyGame("Hệ thống TeleportHomeVoid chưa sẵn sàng!", Color3.fromRGB(248, 113, 113), "Error")
     end
 end)
+TabMovement:AddSlider("Tốc độ rơi xuống Void (Studs/Tick)", "VoidFallSpeed", 0.5, 3.5, 0.1)
 TabMovement:AddToggle("Tự động về Base khi trời tối / Sương mù độc", "AutoReturnAtNight")
 TabMovement:AddToggle("Tự động về Base khi máu nguy hiểm (< 25% HP)", "AutoEmergencyRecall")
-TabMovement:AddLabel("Cơ chế: Nhân vật tắt va chạm và rơi dần từ từ (-3.5 studs/tick) xuống dưới map để game tự kéo về Base mà không kích hoạt Knightmare Anti-Cheat!")
+TabMovement:AddLabel("Cơ chế: Nhân vật tắt va chạm và rơi dần từ từ xuống dưới map để game tự kéo về Base mà không kích hoạt Knightmare Anti-Cheat!")
 
 -- Main Automation Tick Loop
 task.spawn(function()

@@ -203,15 +203,15 @@ local function TeleportHomeVoid(callback)
             end
         end
 
-        -- 2. Hạ độ cao từ từ (-3.5 studs mỗi Heartbeat) - tốc độ rơi mượt tự nhiên, không bao giờ bị Anti-Cheat gắn cờ Teleport Distance
+        -- 2. Hạ độ cao từ từ (mặc định 2.0 studs/tick) - tốc độ rơi mượt tự nhiên, không bao giờ bị Anti-Cheat gắn cờ Teleport Distance
         local curY = startPos.Y
-        local step = 3.5
+        local step = (Config and Config.VoidFallSpeed) or 2.0
 
         while curY > targetDepth do
             if not char or not char.Parent or not root or not root.Parent then break end
             curY = curY - step
             root.CFrame = CFrame.new(startPos.X, curY, startPos.Z)
-            root.AssemblyLinearVelocity = Vector3.new(0, -25, 0)
+            root.AssemblyLinearVelocity = Vector3.new(0, -18, 0)
             RunService.Heartbeat:Wait()
         end
 
