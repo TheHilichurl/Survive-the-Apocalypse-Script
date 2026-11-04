@@ -695,14 +695,8 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
     if not (myChar and myRoot and Camera) then return nil, nil, nil, nil end
 
     local myPos = myRoot.Position
-    local mbPos = GetMilitaryBaseLocation()
-    local distToMB = mbPos and (myPos - mbPos).Magnitude or 999999
-    local inMilitaryZone = distToMB <= 120 -- Người chơi đang ở trong/sát căn cứ quân sự (120 studs)
-
-    -- Tầm quét chiến đấu hợp lý:
-    -- Khi ở khu vực quân sự: 100 studs theo yêu cầu người chơi (bao quát toàn bộ căn cứ và tháp canh)
-    -- Khi ở ngoài map: tối đa 120 studs (không quét 500 studs để tránh kéo lag và nhắm quái ảo)
-    local effectiveMaxRange = math.min(maxRange or Config.AimMaxRange or 500, inMilitaryZone and 100 or 120)
+    -- Tầm quét chiến đấu: Mặc định thả phanh hoàn toàn theo cấu hình người chơi (mặc định 500 studs)
+    local effectiveMaxRange = maxRange or Config.AimMaxRange or 500
 
     local charsFolder = Workspace:FindFirstChild("Characters")
     if not charsFolder then return nil, nil, nil, nil end
@@ -728,16 +722,17 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
             local modelPos = model:GetPivot().Position
             local dist = (modelPos - myPos).Magnitude
 
-            -- 1. NẾU NGƯỜI CHƠI Ở XA KHU QUÂN SỰ (distToMB > 120):
-            -- Bỏ qua quái vật và trụ nằm sâu trong khu quân sự để không bắn qua tường rào quân sự từ xa
-            local isMobInMB = mbPos and (modelPos - mbPos).Magnitude <= 130
-            if not inMilitaryZone and isMobInMB then
-                continue
-            end
+            local isTurret = (model.Name == "Military Turret" or model.Name:find("Turret") ~= nil)
 
-            -- 2. MILITARY TURRET: Tự động ngắm bắn để phá huỷ theo yêu cầu
-            if model.Name == "Military Turret" or model.Name:find("Turret") then
+            -- RIÊNG VỚI MILITARY TURRET:
+            -- 1. Nếu tắt toggle TargetMilitaryTurrets thì bỏ qua
+            -- 2. Giới hạn riêng cự ly 100 studs: Chỉ ngắm bắn khi người chơi tiến vào khu vực raid (<= 100 studs),
+            --    tránh việc đứng ở xa 300 - 500 studs trên map mà súng lại khóa vào trụ trên cao!
+            if isTurret then
                 if Config.TargetMilitaryTurrets == false then
+                    continue
+                end
+                if dist > 100 then
                     continue
                 end
             end
@@ -890,7 +885,12 @@ local function EnsureBulletModuleHook()
                 if Config.SilentAim or Config.AutoShoot or Config.Aimbot then
                     if CurrentLockedTarget and CurrentLockedTarget.Parent and GetActualMobHP(CurrentLockedTarget) > 0 then
                         lockedModel = CurrentLockedTarget
-                        lockedPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head") or CurrentLockedTarget:FindFirstChild("Head") or CurrentLockedTarget:FindFirstChild("HumanoidRootPart") or CurrentLockedTarget.PrimaryPart
+                        lockedPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head")
+                            or CurrentLockedTarget:FindFirstChild("Head")
+                            or CurrentLockedTarget:FindFirstChild("HumanoidRootPart")
+                            or CurrentLockedTarget.PrimaryPart
+                            or CurrentLockedTarget:FindFirstChild("MainPart", true)
+                            or CurrentLockedTarget:FindFirstChildWhichIsA("BasePart", true)
                     end
                     if not (lockedModel and lockedPart) then
                         lockedModel, lockedPart = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
@@ -1706,11 +1706,10 @@ local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces
     if charsFolder then
         for _, c in ipairs(charsFolder:GetChildren()) do
             if c ~= myChar and c ~= startChar and not c:GetAttribute("Dead") and c.Name ~= "Forcefield" then
-                local hum = c:FindFirstChildOfClass("Humanoid") or c:FindFirstChild("MockHumanoid")
-                local projHp = c:GetAttribute("ProjectedHealth") or 100
-                if hum and hum.Health > 0 and projHp > 0 and not Players:GetPlayerFromCharacter(c) then
-                    local p = c:FindFirstChild("Torso") or c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c.PrimaryPart
-                    if p then
+                local isHostile, mobHp = IsHostilePvEMob(c)
+                if isHostile and mobHp > 0 and not Players:GetPlayerFromCharacter(c) then
+                    local p = c:FindFirstChild("Torso") or c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c:FindFirstChild("MainPart", true) or c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart", true)
+                    if p and p:IsA("BasePart") then
                         table.insert(candidates, { Model = c, Part = p })
                     end
                 end
@@ -1995,58 +1994,61 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                 -- Tạo cấu trúc pelletResults chính xác 100% với server game:
                 -- Mục tiêu chính (Target 1) luôn trúng đích 100% (0% ghost bullets),
                 -- Đồng thời tính toán đầy đủ chuỗi nảy đạn (Ricochet) sang tối đa 3 quái xung quanh theo class Outlaw!
-                local pelletResults = {}
-                for pIdx = 1, pelletsCount do
-                    local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, ricochetMax, 22.0, myChar)
+                local pcallOk, pcallErr = pcall(function()
+                    local pelletResults = {}
+                    for pIdx = 1, pelletsCount do
+                        local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, ricochetMax, 22.0, myChar)
 
-                    local fullEffectResults = {
-                        {
-                            Origin = fireOrigin,
-                            End = hitPos,
+                        local fullEffectResults = {
+                            {
+                                Origin = fireOrigin,
+                                End = hitPos,
+                            }
                         }
-                    }
-                    for _, rEff in ipairs(ricochetEffects) do
-                        table.insert(fullEffectResults, rEff)
-                    end
+                        for _, rEff in ipairs(ricochetEffects) do
+                            table.insert(fullEffectResults, rEff)
+                        end
 
-                    pelletResults[pIdx] = {
-                        Target = hitPos,
-                        HitData = hitDataList,
-                        EffectResults = fullEffectResults,
-                    }
+                        pelletResults[pIdx] = {
+                            Target = hitPos,
+                            HitData = hitDataList,
+                            EffectResults = fullEffectResults,
+                        }
 
-                    -- Hiệu ứng tia đạn nảy trực quan trên client
-                    if BulletModule and BulletModule.BulletEffect then
-                        for _, seg in ipairs(fullEffectResults) do
-                            pcall(function()
-                                BulletModule.BulletEffect(seg.Origin, seg.End, hitDataList, nil, {
-                                    Color = (stats and stats:GetAttribute("BulletColor")) or (held and held:GetAttribute("BulletColor")) or Color3.fromRGB(255, 179, 57),
-                                    Radius = (stats and stats:GetAttribute("BulletRadius")) or 0.08,
-                                    Range = (stats and stats:GetAttribute("BulletRange")) or (held and held:GetAttribute("BulletRange")) or 1000,
-                                    CustomBullet = (stats and stats:GetAttribute("CustomBullet")) or (held and held:GetAttribute("CustomBullet")),
-                                })
-                            end)
+                        -- Hiệu ứng tia đạn nảy trực quan trên client
+                        if BulletModule and BulletModule.BulletEffect then
+                            for _, seg in ipairs(fullEffectResults) do
+                                pcall(function()
+                                    BulletModule.BulletEffect(seg.Origin, seg.End, hitDataList, nil, {
+                                        Color = (stats and stats:GetAttribute("BulletColor")) or (held and held:GetAttribute("BulletColor")) or Color3.fromRGB(255, 179, 57),
+                                        Radius = (stats and stats:GetAttribute("BulletRadius")) or 0.08,
+                                        Range = (stats and stats:GetAttribute("BulletRange")) or (held and held:GetAttribute("BulletRange")) or 1000,
+                                        CustomBullet = (stats and stats:GetAttribute("CustomBullet")) or (held and held:GetAttribute("CustomBullet")),
+                                    })
+                                end)
+                            end
                         end
                     end
-                end
 
-                -- Bộ đếm sequence shot ID tuần tự (u14) strictly-increasing
-                GunSequentialShotCount[held] = (GunSequentialShotCount[held] or 0) + 1
-                local shotSeq = GunSequentialShotCount[held]
+                    -- Bộ đếm sequence shot ID tuần tự (u14) strictly-increasing
+                    GunSequentialShotCount[held] = (GunSequentialShotCount[held] or 0) + 1
+                    local shotSeq = GunSequentialShotCount[held]
 
-                pcall(function()
                     shootRem:FireServer(fireOrigin, pelletResults, 0, shotSeq)
-                end)
 
-                ShotsFiredSinceReload[held] = shotsFired + 1
-                local currAmmo = curAmmo or held:GetAttribute("Ammo") or capacity or 12
-                local nextAmmo = math.max(0, currAmmo - 1)
-                pcall(function()
-                    held:SetAttribute("Ammo", nextAmmo)
-                end)
+                    ShotsFiredSinceReload[held] = shotsFired + 1
+                    local currAmmo = curAmmo or held:GetAttribute("Ammo") or capacity or 12
+                    local nextAmmo = math.max(0, currAmmo - 1)
+                    pcall(function()
+                        held:SetAttribute("Ammo", nextAmmo)
+                    end)
 
-                if nextAmmo <= 0 then
-                    TriggerAutomaticGunReload(held)
+                    if nextAmmo <= 0 then
+                        TriggerAutomaticGunReload(held)
+                    end
+                end)
+                if not pcallOk then
+                    warn("[STA Combat] AutoShoot execution caught error:", pcallErr)
                 end
             end
 
