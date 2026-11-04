@@ -26,6 +26,21 @@ local Config = {
     AntiAFK = true,
     SafeTeleportMode = true,
 
+    -- Auto Farm & Endgame Director
+    AutoFarmEnabled = false,
+    AutoFarmTargetDay = 100,            -- Target Day: 100 or 200 (Condition: <=)
+    AutoFarmHardcoreMode = false,        -- Navigate to Abandoned Factory, clear basement, trigger Hardcore mode
+    AutoVoteHardModeYes = true,          -- Always auto vote Yes on Hardcore Mode poll
+    AutoRaidMilitary = false,           -- Raid Military Base for weapons & military turrets
+    AutoRaidNuclear = false,            -- Raid Nuclear Reactor for Nuclear Core & power plants
+    AutoRaidMansion = false,            -- Raid Haunted Mansion
+    AutoDayNightProtocol = true,        -- Follow in-game clock (roam & loot in daytime, return to base before night)
+    AutoFarmPlots = true,               -- Build & maintain 5 farm plots, auto harvest carrots & auto eat when hungry
+    AutoEatHungerThreshold = 40,        -- Auto eat food/carrots when hunger drops below 40%
+    AutoCraftDayMultiplier = true,      -- Auto craft Good Bed, Great Bed & Time Machine to rush days
+    AutoBaseDefense = true,             -- Stay in base at night, shoot approaching zombies, repair structures
+    AutoEmergencyRecall = true,         -- Auto trigger TeleportHomeVoid when HP < 25% to prevent death
+
     -- Combat: Kill Aura & Melee
     KillAura = false,
     KillAuraRange = 16,

@@ -74,6 +74,7 @@ end
 
 local TabIconsByName = {
     ["1. Dashboard"]   = UILib.GoogleIcons.Dashboard,
+    ["Auto Farm"]      = UILib.GoogleIcons.Dashboard,
     ["2. Combat"]      = UILib.GoogleIcons.Combat,
     ["3. Abilities"]   = UILib.GoogleIcons.Abilities,
     ["4. Looting"]     = UILib.GoogleIcons.Looting,
@@ -142,6 +143,33 @@ TabDashboard:AddButton("Load Settings (" .. tostring(Hub.ConfigFileName) .. ")",
     local ok, msg = Hub.LoadConfig()
     Utils.NotifyGame(msg, ok and Color3.fromRGB(74, 222, 128) or Color3.fromRGB(248, 113, 113))
 end)
+
+-- ============================================================================
+-- TAB: AUTO FARM & ENDGAME DIRECTOR
+-- ============================================================================
+local TabAutoFarm = CreateTab("Auto Farm")
+TabAutoFarm:AddSection("Auto Farm Master Control")
+TabAutoFarm:AddToggle("Auto Farm Engine (Master Switch)", "AutoFarmEnabled")
+
+TabAutoFarm:AddSection("Target Day & Milestone Condition")
+TabAutoFarm:AddDropdown("Target Day (Condition: <= Target)", "AutoFarmTargetDay", { "100", "200" })
+
+TabAutoFarm:AddSection("Game Mode & Hardcore Basement Trigger")
+TabAutoFarm:AddToggle("Hardcore Mode (Discover Factory & Clear Basement)", "AutoFarmHardcoreMode")
+TabAutoFarm:AddToggle("Auto Vote YES on HardMode Poll", "AutoVoteHardModeYes")
+
+TabAutoFarm:AddSection("Raid Locations (Uncheck all = Normal Survival)")
+TabAutoFarm:AddToggle("Auto Raid Military Base (Weapons & Turrets)", "AutoRaidMilitary")
+TabAutoFarm:AddToggle("Auto Raid Nuclear Reactor (Power Plant & Core)", "AutoRaidNuclear")
+TabAutoFarm:AddToggle("Auto Raid Haunted Mansion", "AutoRaidMansion")
+
+TabAutoFarm:AddSection("Base Infrastructure, 5x Farms & Clock Sync")
+TabAutoFarm:AddToggle("Sync with In-Game Clock (Day/Night Protocol)", "AutoDayNightProtocol")
+TabAutoFarm:AddToggle("Build & Harvest 5x Farm Plots (Auto Eat Carrots)", "AutoFarmPlots")
+TabAutoFarm:AddSlider("Auto Eat Hunger Threshold (%)", "AutoEatHungerThreshold", 20, 60, 5)
+TabAutoFarm:AddToggle("Day Multiplier Rush (Auto Craft Beds & Time Machine)", "AutoCraftDayMultiplier")
+TabAutoFarm:AddToggle("High-Wave Night Base Defense (Fences, Turrets & Drones)", "AutoBaseDefense")
+TabAutoFarm:AddToggle("Emergency Void Fall Recall (< 25% HP)", "AutoEmergencyRecall")
 
 -- ============================================================================
 -- TAB 2: COMBAT & WEAPONS

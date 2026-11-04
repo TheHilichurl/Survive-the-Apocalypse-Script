@@ -92,6 +92,7 @@ LoadModule("modules/looting.lua")
 LoadModule("modules/structures.lua")
 LoadModule("modules/movement.lua")
 LoadModule("modules/visuals.lua")
+LoadModule("modules/autofarm.lua")
 
 -- Stage 3: Anime / RPG Fantasy UI Library Engine
 local uilib = LoadModule("ui/uilib.lua")

@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Survive the Apocalypse - Classes, Perks & Buffs Codex</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(30, 41, 59, 0.85);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.2);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --primary: #38bdf8;
+      --primary-glow: rgba(56, 189, 248, 0.25);
+      --gold: #fbbf24;
+      --gold-glow: rgba(251, 191, 36, 0.25);
+      --purple: #c084fc;
+      --green: #34d399;
+      --red: #f87171;
+      --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(at 10% 20%, rgba(56, 189, 248, 0.08) 0px, transparent 50%),
+        radial-gradient(at 90% 10%, rgba(192, 132, 252, 0.08) 0px, transparent 50%),
+        radial-gradient(at 50% 90%, rgba(251, 191, 36, 0.05) 0px, transparent 50%);
+      background-attachment: fixed;
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      line-height: 1.5;
+      padding-bottom: 80px;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header */
+    header {
+      padding: 50px 0 30px;
+      text-align: center;
+      position: relative;
+    }
+
+    .badge-top {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 6px 16px;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--primary);
+      margin-bottom: 16px;
+      backdrop-filter: blur(8px);
+    }
+
+    .badge-top .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary);
+      animation: pulseAnim 2s infinite;
+    }
+
+    @keyframes pulseAnim {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    h1 {
+      font-size: 2.8rem;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 12px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      max-width: 750px;
+      margin: 0 auto 28px;
+    }
+
+    /* Stats Quick Bar */
+    .stats-bar {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+
+    .stat-pill {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      padding: 10px 20px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      backdrop-filter: blur(10px);
+      transition: all 0.2s ease;
+    }
+
+    .stat-pill:hover {
+      border-color: var(--border-hover);
+      background: rgba(255, 255, 255, 0.07);
+      transform: translateY(-2px);
+    }
+
+    .stat-pill .icon {
+      font-size: 1.3rem;
+    }
+
+    .stat-pill .num {
+      font-weight: 800;
+      font-size: 1.25rem;
+      color: #fff;
+    }
+
+    .stat-pill .label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* Sticky Navigation & Control Panel */
+    .controls-wrapper {
+      position: sticky;
+      top: 16px;
+      z-index: 100;
+      margin-bottom: 36px;
+    }
+
+    .controls-card {
+      background: rgba(13, 17, 28, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 18px 24px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .controls-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* Main Category Tabs */
+    .category-tabs {
+      display: flex;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 5px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      gap: 4px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 8px 18px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tab-btn.active {
+      color: #fff;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(192, 132, 252, 0.25));
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2);
+    }
+
+    /* Search Box */
+    .search-box {
+      flex: 1;
+      min-width: 280px;
+      position: relative;
+    }
+
+    .search-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 16px 10px 42px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-family: inherit;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+      background: rgba(0, 0, 0, 0.5);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-dim);
+      font-size: 1rem;
+      pointer-events: none;
+    }
+
+    /* Filter Chips Bar */
+    .filters-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filter-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-right: 4px;
+    }
+
+    .chip-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .chip-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    .chip-btn.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--primary);
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    .status-count {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Grid Layouts */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+      gap: 24px;
+    }
+
+    @media (max-width: 640px) {
+      .cards-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Class Card */
+    .class-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .class-card:hover {
+      border-color: var(--border-hover);
+      background: var(--bg-card-hover);
+      transform: translateY(-4px);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    }
+
+    .card-glow-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      opacity: 0.85;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .card-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .card-title {
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .stars-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 8px;
+    }
+
+    .star-1 { color: #94a3b8; background: rgba(148, 163, 184, 0.15); border: 1px solid rgba(148, 163, 184, 0.3); }
+    .star-2 { color: #34d399; background: rgba(52, 211, 153, 0.15); border: 1px solid rgba(52, 211, 153, 0.3); }
+    .star-3 { color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); }
+    .star-4 { color: #c084fc; background: rgba(192, 132, 252, 0.15); border: 1px solid rgba(192, 132, 252, 0.3); }
+    .star-5 { color: #fbbf24; background: rgba(251, 191, 36, 0.15); border: 1px solid rgba(251, 191, 36, 0.3); box-shadow: 0 0 12px rgba(251, 191, 36, 0.2); }
+
+    .card-badges-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .mini-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+
+    /* Starter Items */
+    .starter-items-section {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .starter-items-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .item-pill {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #e2e8f0;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .item-qty {
+      color: var(--primary);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+
+    /* Tiers Container */
+    .tiers-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .tier-box {
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .tier-box:hover {
+      background: rgba(0, 0, 0, 0.35);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .tier-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tier-tag {
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 5px;
+      font-family: var(--font-mono);
+    }
+
+    .tier-1-tag { background: rgba(56, 189, 248, 0.12); color: var(--primary); border: 1px solid rgba(56, 189, 248, 0.25); }
+    .tier-2-tag { background: rgba(192, 132, 252, 0.12); color: var(--purple); border: 1px solid rgba(192, 132, 252, 0.25); }
+    .tier-3-tag { background: rgba(251, 191, 36, 0.12); color: var(--gold); border: 1px solid rgba(251, 191, 36, 0.25); }
+
+    .tier-cost {
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+    }
+
+    .tier-desc {
+      font-size: 0.92rem;
+      color: #cbd5e1;
+      line-height: 1.45;
+    }
+
+    /* Engine Stats Pills */
+    .stat-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .stat-tag {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 2px 8px;
+      border-radius: 6px;
+      color: #38bdf8;
+    }
+
+    .stat-tag.quest {
+      color: #a78bfa;
+      border-color: rgba(167, 139, 250, 0.2);
+    }
+
+    /* Variant Box */
+    .variant-box {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(168, 85, 247, 0.08));
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-top: 4px;
+    }
+
+    .variant-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .variant-badge {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.05em;
+    }
+
+    .variant-name {
+      font-weight: 700;
+      color: #fff;
+      font-size: 0.95rem;
+    }
+
+    .variant-desc {
+      font-size: 0.88rem;
+      color: #cbd5e1;
+      line-height: 1.4;
+    }
+
+    /* Perks Grid */
+    .perks-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    .perk-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .perk-card:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-hover);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .perk-card.rarity-Common { border-top: 3px solid #94a3b8; }
+    .perk-card.rarity-Rare { border-top: 3px solid #38bdf8; box-shadow: 0 8px 24px rgba(56, 189, 248, 0.1); }
+    .perk-card.rarity-Epic { border-top: 3px solid #c084fc; box-shadow: 0 8px 24px rgba(192, 132, 252, 0.12); }
+    .perk-card.rarity-Legendary { border-top: 3px solid #fbbf24; box-shadow: 0 8px 24px rgba(251, 191, 36, 0.15); }
+
+    .perk-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .perk-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .perk-rarity-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+    }
+
+    .rarity-Common-badge { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+    .rarity-Rare-badge { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .rarity-Epic-badge { background: rgba(192, 132, 252, 0.15); color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.3); }
+    .rarity-Legendary-badge { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.4); }
+
+    .perk-desc {
+      font-size: 0.95rem;
+      color: #e2e8f0;
+      line-height: 1.45;
+    }
+
+    /* Vehicles Grid */
+    .vehicles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 20px;
+    }
+
+    .vehicle-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      backdrop-filter: blur(14px);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: all 0.25s ease;
+    }
+
+    .vehicle-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-3px);
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
+    }
+
+    .vehicle-head {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .vehicle-icon {
+      font-size: 2rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      width: 52px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+    }
+
+    .vehicle-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .vehicle-stats-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+
+    .vehicle-stats-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .vehicle-stats-table td:first-child {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .vehicle-stats-table td:last-child {
+      color: #38bdf8;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      text-align: right;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-dim);
+      font-size: 1.1rem;
+      grid-column: 1 / -1;
+    }
+
+    .empty-state .icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      opacity: 0.6;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      margin-top: 80px;
+      padding-top: 30px;
+      border-top: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 0.85rem;
+    }
+
+    footer a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    /* Scroll to Top Button */
+    .scroll-top-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      transition: all 0.2s ease;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .scroll-top-btn.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .scroll-top-btn:hover {
+      background: var(--primary);
+      color: #000;
+      transform: translateY(-3px);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="badge-top">
+        <span class="pulse"></span>
+        Game Data Master Codex • Live Extracted
+      </div>
+      <h1>Survive the Apocalypse</h1>
+      <p class="subtitle">Bảng tra cứu toàn diện chỉ số, kỹ năng 3 cấp độ, các biến thể độc quyền và buff bổ trợ từ dữ liệu gốc của trò chơi.</p>
+
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stat-pill">
+          <span class="icon">🛡️</span>
+          <div>
+            <div class="num">25</div>
+            <div class="label">Nhân Vật (Classes)</div>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <span class="icon">🔮</span>
+          <div>
+            <div class="num">4</div>
+            <div class="label">Biến Thể (Variants)</div>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <span class="icon">⚡</span>
+          <div>
+            <div class="num">24</div>
+            <div class="label">Perks Bổ Trợ</div>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <span class="icon">🚗</span>
+          <div>
+            <div class="num">7</div>
+            <div class="label">Phụ Kiện Xe & Buff</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Controls & Filters Sticky Panel -->
+    <div class="controls-wrapper">
+      <div class="controls-card">
+        <div class="controls-top">
+          <!-- Main Tabs -->
+          <div class="category-tabs">
+            <button class="tab-btn active" onclick="switchCategory('classes')">
+              <span>🛡️</span> Classes & Kỹ Năng
+            </button>
+            <button class="tab-btn" onclick="switchCategory('perks')">
+              <span>⚡</span> Perks & Bổ Trợ
+            </button>
+            <button class="tab-btn" onclick="switchCategory('vehicles')">
+              <span>🚗</span> Phụ Kiện Xe & Buff
+            </button>
+          </div>
+
+          <!-- Search Box -->
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchInput" class="search-input" placeholder="Tìm class, kỹ năng, perk, chỉ số (vd: reload, heal, drone, virus)..." oninput="applyFilters()">
+          </div>
+        </div>
+
+        <!-- Dynamic Filters Sub-bar -->
+        <div class="filters-bar" id="filtersBar">
+          <div class="filter-group" id="classFilters">
+            <span class="filter-label">Độ hiếm (Sao):</span>
+            <button class="chip-btn active" onclick="setStarFilter('all', this)">Tất cả</button>
+            <button class="chip-btn" onclick="setStarFilter('1', this)">1 ⭐</button>
+            <button class="chip-btn" onclick="setStarFilter('2', this)">2 ⭐</button>
+            <button class="chip-btn" onclick="setStarFilter('3', this)">3 ⭐</button>
+            <button class="chip-btn" onclick="setStarFilter('4', this)">4 ⭐</button>
+            <button class="chip-btn" onclick="setStarFilter('5', this)">5 ⭐</button>
+            <button class="chip-btn" onclick="setStarFilter('variants', this)">Có Biến Thể</button>
+          </div>
+
+          <div class="filter-group" id="perkFilters" style="display: none;">
+            <span class="filter-label">Phẩm cấp:</span>
+            <button class="chip-btn active" onclick="setRarityFilter('all', this)">Tất cả</button>
+            <button class="chip-btn" onclick="setRarityFilter('Common', this)">Common</button>
+            <button class="chip-btn" onclick="setRarityFilter('Rare', this)">Rare</button>
+            <button class="chip-btn" onclick="setRarityFilter('Epic', this)">Epic</button>
+            <button class="chip-btn" onclick="setRarityFilter('Legendary', this)">Legendary</button>
+          </div>
+
+          <div class="status-count" id="resultsCount">
+            Hiển thị 25/25 Classes
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Classes Section -->
+    <section id="sectionClasses">
+      <div class="cards-grid" id="classesContainer"></div>
+    </section>
+
+    <!-- Perks Section -->
+    <section id="sectionPerks" style="display: none;">
+      <div class="perks-grid" id="perksContainer"></div>
+    </section>
+
+    <!-- Vehicles Section -->
+    <section id="sectionVehicles" style="display: none;">
+      <div class="vehicles-grid" id="vehiclesContainer"></div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <p>Survive the Apocalypse Scripting Project • Dữ liệu giải nén từ bộ nhớ phân tích GameAnalysis v7</p>
+      <p style="margin-top: 6px; font-size: 0.78rem;">Tất cả chỉ số và hiệu ứng kỹ năng đều tương thích trực tiếp với engine Client-Server của trò chơi.</p>
+    </footer>
+  </div>
+
+  <!-- Scroll to Top Button -->
+  <button class="scroll-top-btn" id="scrollTopBtn" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>
+
+  <script>
+    // Embedded Data
+    const CLASSES_DATA = [{"name": "Survivor", "stars": 1, "stock_chance": 1000.0, "color": "rgb(147, 51, 234)", "starter_items": [], "abilities": ["Hunger drains 30% slower", "+0.25 Health Regen", "Survive 1 lethal hit every 5 minutes"], "class_stats": [{"HungerDrain": "-0.3"}, {"HungerDrain": "-0.3", "Regen": "0.25"}, {"HungerDrain": "-0.3", "Regen": "0.25", "SurviveCooldown": "300"}], "costs": [20, 20, 30], "quests": ["Survive Total Days: 50", "Survive Total Days: 150"], "variants": []}, {"name": "Policeman", "stars": 2, "stock_chance": 0.6, "color": "rgb(96, 110, 199)", "starter_items": [{"name": "Pistol", "amount": 1}, {"name": "Pistol Ammo", "amount": 64}], "abilities": ["Reload 20% faster with pistols", "+25% accuracy with pistols", "+20% damage with pistols"], "class_stats": [{"ReloadSpeed_Pistol": "0.2"}, {"ReloadSpeed_Pistol": "0.2", "Accuracy_Pistol": "0.25"}, {"ReloadSpeed_Pistol": "0.2", "Accuracy_Pistol": "0.25", "Damage_Pistol": "0.2"}], "costs": [60, 45, 65], "quests": ["Kill Zombies: 500", "Kill Zombies: 2000"], "variants": []}, {"name": "Scavenger", "stars": 2, "stock_chance": 0.6, "color": "rgb(199, 139, 87)", "starter_items": [{"name": "Knife", "amount": 1}], "abilities": ["+10% sprint speed at full health", "Gain +2 random ammo on direct kill", "Nearby items are highlighted through walls"], "class_stats": [{"SprintSpeed_Full": "0.1"}, {"SprintSpeed_Full": "0.1", "AmmoScavenge": "2"}, {"SprintSpeed_Full": "0.1", "AmmoScavenge": "2", "NearbyItemESP": "true"}], "costs": [40, 35, 50], "quests": ["Scrap Items: 200", "Scrap Items: 750", "Scrap Batteries: 60"], "variants": []}, {"name": "Fighter", "stars": 2, "stock_chance": 0.6, "color": "rgb(199, 82, 82)", "starter_items": [{"name": "Spiked Bat", "amount": 1}], "abilities": ["+20% melee damage but -20% accuracy", "+30 Max Health", "+20% melee attack speed"], "class_stats": [{"MeleeDamage": "0.2", "Accuracy": "-0.2"}, {"MeleeDamage": "0.2", "Accuracy": "-0.2", "MaxHealth": "30"}, {"MeleeDamage": "0.2", "Accuracy": "-0.2", "MaxHealth": "30", "MeleeAttackSpeed": "0.2"}], "costs": [100, 70, 90], "quests": ["Kill Zombies with Melee: 400", "Kill Zombies with Melee: 1500", "Kill Muscle Zombies with Melee: 20"], "variants": []}, {"name": "Engineer", "stars": 3, "stock_chance": 0.4, "color": "rgb(199, 195, 87)", "starter_items": [{"name": "Turret", "amount": 2}], "abilities": ["Repair 2x more with repair hammers", "Buildings gain +25% more health", "Buildings deal 20% more damage"], "class_stats": [{"RepairBoost": "1"}, {"RepairBoost": "1", "BuildingHealth": "0.25"}, {"RepairBoost": "1", "BuildingHealth": "0.25", "BuildingDamage": "0.2"}], "costs": [200, 140, 180], "quests": ["Craft Buildings: 100", "Craft Buildings: 250"], "variants": []}, {"name": "Assassin", "stars": 4, "stock_chance": 0.25, "color": "rgb(48, 40, 85)", "starter_items": [{"name": "Rifle", "amount": 1}, {"name": "Suppressor", "amount": 3}, {"name": "Long Ammo", "amount": 20}], "abilities": ["-30% Aggro Range from zombies, +10% Sprint Speed", "+10% Damage, -20 Max Health", "+30% Headshot Damage"], "class_stats": [{"Aggro": "-0.3", "SprintSpeed": "0.1"}, {"Aggro": "-0.3", "SprintSpeed": "0.1", "MaxHealth": "-20", "DamageBoost": "0.1"}, {"Aggro": "-0.3", "SprintSpeed": "0.1", "MaxHealth": "-20", "HeadshotDamage": "0.3", "DamageBoost": "0.1"}], "costs": [400, 200, 250], "quests": ["Kill Zombies with Headshot: 500", "Kill Zombies with Headshot: 2000", "Kill Brutes: 5"], "variants": []}, {"name": "Soldier", "stars": 4, "stock_chance": 0.3, "color": "rgb(112, 199, 93)", "starter_items": [{"name": "AK-47", "amount": 1}, {"name": "Medium Ammo", "amount": 120}], "abilities": ["+30% Reload Speed", "+30% Accuracy", "+15% Firerate"], "class_stats": [{"ReloadSpeed": "0.3"}, {"ReloadSpeed": "0.3", "Accuracy": "0.3"}, {"ReloadSpeed": "0.3", "Accuracy": "0.3", "FireRate": "0.15"}], "costs": [400, 275, 350], "quests": ["Kill Zombies: 1000", "Kill Zombies: 4000", "Kill Experiments: 3"], "variants": []}, {"name": "Guardian", "stars": 3, "stock_chance": 0.4, "color": "rgb(39, 43, 98)", "starter_items": [{"name": "Riot Shield", "amount": 1}, {"name": "Light Armor", "amount": 1}], "abilities": ["+10% Defense", "+30 Max Health, +0.25 Health Regen", "Taunt: Force nearby zombies to attack you (30s cooldown)"], "class_stats": [{"DamageReduction": "0.1"}, {"DamageReduction": "0.1", "MaxHealth": "30", "Regen": "0.25"}, {"DamageReduction": "0.1", "MaxHealth": "30", "Regen": "0.25"}], "costs": [180, 125, 170], "quests": ["Take Damage: 500", "Take Damage: 2000"], "variants": []}, {"name": "Medic", "stars": 3, "stock_chance": 0.4, "color": "rgb(91, 199, 186)", "starter_items": [{"name": "MediGun", "amount": 1}, {"name": "Bandage", "amount": 3}, {"name": "Pistol Ammo", "amount": 24}], "abilities": ["Use medical items 2x faster", "Revive players 2x faster", "Healing players grants various buffs for 15s"], "class_stats": [{"MedicalSpeed": "1"}, {"MedicalSpeed": "1", "ReviveSpeed": "1"}, {"MedicalSpeed": "1", "ReviveSpeed": "1", "MedicAdrenaline": "true"}], "costs": [160, 110, 140], "quests": ["Revive Others: 15", "Revive Others: 40"], "variants": []}, {"name": "Necromancer", "stars": 5, "stock_chance": 0.2, "color": "rgb(81, 14, 226)", "starter_items": [{"name": "Dark Scythe", "amount": 1}], "abilities": ["Collect souls when you or your summons kill zombies and spend souls to summon allied zombies.", "Summoned zombies gain +50% health and damage and +5% every 100 days. 10% to convert zombies into decaying specters on direct kill.", "Gain souls when nearby enemies die. Requiem: Temporarily reanimate recently fallen summons and grant all summons +50% damage, +50% defense, +8 speed, and 5% regen for 15s. (2m CD)"], "class_stats": [{"ZombieConvert": "0.1"}, {"ZombieHealth": "0.5", "ZombieDamage": "0.5", "ZombieConvert": "0.1"}, {"ZombieHealth": "0.5", "ZombieDamage": "0.5", "ZombieConvert": "0.1"}], "costs": [1000, 700, 900], "quests": ["Collect Souls: 5000", "Collect Souls: 20000"], "variants": [{"name": "Overlord", "description": "Requiem is replaced by Summon Champion: Summon a powerful brute that decays when not in combat (5m CD)"}]}, {"name": "Clockmaster", "stars": 5, "stock_chance": 0.0, "color": "rgb(95, 226, 59)", "starter_items": [], "abilities": ["The Past (60s cd), +22% Reload Speed", "The Present (120s cd), +22% Firerate", "The Future (10m cd), +22% Sprint Speed"], "class_stats": [{"ReloadSpeed": "0.22"}, {"ReloadSpeed": "0.22", "FireRate": "0.22"}, {"ReloadSpeed": "0.22", "FireRate": "0.22", "SprintSpeed": "0.22"}], "costs": [99999, 1, 1], "quests": ["???: 1", "???: 1"], "variants": []}, {"name": "Hunter", "stars": 4, "stock_chance": 0.3, "color": "rgb(26, 111, 16)", "starter_items": [{"name": "Rifle", "amount": 1}, {"name": "Bear Trap", "amount": 5}, {"name": "Long Ammo", "amount": 30}], "abilities": ["Bear traps do 50% more damage and last 50% longer", "Bear traps automatically re-arm after 15s and can trap multiple zombies.", "Shooting zombies slows them by 30% for 3s"], "class_stats": [{"BearTrapDamage": "0.5", "BearTrapDuration": "0.5"}, {"BearTrapDamage": "0.5", "BearTrapDuration": "0.5", "BearTrapRearm": "15"}, {"BearTrapDamage": "0.5", "BearTrapDuration": "0.5", "BearTrapRearm": "15", "ShootSlow": "0.3"}], "costs": [250, 200, 250], "quests": ["Trap Zombies: 200", "Trap Zombies: 750"], "variants": []}, {"name": "Commander", "stars": 5, "stock_chance": 0.2, "color": "rgb(0, 83, 161)", "starter_items": [{"name": "Desert Eagle", "amount": 1}, {"name": "Pistol Ammo", "amount": 28}], "abilities": ["Attack Order: Boost the damage, firerate, speed, and reload speed of yourself and nearby allies for 30s (90s CD)", "Mark zombies you attack for 15s, decreasing their defense by -20% (0.25s CD per mark)", "Airstrike: Call down an airstrike that deals massive damage in a large radius (3m CD)"], "class_stats": [{}, {}, {}], "costs": [1000, 600, 750], "quests": ["Recruit Survivors: 5", "Boost Allies: 50", "Recruit Survivors: 10", "Boost Allies: 200"], "variants": []}, {"name": "Fragger", "stars": 3, "stock_chance": 0.4, "color": "rgb(255, 120, 42)", "starter_items": [{"name": "Grenade", "amount": 3}], "abilities": ["Throwables go +25% further and deal +25% more damage", "Gain +1 stack to every throwable in your inventory each night", "Throwables are +30% bigger. Gain immunity to self damage."], "class_stats": [{"ThrowableSpeed": "0.25", "ThrowableDamage": "0.25"}, {"ThrowableSpeed": "0.25", "ThrowableDamage": "0.25", "ThrowablesPerNight": "1"}, {"ThrowableSpeed": "0.25", "ThrowableDamage": "0.25", "ThrowablesPerNight": "1", "ThrowableRadius": "0.3", "SelfDamageImmune": "true"}], "costs": [200, 120, 150], "quests": ["Kill Zombies with Throwables: 300", "Kill Zombies with Throwables: 1000"], "variants": []}, {"name": "Farmer", "stars": 3, "stock_chance": 0.4, "color": "rgb(132, 172, 71)", "starter_items": [{"name": "Scythe", "amount": 1}, {"name": "Farm Plot", "amount": 3}], "abilities": ["Your farm plots grow 1.5x faster", "Carrots you grow give 50% more hunger and heal 10 health", "Your carrots give a 10% speed and damage buff for 20s (duration stacks)"], "class_stats": [{"FarmPlotSpeed": "0.5"}, {"FarmPlotSpeed": "0.5", "CarrotHeal": "10", "CarrotHunger": "0.5"}, {"FarmPlotSpeed": "0.5", "CarrotHeal": "10", "CarrotHunger": "0.5", "CarrotBuffDuration": "30"}], "costs": [160, 110, 140], "quests": ["Grow 100 Carrots: 100", "Grow 300 Carrots: 300"], "variants": []}, {"name": "Psychic", "stars": 5, "stock_chance": 0.2, "color": "rgb(125, 255, 240)", "starter_items": [{"name": "Remote Arsenal", "amount": 1}, {"name": "Pistol", "amount": 4}, {"name": "Pistol Ammo", "amount": 160}], "abilities": ["Remote Arsenal: Choose up to 3 non-projectile guns to float around you and shoot on command", "+1 Remote Arsenal max weapons, +100% drag/interact range", "Gain a regenerating shield that blocks incoming damage"], "class_stats": [{"RemoteArsenalMax": "3"}, {"DragRange": "12", "RemoteArsenalMax": "4"}, {"DragRange": "12", "PsychicShieldHealth": "50", "RemoteArsenalMax": "4"}], "costs": [1000, 750, 900], "quests": ["Kill Zombies: 5000", "Clear the Reactor: 5", "Kill Zombies: 10000", "Clear the Reactor: 10"], "variants": []}, {"name": "Berserker", "stars": 4, "stock_chance": 0.3, "color": "rgb(148, 28, 28)", "starter_items": [{"name": "Mace", "amount": 1}], "abilities": ["Gain Rage when landing melee hits or taking damage, boosting stats. -50% firerate", "+20% melee damage. Gain up to +3 speed at maximum rage", "Melee attacks knock zombies back. Perform a slam every 3 attacks that scales with rage (5s CD)"], "class_stats": [{"RageMaxAttackSpeed": "0.5", "RageMaxDamageReduction": "0.5", "FireRate": "-0.5"}, {"RageMaxAttackSpeed": "0.5", "RageMaxDamageReduction": "0.5", "FireRate": "-0.5", "RageMaxWalkSpeed": "3", "MeleeDamage": "0.2"}, {"RageMaxAttackSpeed": "0.5", "RageMaxDamageReduction": "0.5", "FireRate": "-0.5", "RageMaxWalkSpeed": "3", "MeleeDamage": "0.2", "MeleeKnockback": "50", "SlamCount": "3"}], "costs": [500, 250, 300], "quests": ["Kill Zombies with Melee: 1000", "Kill Zombies with Melee: 2500", "Kill Bosses with Melee: 3"], "variants": []}, {"name": "Explorer", "stars": 2, "stock_chance": 0.6, "color": "rgb(195, 199, 115)", "starter_items": [{"name": "Good Backpack", "amount": 1}], "abilities": ["Interact with interactables (crates, gas stations, etc.) 2x faster", "Reveal more of the map when exploring", "Deal 2x damage against barrels and scrap piles"], "class_stats": [{"InteractableUseSpeed": "2"}, {"InteractableUseSpeed": "2", "RevealSize": "2"}, {"InteractableUseSpeed": "2", "RevealSize": "2", "ScrapDamageBoost": "1"}], "costs": [40, 35, 50], "quests": ["Open Crates: 20", "Break Barrels: 40", "Open Crates: 40", "Break Barrels: 100"], "variants": []}, {"name": "Stalker", "stars": 5, "stock_chance": 0.0, "color": "rgb(147, 18, 53)", "starter_items": [{"name": "Bloodthirster", "amount": 1}], "abilities": ["Inflict bleed on melee hit. Kills with the Bloodthirster gives it +1% damage and grants +1 max health, capping at 70 stacks and resetting each day.", "Melee kills on a bleeding enemy grants a speed boost and transfers it to random enemy nearby. Gain enhanced stats during a Blood Moon.", "Stalk: Turn invisible and move faster for 7s, enhancing your next Bloodthirster attack. Attacking ends the state early. (2m CD, kills reduce CD by 3s)"], "class_stats": [{"Aggro": "-0.2"}, {"Aggro": "-0.2"}, {"Aggro": "-0.2"}], "costs": [9999999, 5000, 10000], "quests": ["Upgrade: 1", "Upgrade: 1"], "variants": []}, {"name": "Operator", "stars": 5, "stock_chance": 0.2, "color": "rgb(114, 226, 102)", "starter_items": [{"name": "Control Pad", "amount": 1}], "abilities": ["Healing Drone: Links to yourself and nearby players, healing 2 hp/s and applying a defense and damage boost", "Combat Drone: Shoots and stalls nearby zombies. The drone gains 1% damage each day, capping at +200%", "Your healing drone automatically revives allies, including yourself (3m CD, 10m CD self). Your combat drone fires an explosive projectile that stuns zombies (8s CD)"], "class_stats": [{}, {}, {}], "costs": [1000, 700, 900], "quests": ["Heal Allies with Drone: 2000", "Heal Allies with Drone: 5000", "Kill Zombies with Drone: 1500"], "variants": []}, {"name": "Alchemist", "stars": 4, "stock_chance": 0.3, "color": "rgb(135, 68, 148)", "starter_items": [{"name": "Brewing Stand", "amount": 1}, {"name": "Acid Potion", "amount": 3}, {"name": "Recovery Compound", "amount": 1}], "abilities": ["Collect ingredients from zombies you kill. Use ingredients to brew potions", "Unlock recipes for Compounds R, I, S. 2x Compound Use Speed", "Potions and compounds you use gain +25% duration and size. 25% chance to brew 2 potions at once"], "class_stats": [{}, {"DrinkSpeed": "1"}, {"DrinkSpeed": "1", "PotionRadius": "0.25", "CompoundDuration": "0.25", "PotionDuration": "0.25", "DoublePotionChance": "0.25"}], "costs": [500, 250, 300], "quests": ["Brew Potions: 75", "Collect Spitter Hearts: 25", "Brew Potions: 200", "Collect Screamer Claws: 10", "Collect Muscle Eyes: 10"], "variants": []}, {"name": "Outlaw", "stars": 5, "stock_chance": 0.2, "color": "rgb(198, 82, 23)", "starter_items": [{"name": "Heavy Revolver", "amount": 1}, {"name": "Pistol Ammo", "amount": 60}], "abilities": ["Headshot kills with non-auto guns grant 10% Reload Speed, +0.5 Walk Speed, and 5% Dodge Chance for 5s, stacking up to 10x", "Bullets from non-auto guns bounce between enemies on penetration (Max 3)", "Quickdraw: Rapidly fire your revolver, automatically headshotting a zombie on your screen 6 times (15s CD)"], "class_stats": [{}, {"RicochetChance": "1", "RicochetMax": "3"}, {"RicochetChance": "1", "RicochetMax": "3"}], "costs": [1000, 700, 900], "quests": ["Kill Zombies with Headshot: 1000", "Kill Zombies with Headshot: 4000", "Kill Exterminators: 5"], "variants": []}, {"name": "Vanguard", "stars": 5, "stock_chance": 0.2, "color": "rgb(198, 150, 109)", "starter_items": [{"name": "Tactical Shield", "amount": 1}, {"name": "Pistol Ammo", "amount": 160}], "abilities": ["Gain a Tactical Shield that blocks damage while holding one-handed guns. +50 Health, +0.25 Regen", "+40% Debuff Resistance, Charge: Charge forward, stunning and reducing the defense of enemies (15s CD)", " Counter: Absorb all damage, then deal 200% of absorbed damage to nearby zombies and recover shield health (15s CD)"], "class_stats": [{"MaxHealth": "50", "Regen": "0.25"}, {"MaxHealth": "50", "Regen": "0.25", "NegativeStatusResistance": "0.4"}, {"MaxHealth": "50", "Regen": "0.25", "NegativeStatusResistance": "0.4"}], "costs": [1000, 700, 900], "quests": ["Take Shield Damage: 25000", "Take Shield Damage: 80000", "Charge Into Mobs:: 2000"], "variants": []}, {"name": "Hacker", "stars": 5, "stock_chance": 1000.0, "color": "rgb(65, 255, 44)", "starter_items": [{"name": "Infiltrator Uzi", "amount": 1}, {"name": "Pistol Ammo", "amount": 200}], "abilities": ["Infiltrate (15s CD): Inflict ‘Virus’, inflicting -30% defense and -35% damage/speed (reduced on bosses). Virus spreads to 2 random nearby zombies on death (max 10 total).", "Directly hitting zombies with Virus activates it, dealing DoT and granting you a speed/damage boost (max 5 stacks). If a zombie with activated Virus dies, they explode, reducing defense and speed.", "System Override (2m CD): Deal massive true damage to zombies with Virus and enhance the on-death explosion, increasing its radius, damage and slow, but removing its ability to spread."], "class_stats": [{}, {}, {}], "costs": [9999, 700, 900], "quests": ["Spread \\'Virus\\' to Zombies: : 1500", "Spread \\'Virus\\' to Zombies: : 6000"], "variants": [{"name": "Codebreaker", "description": "Virus now spreads to 3 zombies on death and can infect up to 30 zombies at once, but its effects are reduced."}, {"name": "Hijacker", "description": "System Override converts non-bosses to your side and massively boosts them for 30 seconds, but enhances the death explosion less."}]}, {"name": "Dullahan", "stars": 5, "stock_chance": 0.2, "color": "rgb(255, 110, 25)", "starter_items": [{"name": "Infernal Scythe", "amount": 1}, {"name": "Dullahan\\'s Steed", "amount": 1}], "abilities": ["Gain heat when zombies burn near you, granting regen, damage, speed, and enhanced abilities. Toss: Throw your head, causing a explosion that inflicts burn. At 75%+ heat, reduces defence (8s CD)", "Jack-o-lanterns periodically spawn around you, slowing and inflicting burn in an explosion (Max 5). At 75%+ heat, lanterns stun and grant a temporary defence boost.", "Unleash (30s CD): Equip an enhanced version of your weapon, granting massive range, damage and speed. Consumes heat while active; lasts until heat is consumed."], "class_stats": [{}, {}, {}], "costs": [9999, 700, 900], "quests": ["Kill Burning Zombies: 2000", "Kill Burning Zombies: 7500", "Kill Bosses: 3"], "variants": [{"name": "Deathbringer", "description": "Unleash instead grants a powerful explosive cannon while also allowing you to float for its duration."}]}];
+    const PERKS_DATA = [{"name": "Tough", "rarity": "Common", "description": "+10 Health", "stats": {"MaxHealth": "10"}}, {"name": "Endurance", "rarity": "Common", "description": "-35% Hunger Drain", "stats": {"HungerDrain": "-0.35"}}, {"name": "Accurate", "rarity": "Common", "description": "+25% Accuracy", "stats": {"Accuracy": "0.25"}}, {"name": "Quick Hands", "rarity": "Common", "description": "+25% Reload Speed", "stats": {"ReloadSpeed": "0.25"}}, {"name": "Double Tap", "rarity": "Common", "description": "+10% Firerate", "stats": {"FireRate": "0.1"}}, {"name": "Strong", "rarity": "Common", "description": "+10% Melee Damage", "stats": {"MeleeDamage": "0.1"}}, {"name": "Stealthy", "rarity": "Common", "description": "-20% Aggro Range", "stats": {"Aggro": "-0.2"}}, {"name": "Builder", "rarity": "Common", "description": "+50% Repair Speed", "stats": {"RepairBoost": "0.5"}}, {"name": "Lucky", "rarity": "Rare", "description": "Survive 1 lethal hit every 3 minutes", "stats": {}}, {"name": "Adaptable", "rarity": "Rare", "description": "Dealing melee damage increases gun damage by 25% for 5 seconds", "stats": {}}, {"name": "Immune", "rarity": "Rare", "description": "Negative status effects wear off 50% faster", "stats": {"NegativeStatusResistance": "0.5"}}, {"name": "Healthy", "rarity": "Rare", "description": "+0.25 Regen", "stats": {"Regen": "0.25"}}, {"name": "Nimble", "rarity": "Rare", "description": "+0.5 Walk Speed", "stats": {"WalkSpeed": "0.5"}}, {"name": "Recovery", "rarity": "Rare", "description": "+35% Incoming Healing", "stats": {"IncomingHealing": "0.35"}}, {"name": "Determined", "rarity": "Epic", "description": "+25% Defense and +15% Damage when below 50% Health", "stats": {"DodgeChance": "0.25"}}, {"name": "Agile", "rarity": "Epic", "description": "25% chance to dodge attacks", "stats": {"DodgeChance": "0.25"}}, {"name": "Marksman", "rarity": "Epic", "description": "+20% Headshot Damage", "stats": {"HeadshotDamage": "0.2"}}, {"name": "Overclock", "rarity": "Epic", "description": "-15% Class Ability, Passive, and Equipment Cooldowns", "stats": {"CooldownDuration": "-0.15"}}, {"name": "Opportunist", "rarity": "Epic", "description": "Deal 5% more damage per unique debuff on the enemy (max 25%)", "stats": {}}, {"name": "Second Wind", "rarity": "Epic", "description": "Taking damage below 50% Health grants a burst of speed, brief invulnerability, and clears all debuffs [60s CD]", "stats": {}}, {"name": "Shadowshot", "rarity": "Legendary", "description": "30% chance to not consume bullets when shooting", "stats": {"BulletPreserveChance": "0.3"}}, {"name": "Acrobat", "rarity": "Legendary", "description": "Dash with iframes when pressing Q (PC) or jumping twice (mobile/console) [2s CD]", "stats": {}}, {"name": "Specialist", "rarity": "Legendary", "description": "Torso shots count as headshots and apply the headshot damage multiplier", "stats": {}}, {"name": "Overkill", "rarity": "Legendary", "description": "Killing an enemy with a direct hit deals the excess damage to a random nearby enemy (max 5 per 0.1s)", "stats": {}}];
+    const VEHICLES_DATA = [{"name": "Plow (Lưỡi gạt húc xe)", "icon": "🚜", "description": "Lắp vào đầu xe để tăng sát thương húc tông quái và giảm giật lùi, giảm mất vận tốc.", "stats": {"Sát thương húc tối đa (RamMaxDamage)": "400", "Sát thương húc tối thiểu (RamMinDamage)": "20", "Đẩy lùi (RamKnockbackMult)": "1x", "Lực giật lùi khi húc (RamRecoil)": "-50% (0.5x)", "Mất vận tốc khi húc (RamVelocityLoss)": "-50% (0.5x)"}}, {"name": "Steel Plating (Giáp thép)", "icon": "🛡️", "description": "Bọc giáp gia cường quanh thân xe, tăng phòng thủ và giữ quán tính khi va chạm.", "stats": {"Phòng thủ xe (Defense)": "+50% (0.5)", "Mất vận tốc khi húc (RamVelocityLoss)": "-75% (0.25x)"}}, {"name": "Basic Turret (Trụ súng cơ bản)", "icon": "🔫", "description": "Trụ súng tự động hoặc điều khiển gắn trên nóc xe, hỗ trợ hoả lực tầm gần và trung.", "stats": {"Chức năng": "Bắn tự động hỗ trợ càn quái khi di chuyển"}}, {"name": "Heavy Turret (Trụ súng hạng nặng)", "icon": "💥", "description": "Trụ hoả lực hạng nặng, sát thương đơn mục tiêu cao, hiệu quả diệt quái biến dị và trùm.", "stats": {"Chức năng": "Sát thương cao, càn quét mục tiêu lớn"}}, {"name": "Minigun Turret (Trụ súng máy 6 nòng)", "icon": "⚡", "description": "Tốc độ xả đạn cực nhanh, trấn áp bầy quái số lượng đông khi di chuyển ban đêm.", "stats": {"Chức năng": "Xả đạn liên thanh tốc độ cao, quét bầy"}}, {"name": "Self-Repair Device (Thiết bị tự sửa chữa)", "icon": "🔧", "description": "Module phụ kiện tự phục hồi độ bền của xe theo thời gian khi không bị tấn công liên tục.", "stats": {"Chức năng": "Tự động hồi phục HP xe theo thời gian"}}, {"name": "Vehicle Storage (Hòm chứa đồ trên xe)", "icon": "📦", "description": "Gia tăng khoang chứa đồ phụ trên xe, cho phép trữ đạn dược, vật phẩm và tài nguyên đi raid.", "stats": {"Chức năng": "Mở rộng dung lượng kho đồ di động của xe"}}];
+
+    let currentCategory = 'classes';
+    let currentStarFilter = 'all';
+    let currentRarityFilter = 'all';
+
+    function switchCategory(category) {
+      currentCategory = category;
+      
+      // Update Tab Styles
+      document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
+        const cat = ['classes', 'perks', 'vehicles'][idx];
+        btn.classList.toggle('active', cat === category);
+      });
+
+      // Toggle Sections
+      document.getElementById('sectionClasses').style.display = category === 'classes' ? 'block' : 'none';
+      document.getElementById('sectionPerks').style.display = category === 'perks' ? 'block' : 'none';
+      document.getElementById('sectionVehicles').style.display = category === 'vehicles' ? 'block' : 'none';
+
+      // Toggle Filter Bar Groups
+      document.getElementById('classFilters').style.display = category === 'classes' ? 'flex' : 'none';
+      document.getElementById('perkFilters').style.display = category === 'perks' ? 'flex' : 'none';
+
+      applyFilters();
+    }
+
+    function setStarFilter(star, btn) {
+      currentStarFilter = star;
+      document.querySelectorAll('#classFilters .chip-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFilters();
+    }
+
+    function setRarityFilter(rarity, btn) {
+      currentRarityFilter = rarity;
+      document.querySelectorAll('#perkFilters .chip-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFilters();
+    }
+
+    function renderClasses(list) {
+      const container = document.getElementById('classesContainer');
+      if (list.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">🔍</div>
+            <div>Không tìm thấy Class nào phù hợp với bộ lọc.</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = list.map(c => {
+        const starsText = '★'.repeat(c.stars) + '☆'.repeat(5 - c.stars);
+        const glowColor = c.color || 'rgb(56, 189, 248)';
+
+        // Starter Items HTML
+        let itemsHtml = '';
+        if (c.starter_items && c.starter_items.length > 0) {
+          const pills = c.starter_items.map(it => `
+            <span class="item-pill">
+              ${it.name} ${it.amount > 1 ? `<span class="item-qty">x${it.amount}</span>` : ''}
+            </span>
+          `).join('');
+          itemsHtml = `
+            <div class="starter-items-section">
+              <span class="starter-items-label">Trang bị đầu trận:</span>
+              ${pills}
+            </div>
+          `;
+        }
+
+        // Tiers HTML
+        const tiersHtml = (c.abilities || []).map((ab, idx) => {
+          const tierNum = idx + 1;
+          const cost = c.costs && c.costs[idx] ? `${c.costs[idx]} Điểm` : '';
+          
+          // Class stats badges for this tier
+          let statBadges = '';
+          if (c.class_stats && c.class_stats[idx]) {
+            const statsObj = c.class_stats[idx];
+            statBadges = Object.entries(statsObj).map(([k, v]) => `
+              <span class="stat-tag">${k}: ${v}</span>
+            `).join('');
+          }
+
+          // Quest badge if applicable
+          let questBadge = '';
+          if (idx > 0 && c.quests && c.quests[idx - 1]) {
+            questBadge = `<span class="stat-tag quest">📜 Nhiệm vụ: ${c.quests[idx - 1]}</span>`;
+          }
+
+          return `
+            <div class="tier-box">
+              <div class="tier-head">
+                <span class="tier-tag tier-${tierNum}-tag">Cấp ${tierNum} (Tier ${tierNum})</span>
+                ${cost ? `<span class="tier-cost">Mở khoá: ${cost}</span>` : ''}
+              </div>
+              <div class="tier-desc">${ab}</div>
+              ${statBadges || questBadge ? `<div class="stat-tags">${statBadges} ${questBadge}</div>` : ''}
+            </div>
+          `;
+        }).join('');
+
+        // Variants HTML
+        let variantsHtml = '';
+        if (c.variants && c.variants.length > 0) {
+          variantsHtml = c.variants.map(v => `
+            <div class="variant-box">
+              <div class="variant-header">
+                <span class="variant-badge">Biến Thể Độc Quyền</span>
+                <span class="variant-name">${v.name}</span>
+              </div>
+              <div class="variant-desc">${v.description}</div>
+            </div>
+          `).join('');
+        }
+
+        return `
+          <div class="class-card">
+            <div class="card-glow-bar" style="background: ${glowColor};"></div>
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-title">${c.name}</div>
+                <div class="card-badges-row">
+                  <span class="stars-badge star-${c.stars}">${starsText} (${c.stars}⭐)</span>
+                  ${c.stock_chance > 0 ? `<span class="mini-badge">Shop: ${c.stock_chance >= 100 ? '100%' : c.stock_chance + '%'}</span>` : ''}
+                  ${c.variants && c.variants.length > 0 ? `<span class="mini-badge" style="color: #f87171; border-color: rgba(248, 113, 113, 0.3)">${c.variants.length} Biến thể</span>` : ''}
+                </div>
+              </div>
+            </div>
+
+            ${itemsHtml}
+
+            <div class="tiers-list">
+              ${tiersHtml}
+            </div>
+
+            ${variantsHtml}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderPerks(list) {
+      const container = document.getElementById('perksContainer');
+      if (list.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">🔍</div>
+            <div>Không tìm thấy Perk nào phù hợp với bộ lọc.</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = list.map(p => {
+        let statsBadges = '';
+        if (p.stats && Object.keys(p.stats).length > 0) {
+          statsBadges = Object.entries(p.stats).map(([k, v]) => `
+            <span class="stat-tag">${k}: ${v}</span>
+          `).join('');
+        }
+
+        return `
+          <div class="perk-card rarity-${p.rarity}">
+            <div class="perk-head">
+              <div class="perk-title">${p.name}</div>
+              <span class="perk-rarity-badge rarity-${p.rarity}-badge">${p.rarity}</span>
+            </div>
+            <div class="perk-desc">${p.description}</div>
+            ${statsBadges ? `<div class="stat-tags" style="margin-top: 8px;">${statsBadges}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderVehicles(list) {
+      const container = document.getElementById('vehiclesContainer');
+      if (list.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">🔍</div>
+            <div>Không tìm thấy phụ kiện xe phù hợp.</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = list.map(v => {
+        const statsRows = Object.entries(v.stats).map(([k, val]) => `
+          <tr>
+            <td>${k}</td>
+            <td>${val}</td>
+          </tr>
+        `).join('');
+
+        return `
+          <div class="vehicle-card">
+            <div class="vehicle-head">
+              <div class="vehicle-icon">${v.icon}</div>
+              <div class="vehicle-title">${v.name}</div>
+            </div>
+            <div class="tier-desc">${v.description}</div>
+            <table class="vehicle-stats-table">
+              <tbody>
+                ${statsRows}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function applyFilters() {
+      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+      const countEl = document.getElementById('resultsCount');
+
+      if (currentCategory === 'classes') {
+        let filtered = CLASSES_DATA.filter(c => {
+          // Star filter
+          if (currentStarFilter === 'variants') {
+            if (!c.variants || c.variants.length === 0) return false;
+          } else if (currentStarFilter !== 'all') {
+            if (c.stars.toString() !== currentStarFilter) return false;
+          }
+
+          // Search query
+          if (query) {
+            const inName = c.name.toLowerCase().includes(query);
+            const inAbilities = (c.abilities || []).some(a => a.toLowerCase().includes(query));
+            const inVariants = (c.variants || []).some(v => v.name.toLowerCase().includes(query) || v.description.toLowerCase().includes(query));
+            const inItems = (c.starter_items || []).some(it => it.name.toLowerCase().includes(query));
+            return inName || inAbilities || inVariants || inItems;
+          }
+          return true;
+        });
+
+        renderClasses(filtered);
+        countEl.textContent = `Hiển thị ${filtered.length}/${CLASSES_DATA.length} Classes`;
+      } 
+      else if (currentCategory === 'perks') {
+        let filtered = PERKS_DATA.filter(p => {
+          // Rarity filter
+          if (currentRarityFilter !== 'all' && p.rarity !== currentRarityFilter) {
+            return false;
+          }
+
+          // Search query
+          if (query) {
+            const inName = p.name.toLowerCase().includes(query);
+            const inDesc = p.description.toLowerCase().includes(query);
+            return inName || inDesc;
+          }
+          return true;
+        });
+
+        renderPerks(filtered);
+        countEl.textContent = `Hiển thị ${filtered.length}/${PERKS_DATA.length} Perks`;
+      }
+      else if (currentCategory === 'vehicles') {
+        let filtered = VEHICLES_DATA.filter(v => {
+          if (query) {
+            const inName = v.name.toLowerCase().includes(query);
+            const inDesc = v.description.toLowerCase().includes(query);
+            return inName || inDesc;
+          }
+          return true;
+        });
+
+        renderVehicles(filtered);
+        countEl.textContent = `Hiển thị ${filtered.length}/${VEHICLES_DATA.length} Phụ Kiện Xe`;
+      }
+    }
+
+    // Scroll to Top button toggle
+    window.addEventListener('scroll', () => {
+      const btn = document.getElementById('scrollTopBtn');
+      if (window.scrollY > 400) {
+        btn.classList.add('visible');
+      } else {
+        btn.classList.remove('visible');
+      }
+    });
+
+    // Initial Render
+    applyFilters();
+  </script>
+</body>
+</html>
