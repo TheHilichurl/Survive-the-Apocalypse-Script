@@ -461,183 +461,24 @@ TabVisuals:AddToggle("Auto Skip All Cutscenes (Intro, BloodMoon, Bosses)", "Auto
 TabVisuals:AddToggle("FPS Boost (Hide Decorations & Weather Lag)", "LowQualityFPSBoost", Visuals.ApplyWorldVisuals)
 
 -- ============================================================================
--- TAB 7: MOVEMENT, TELEPORT, MAP & AUTO-FARM
+-- TAB 7: TELEPORT & MOVEMENT
 -- ============================================================================
 local TabMovement = CreateTab("7. Teleport")
-TabMovement:AddSection("Movement & Physics")
-TabMovement:AddToggle("Enable WalkSpeed Boost", "SpeedBoost")
-TabMovement:AddSlider("WalkSpeed Value", "WalkSpeedValue", 16, 120, 1)
-TabMovement:AddToggle("Auto Sprint (Infinite Hunger Sprint)", "AutoSprint")
-TabMovement:AddToggle("Remove All Movement Slowdowns (Zombie/Crawler/Blizzard/Gun)", "NoSlowdowns")
-TabMovement:AddToggle("Infinite Jump", "InfiniteJump")
-TabMovement:AddToggle("Bunny Hop", "BunnyHop")
-TabMovement:AddToggle("Noclip (Walk Through Walls/Doors)", "Noclip")
-TabMovement:AddToggle("Enable Velocity Fly (WASD + Space/Ctrl)", "Fly")
-TabMovement:AddSlider("Fly Speed", "FlySpeed", 15, 200, 5)
 
-TabMovement:AddSection("Map Revealer & Escape Plan Objectives")
-TabMovement:AddToggle("Auto Reveal Entire Map (FogTouched Loop)", "AutoRevealMap")
-TabMovement:AddButton("Reveal 100% of City Map Right Now (FogTouched)", function()
-    task.spawn(function()
-        local count = Movement.RevealAllMapFog()
-        Utils.NotifyGame("Revealed all map fog tiles (" .. tostring(count) .. " nodes)!", Color3.fromRGB(74, 222, 128))
-    end)
-end)
-TabMovement:AddButton("Toggle In-Game Map UI Anywhere (No Map Build Needed)", function()
-    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    local mainUI = pgui and pgui:FindFirstChild("MainUI")
-    local mapUI = mainUI and mainUI:FindFirstChild("Map")
-    if mapUI then
-        mapUI.Visible = not mapUI.Visible
-    end
-end)
-TabMovement:AddButton("Open Radio Escape Plan Tracker UI", function()
-    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    local mainUI = pgui and pgui:FindFirstChild("MainUI")
-    local escUI = mainUI and mainUI:FindFirstChild("EscapePlan")
-    if escUI then
-        escUI.Visible = not escUI.Visible
-    end
-end)
+TabMovement:AddSection("Infinite Jump")
+TabMovement:AddToggle("Infinite Jump (Nhảy vô hạn)", "InfiniteJump")
 
-TabMovement:AddSection("Quick Teleport to Key Locations & Objectives")
-TabMovement:AddButton("Teleport to Base Generator", function()
-    local gp = Utils.GetGeneratorMainPart()
-    Utils.SafeTeleportTo(gp and (gp.Position + Vector3.new(0, 4, 6)) or Vector3.new(0, 5, 0))
-end)
-TabMovement:AddButton("Teleport to Base Workbench & Shredder", function()
-    local sp = Utils.GetShredderTargetPart()
-    Utils.SafeTeleportTo(sp and (sp.Position + Vector3.new(0, 4, 5)) or Vector3.new(8, 5, 8))
-end)
-TabMovement:AddButton("Teleport to Next Unrepaired Power Plant", function()
-    local tiles = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Tiles")
-    if tiles then
-        for _, tile in ipairs(tiles:GetChildren()) do
-            if (tile.Name == "Power Plant" or tile.Name == "Big Power Plant") and not tile:GetAttribute("Repaired") then
-                Utils.SafeTeleportTo(tile:GetPivot().Position + Vector3.new(0, 5, 0))
-                Utils.NotifyGame("Teleporting to unrepaired " .. tile.Name)
-                return
-            end
-        end
-    end
-    Utils.NotifyGame("All discovered Power Plants are repaired! (Reveal map first if < 4)", Color3.fromRGB(251, 191, 36))
-end)
-TabMovement:AddButton("Teleport to Radio Tower", function()
-    local tiles = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Tiles")
-    if tiles then
-        for _, tile in ipairs(tiles:GetChildren()) do
-            if tile.Name == "Radio Tower" then
-                Utils.SafeTeleportTo(tile:GetPivot().Position + Vector3.new(0, 5, 0))
-                Utils.NotifyGame("Teleporting to Radio Tower!")
-                return
-            end
-        end
-    end
-    Utils.NotifyGame("Radio Tower tile not loaded yet click Reveal Map first!", Color3.fromRGB(248, 113, 113), "Error")
-end)
-TabMovement:AddButton("Teleport to Nuclear Reactor / Military Base / Bunker", function()
-    local tiles = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Tiles")
-    if tiles then
-        for _, name in ipairs({ "Nuclear Reactor", "Military Base", "Bunker", "Tomb", "Mansion", "Upgrader" }) do
-            local t = tiles:FindFirstChild(name)
-            if t then
-                Utils.SafeTeleportTo(t:GetPivot().Position + Vector3.new(0, 5, 0))
-                Utils.NotifyGame("Teleporting to " .. name)
-                return
-            end
-        end
-    end
-    Utils.NotifyGame("Special POI not found yet click Reveal Map first!", Color3.fromRGB(248, 113, 113), "Error")
-end)
-TabMovement:AddButton("Teleport to Downed Teammate (For Fast Revive)", function()
-    local chars = Workspace:FindFirstChild("Characters")
-    if chars then
-        for _, m in ipairs(chars:GetChildren()) do
-            if m ~= Utils.GetCharacter() and m:GetAttribute("Player") and m:GetAttribute("Dead") then
-                Utils.SafeTeleportTo(m:GetPivot().Position + Vector3.new(0, 3, 0))
-                Utils.NotifyGame("Teleported to downed teammate: " .. m.Name)
-                return
-            end
-        end
-    end
-    Utils.NotifyGame("No teammates are currently downed!")
-end)
-TabMovement:AddButton("Use Built Teleporter Network (Native Server Teleport)", function()
-    local structs = Workspace:FindFirstChild("Structures")
-    if structs then
-        local teleporters = {}
-        for _, st in ipairs(structs:GetChildren()) do
-            if st.Name == "Teleporter" and st:FindFirstChild("Teleport") then
-                table.insert(teleporters, st)
-            end
-        end
-        if #teleporters >= 2 then
-            local myPos = Utils.GetRootPart() and Utils.GetRootPart().Position or Vector3.zero
-            table.sort(teleporters, function(a, b)
-                return (a:GetPivot().Position - myPos).Magnitude < (b:GetPivot().Position - myPos).Magnitude
-            end)
-            local nearest = teleporters[1]
-            local farthest = teleporters[#teleporters]
-            task.spawn(function()
-                pcall(function() nearest.Teleport:InvokeServer(farthest) end)
-                Utils.NotifyGame("Triggered server Teleporter to farthest pad!")
-            end)
-            return
-        end
-    end
-    Utils.NotifyGame("Need at least 2 built Teleporters in workspace.Structures!", Color3.fromRGB(248, 113, 113), "Error")
-end)
-TabMovement:AddButton("Ping Generator Fuel Status to Team", function()
-    local gp = Utils.GetGeneratorMainPart()
-    if PingRemote and gp then
-        pcall(function() PingRemote:FireServer("PingGenerator", gp.Position, gp) end)
-        Utils.NotifyGame("Pinged Generator Fuel % to teammates!")
+TabMovement:AddSection("Teleport to Base (Void Fall Anti-Cheat Bypass)")
+TabMovement:AddButton("Teleport to Base (Tự rơi khỏi map từ từ)", function()
+    if Movement and Movement.TeleportHomeVoid then
+        Movement.TeleportHomeVoid()
+    else
+        Utils.NotifyGame("Hệ thống TeleportHomeVoid chưa sẵn sàng!", Color3.fromRGB(248, 113, 113), "Error")
     end
 end)
-
-TabMovement:AddSection("AFK Gem/Skull Farm, Polls & Server Tools")
-TabMovement:AddToggle("Auto Return to Base at Night / Poison Fog", "AutoReturnAtNight")
-TabMovement:AddToggle("Enable Full AFK Survival & Gem Farm Mode", "AutoFarmLoop", function(state)
-    if state then
-        Config.KillAura = true
-        Config.BreakAura = true
-        Config.AutoPickup = true
-        Config.AutoFuelGenerator = true
-        Config.AutoShredResources = true
-        Config.AutoEat = true
-        Config.AutoHeal = true
-        Config.RepairAura = true
-        Config.AutoReturnAtNight = true
-        Config.AutoPlayAgain = true
-        Utils.NotifyGame("Full AFK Survival & Gem Farm activated!", Color3.fromRGB(74, 222, 128))
-    end
-end)
-TabMovement:AddToggle("Auto Vote Hard Mode Poll", "AutoVoteHardMode")
-TabMovement:AddToggle("Hard Mode Vote Choice (ON = Yes, OFF = No)", "HardModeVoteChoice")
-TabMovement:AddToggle("Auto Vote Admin Poll", "AutoVoteAdminPoll")
-TabMovement:AddToggle("Auto Vote Play Again on Round End", "AutoPlayAgain")
-TabMovement:AddSlider("FPS Cap (Requires setfpscap)", "FPSCap", 30, 360, 10, function(val)
-    if setfpscap_fn then pcall(setfpscap_fn, val) end
-end)
-TabMovement:AddButton("Rejoin Current Server", function()
-    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-end)
-TabMovement:AddButton("Server Hop (Find Another Server)", function()
-    task.spawn(function()
-        local ok, res = pcall(function()
-            return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"))
-        end)
-        if ok and res and type(res.data) == "table" then
-            for _, srv in ipairs(res.data) do
-                if type(srv) == "table" and srv.id ~= game.JobId and (srv.playing or 0) < (srv.maxPlayers or 25) then
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, LocalPlayer)
-                    return
-                end
-            end
-        end
-        TeleportService:Teleport(game.PlaceId, LocalPlayer)
-    end)
-end)
+TabMovement:AddToggle("Tự động về Base khi trời tối / Sương mù độc", "AutoReturnAtNight")
+TabMovement:AddToggle("Tự động về Base khi máu nguy hiểm (< 25% HP)", "AutoEmergencyRecall")
+TabMovement:AddLabel("Cơ chế: Nhân vật tắt va chạm và rơi dần từ từ (-3.5 studs/tick) xuống dưới map để game tự kéo về Base mà không kích hoạt Knightmare Anti-Cheat!")
 
 -- Main Automation Tick Loop
 task.spawn(function()
@@ -680,14 +521,26 @@ task.spawn(function()
             end
             local char = Utils.GetCharacter()
             local root = Utils.GetRootPart(char)
-            if char and root and (Config.AutoReturnAtNight or Config.AutoFarmLoop) then
-                local isNight = Workspace:GetAttribute("Night") == true
-                local inPoison = char:GetAttribute("InPoison") == true
-                local countdown = Workspace:GetAttribute("Countdown") or 99
-                if (isNight or inPoison or (not isNight and countdown <= 8)) and root.Position.Magnitude > 65 then
-                    local genPart = Utils.GetGeneratorMainPart()
-                    local targetPos = genPart and (genPart.Position + Vector3.new(0, 4, 8)) or Vector3.new(0, 5, 0)
-                    Utils.SafeTeleportTo(targetPos)
+            local hum = Utils.GetHumanoid(char)
+            if char and root and hum and Utils.IsCharacterAlive(char) then
+                local basePos = (Hub.AutoFarm and Hub.AutoFarm.GetBasePosition and Hub.AutoFarm.GetBasePosition()) or Vector3.new(0, 5, 0)
+                local distToBase = (root.Position - basePos).Magnitude
+
+                -- Tự động về Base bằng cách rơi khỏi map khi máu thấp (< 25% HP)
+                if Config.AutoEmergencyRecall and (hum.Health / math.max(hum.MaxHealth, 1)) <= 0.25 and distToBase > 35 then
+                    if Movement and Movement.TeleportHomeVoid then
+                        Movement.TeleportHomeVoid()
+                    end
+                -- Tự động về Base bằng cách rơi khỏi map khi trời tối hoặc sương mù độc
+                elseif (Config.AutoReturnAtNight or Config.AutoFarmLoop) and distToBase > 45 then
+                    local isNight = Workspace:GetAttribute("Night") == true
+                    local inPoison = char:GetAttribute("InPoison") == true
+                    local countdown = Workspace:GetAttribute("Countdown") or 999
+                    if isNight or inPoison or (not isNight and countdown <= 12) then
+                        if Movement and Movement.TeleportHomeVoid then
+                            Movement.TeleportHomeVoid()
+                        end
+                    end
                 end
             end
             if (Config.AutoPlayAgain or Config.AutoFarmLoop) and VotePlayAgainRemote then
