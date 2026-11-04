@@ -219,7 +219,7 @@ local function GetWeaponFireOrigin(targetPos)
     local head = myChar:FindFirstChild("Head")
     local root = Utils.GetRootPart(myChar)
     local headPos = (head and head:IsA("BasePart") and head.Position)
-        or (root and (root.Position + Vector3.new(0, 1.6, 0)))
+        or (root and (root.Position + Vector3.new(0, 1.8, 0)))
         or (Camera and Camera.CFrame.Position or Vector3.zero)
 
     local held = myChar:FindFirstChildOfClass("Tool")
@@ -228,11 +228,16 @@ local function GetWeaponFireOrigin(targetPos)
         if barrel then
             local bPos = barrel:IsA("Attachment") and barrel.WorldPosition or (barrel:IsA("BasePart") and barrel.Position or nil)
             if bPos then
+                -- Nếu bắn 360 độ về phía sau, dùng headPos để tia đạn không bị vướng thân người chơi
                 if targetPos and root then
                     local toTarget = (targetPos - root.Position)
                     if toTarget.Magnitude > 0.1 and root.CFrame.LookVector:Dot(toTarget.Unit) < -0.15 then
                         return headPos
                     end
+                end
+                -- Nếu handle/nòng súng bị chúc xuống sát đất khi chạy (bPos.Y < root.Position.Y + 0.4), nâng lên headPos tránh chạm Terrain
+                if root and bPos.Y < (root.Position.Y + 0.4) then
+                    return headPos
                 end
                 return bPos
             end
@@ -250,12 +255,12 @@ local BypassHitscanHook = false
 
 local StaticAimRayParams = RaycastParams.new()
 StaticAimRayParams.FilterType = Enum.RaycastFilterType.Include
-StaticAimRayParams.RespectCanCollide = false -- Giúp phát hiện chính xác cả các bụi cỏ và tán cây dù CanCollide = false
+StaticAimRayParams.RespectCanCollide = true -- Khớp chuẩn engine game: bỏ qua hoàn toàn hoa cỏ non-collidable
 StaticAimRayParams.CollisionGroup = "Default"
 
 local BorderRayParams = RaycastParams.new()
 BorderRayParams.FilterType = Enum.RaycastFilterType.Include
-BorderRayParams.RespectCanCollide = false
+BorderRayParams.RespectCanCollide = true
 
 local LastAimRayParamsRefresh = 0
 local function EnsureAimRayParams()
@@ -272,17 +277,17 @@ local function EnsureAimRayParams()
         if border then table.insert(list, border) end
         if terrain then table.insert(list, terrain) end
 
-        -- Bổ sung các thư mục cảnh quan, cây cối, cỏ trên bản đồ
+        -- Bổ sung các thư mục cảnh quan, cây cối trên bản đồ (loại trừ các thư mục trang trí hoa cỏ nhỏ)
         for _, ch in ipairs(Workspace:GetChildren()) do
             local chName = ch.Name:lower()
-            if (chName:find("tree") or chName:find("grass") or chName:find("foliage") or chName:find("nature") or chName:find("decoration") or chName:find("environment"))
+            if (chName:find("tree") or chName:find("foliage") or chName:find("nature"))
                 and ch ~= Workspace:FindFirstChild("Characters") and ch ~= Workspace:FindFirstChild("DroppedItems") then
                 table.insert(list, ch)
             end
         end
 
         StaticAimRayParams.FilterDescendantsInstances = list
-        StaticAimRayParams.RespectCanCollide = false
+        StaticAimRayParams.RespectCanCollide = true
 
         if border then
             BorderRayParams.FilterDescendantsInstances = { border }
@@ -327,21 +332,24 @@ local function IsPlayerPlacedFence(inst)
     return false
 end
 
--- Nhận diện vật thể Cây (Tree, Tree1,...) và Bụi cỏ (Grass,...)
+-- Nhận diện vật thể Cây (Tree, Trunk, Foliage, Branch) - TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
 local function IsTreeOrGrass(inst)
     if not inst then return false end
     if Utils.IsTreeOrGrass then
         return Utils.IsTreeOrGrass(inst)
     end
+    if inst:IsA("Terrain") then return false end
     local cur = inst
     while cur and cur ~= Workspace do
         local n = cur.Name:lower()
-        if n:find("tree") or n:find("grass") or n:find("trunk") or n:find("foliage")
-            or n:find("branch") or n:find("bush") or n:find("shrub") or n:find("flora")
-            or n:find("leaves") or n:find("wood") then
-            return true
+        if n:find("tree") or n:find("trunk") or n:find("foliage")
+            or n:find("branch") or n:find("bush") or n:find("shrub")
+            or n:find("leaves") then
+            if not cur:IsA("Tool") and not cur:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
+                return true
+            end
         end
-        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") then
+        if cur:HasTag("Tree") or cur:HasTag("Foliage") then
             return true
         end
         cur = cur.Parent
@@ -351,13 +359,14 @@ end
 
 local function IsMapBorderOrWall(inst)
     if not inst then return false end
+    if inst:IsA("Terrain") then return false end
 
     -- Hàng rào do người chơi đặt ra trong Workspace.Structures được game thiết kế cho đạn bắn xuyên qua
     if IsPlayerPlacedFence(inst) then
         return false
     end
 
-    -- Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
+    -- Cây cối (Tree, Trunk, Foliage,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN THEO YÊU CẦU!
     if IsTreeOrGrass(inst) then
         return true
     end
@@ -374,7 +383,7 @@ local function IsMapBorderOrWall(inst)
     if name:find("border") or name:find("barrier") or name:find("wall") or name:find("fence")
         or name:find("gate") or name:find("door") or name:find("barricade") or name:find("shield")
         or name:find("sandbag") or name:find("pillar") or name:find("column") or name:find("rock")
-        or name:find("house") or name:find("building") or name:find("roof") or name:find("floor") then
+        or name:find("house") or name:find("building") or name:find("roof") then
         return true
     end
     while p and p ~= Workspace do
@@ -397,7 +406,7 @@ local function IsPenetrableObstacle(inst)
         return true
     end
 
-    -- 2. Cây cối (Tree, Tree1,...) và Bụi cỏ (Grass,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
+    -- 2. Cây cối (Tree, Trunk, Foliage,...): TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
     if IsTreeOrGrass(inst) then
         return false
     end
@@ -412,14 +421,8 @@ local function IsPenetrableObstacle(inst)
         return true
     end
 
-    -- 5. Mọi vật thể có va chạm vật lý (CanCollide = true) trong Map/Structures đều cản đạn:
-    if inst.CanCollide then
-        return false
-    end
-
-    -- 6. Chỉ các chi tiết hoa nhỏ, bụi rác nhỏ không va chạm (CanCollide = false) và KHÔNG PHẢI cây cỏ mới được coi là xuyên:
-    local name = inst.Name:lower()
-    if not IsTreeOrGrass(inst) and (name:find("flower") or name:find("dirt") or name:find("clutter") or name:find("trash") or inst.Transparency >= 0.85) then
+    -- 5. Mọi vật thể không va chạm vật lý (CanCollide = false) hoặc trong suốt (Transparency >= 0.85) được coi là xuyên
+    if not inst.CanCollide or inst.Transparency >= 0.85 then
         return true
     end
 
@@ -522,24 +525,48 @@ end
 local function FindUnobstructedPartOnMob(model)
     if not model then return nil, nil, nil, nil end
     local preferredPart = Config.AimPart or "Head"
-    local part = model:FindFirstChild(preferredPart) or model:FindFirstChild("Head") or model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
-    if not (part and part:IsA("BasePart")) then return nil, nil, nil, nil end
 
-    local origin = GetWeaponFireOrigin(part.Position)
-
-    if Config.AimWallCheck == false then
-        return part, origin, part.Position, nil
+    local partsToTry = {}
+    local pref = model:FindFirstChild(preferredPart)
+    if pref and pref:IsA("BasePart") then
+        table.insert(partsToTry, pref)
     end
 
-    -- Thực hiện đúng 1 tia Raycast duy nhất cho mục tiêu
-    local isClear, hitPos = CheckRayUnobstructed(origin, part.Position, model)
-    if isClear then
-        return part, origin, hitPos or part.Position, nil
+    local head = model:FindFirstChild("Head")
+    if head and head:IsA("BasePart") and head ~= pref then
+        table.insert(partsToTry, head)
+    end
+
+    local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
+    if torso and torso:IsA("BasePart") and torso ~= pref and torso ~= head then
+        table.insert(partsToTry, torso)
+    end
+
+    local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+    if root and root:IsA("BasePart") and root ~= pref and root ~= head and root ~= torso then
+        table.insert(partsToTry, root)
+    end
+
+    if #partsToTry == 0 then return nil, nil, nil, nil end
+
+    local origin = GetWeaponFireOrigin(partsToTry[1].Position)
+
+    if Config.AimWallCheck == false then
+        return partsToTry[1], origin, partsToTry[1].Position, nil
+    end
+
+    -- Thử lần lượt các bộ phận: Nếu Head bị lá cây/vật cản che thì vẫn ngắm trúng Torso
+    for _, part in ipairs(partsToTry) do
+        local isClear, hitPos = CheckRayUnobstructed(origin, part.Position, model)
+        if isClear then
+            return part, origin, hitPos or part.Position, nil
+        end
     end
 
     return nil, nil, nil, nil
 end
 
+local LastCacheCleanTime = 0
 local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
     local myChar = Utils.GetCharacter()
     local myRoot = Utils.GetRootPart(myChar)
@@ -557,6 +584,13 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
 
     local myPos = myRoot.Position
     local candidates = {}
+
+    -- Dọn dẹp cache quái vật đã hết hạn hoặc đã chết định kỳ mỗi 1s
+    local now = os.clock()
+    if (now - LastCacheCleanTime) >= 1.0 then
+        LastCacheCleanTime = now
+        CleanObstacleCache()
+    end
 
     -- Bước 1: Lọc nhanh bằng toán học thuần túy (Không Raycast, tốn 0% GPU/Physics)
     for _, model in ipairs(charsFolder:GetChildren()) do
@@ -616,10 +650,9 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
         return a.Dist < b.Dist
     end)
 
-    -- Bước 3: Quét và bắn theo nhịp - TỐI ĐA 3 CON MỖI NHỊP (Bị cản thì lưu cache để nhịp sau thử 3 con tiếp theo)
-    local now = os.clock()
+    -- Bước 3: Quét và bắn theo nhịp - TỐI ĐA 8 CON MỖI NHỊP (Bị cản thì lưu cache 0.25s để phản hồi cực nhanh khi di chuyển)
     local checksDone = 0
-    local maxChecksPerTick = 3
+    local maxChecksPerTick = 8
 
     for _, entry in ipairs(candidates) do
         local model = entry.Model
@@ -637,12 +670,12 @@ local function GetBestCombatTarget(maxRange, useFOV, requireLOS)
                     -- Tìm thấy mục tiêu thông thoáng: Chọn ngay để bắn thật!
                     return model, clearPart, clearOrigin, nil
                 else
-                    -- Bị tường/cổng chặn: Ghi nhớ vào cache 1.0s để nhịp sau tự động chuyển sang 3 con tiếp theo
-                    ObstacleCache[model] = now + 1.0
+                    -- Bị tường/cổng chặn: Ghi nhớ vào cache 0.25s để nhịp sau tự động thử quái tiếp theo mà không làm đóng băng toàn bộ
+                    ObstacleCache[model] = now + 0.25
                 end
 
                 if checksDone >= maxChecksPerTick then
-                    -- Đã kiểm tra tối đa 3 con trong nhịp này: Dừng lại để nhịp sau thử 3 con tiếp theo
+                    -- Đã kiểm tra tối đa 8 con trong nhịp này: Dừng lại nhường frame tiếp theo
                     break
                 end
             end
@@ -1632,7 +1665,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
     local frameTargetModel, frameTargetPart, frameFireOrigin = nil, nil, nil
 
     if needsTarget then
-        local gunRange = (stats and (stats:GetAttribute("BulletRange") or stats:GetAttribute("Range"))) or 600
+        local gunRange = (held:GetAttribute("BulletRange") or held:GetAttribute("Range")) or (stats and (stats:GetAttribute("BulletRange") or stats:GetAttribute("Range"))) or 600
         local weaponRange = math.min(gunRange, Config.AimMaxRange or 500)
 
         -- 1. Giữ khóa mục tiêu trước đó nếu còn hợp lệ (Target Retention / Stickiness - 0% CPU)
@@ -1648,7 +1681,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                         frameTargetPart = clearPart
                         frameFireOrigin = origin
                     else
-                        ObstacleCache[CurrentLockedTarget] = os.clock() + 1.0
+                        ObstacleCache[CurrentLockedTarget] = os.clock() + 0.25
                         CurrentLockedTarget = nil
                     end
                 else
@@ -1700,7 +1733,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         return
     end
 
-    local capacity = (stats and stats:GetAttribute("Capacity")) or held:GetAttribute("Capacity") or 12
+    local capacity = held:GetAttribute("Capacity") or (stats and stats:GetAttribute("Capacity")) or 12
     local curAmmo = held:GetAttribute("Ammo")
     if curAmmo == nil and stats then
         curAmmo = stats:GetAttribute("Ammo") or stats:GetAttribute("Capacity")
@@ -1711,7 +1744,12 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             curAmmo = ammoVal.Value
         end
     end
-    curAmmo = curAmmo or 12
+    -- Nếu súng chưa có thuộc tính Ammo, khởi tạo bằng capacity để bắn ngay lập tức
+    if curAmmo == nil then
+        curAmmo = capacity
+        pcall(function() held:SetAttribute("Ammo", capacity) end)
+    end
+    curAmmo = curAmmo or capacity or 12
     local shotsFired = ShotsFiredSinceReload[held] or 0
 
     -- Chỉ nạp đạn khi thực sự hết đạn (curAmmo <= 0)
@@ -1746,7 +1784,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         local now = os.clock()
         -- Tính toán cooldown có áp dụng hệ số tăng tốc FireRateMultiplier (FastShoot)
         -- Sử dụng baseFireRate từ vũ khí gốc và nhân 1 lần hệ số fireMult duy nhất
-        local baseFireRate = (OriginalWeaponStats[held] and OriginalWeaponStats[held].FireRate) or (stats and stats:GetAttribute("FireRate")) or 150
+        local baseFireRate = (OriginalWeaponStats[held] and OriginalWeaponStats[held].FireRate) or (stats and stats:GetAttribute("FireRate")) or (held:GetAttribute("FireRate")) or 150
         local fireMult = (Config.FastShoot and (Config.FireRateMultiplier or 1.35)) or 1.0
         fireMult = math.clamp(fireMult, 1.0, 3.0)
         local effectiveFireRate = baseFireRate * fireMult
@@ -1769,8 +1807,9 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
 
             -- Bắn trực tiếp qua Remote Shoot của vũ khí theo đúng cấu trúc server game
             -- Tuyệt đối KHÔNG dùng chuột giả lập (VirtualInputManager/mouse1press) để không làm xoay hay giật camera người chơi
-            local shootRem = held:FindFirstChild("Shoot") or held:FindFirstChild("Shoot", true)
-            if not shootRem then
+            local shootRem = held:FindFirstChild("Shoot")
+            if not (shootRem and shootRem:IsA("RemoteEvent")) then
+                shootRem = nil
                 for _, ch in ipairs(held:GetDescendants()) do
                     if ch:IsA("RemoteEvent") and (ch.Name == "Shoot" or ch.Name == "Fire" or ch.Name == "Attack") then
                         shootRem = ch
@@ -1780,11 +1819,11 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             end
 
             if shootRem then
-                local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or 1)
+                local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or (held and held:GetAttribute("Bullets")) or 1)
                 local myChar = Utils.GetCharacter()
                 local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or myChar:GetAttribute("Perk") == "Outlaw" or LocalPlayer:GetAttribute("Class") == "Outlaw"))
                 local charRicochetMax = (myChar and myChar:GetAttribute("RicochetMax")) or (LocalPlayer and LocalPlayer:GetAttribute("RicochetMax")) or (held and held:GetAttribute("RicochetMax")) or 0
-                local isAutomatic = stats and stats:GetAttribute("Automatic") == true
+                local isAutomatic = (stats and stats:GetAttribute("Automatic") == true) or (held and held:GetAttribute("Automatic") == true)
 
                 -- Outlaw có nội tại: "Bullets from non-auto guns bounce between enemies on penetration (Max 3)"
                 local ricochetMax = 0
@@ -1822,10 +1861,10 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                         for _, seg in ipairs(fullEffectResults) do
                             pcall(function()
                                 BulletModule.BulletEffect(seg.Origin, seg.End, hitDataList, nil, {
-                                    Color = (stats and stats:GetAttribute("BulletColor")) or Color3.fromRGB(255, 179, 57),
+                                    Color = (stats and stats:GetAttribute("BulletColor")) or (held and held:GetAttribute("BulletColor")) or Color3.fromRGB(255, 179, 57),
                                     Radius = (stats and stats:GetAttribute("BulletRadius")) or 0.08,
-                                    Range = (stats and stats:GetAttribute("BulletRange")) or 1000,
-                                    CustomBullet = stats and stats:GetAttribute("CustomBullet"),
+                                    Range = (stats and stats:GetAttribute("BulletRange")) or (held and held:GetAttribute("BulletRange")) or 1000,
+                                    CustomBullet = (stats and stats:GetAttribute("CustomBullet")) or (held and held:GetAttribute("CustomBullet")),
                                 })
                             end)
                         end
@@ -1841,7 +1880,7 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                 end)
 
                 ShotsFiredSinceReload[held] = shotsFired + 1
-                local currAmmo = held:GetAttribute("Ammo") or 1
+                local currAmmo = curAmmo or held:GetAttribute("Ammo") or capacity or 12
                 local nextAmmo = math.max(0, currAmmo - 1)
                 pcall(function()
                     held:SetAttribute("Ammo", nextAmmo)

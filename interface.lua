@@ -192,16 +192,16 @@ local SilentAimToggleRef, AutoShootToggleRef = nil, nil
 SilentAimToggleRef = TabCombat:AddToggle("Enable Silent Aim (Manual Click -> Bends Bullets to Nearest Mob)", "SilentAim", function(val)
     if val and Config.AutoShoot then
         Config.AutoShoot = false
-        if AutoShootToggleRef and AutoShootToggleRef.SetState then
-            AutoShootToggleRef:SetState(false)
+        if AutoShootToggleRef and AutoShootToggleRef.Set then
+            AutoShootToggleRef.Set(false, true)
         end
     end
 end)
 AutoShootToggleRef = TabCombat:AddToggle("Enable Smart Auto Shoot (Fully Automatic Firing at Clear Targets)", "AutoShoot", function(val)
     if val and Config.SilentAim then
         Config.SilentAim = false
-        if SilentAimToggleRef and SilentAimToggleRef.SetState then
-            SilentAimToggleRef:SetState(false)
+        if SilentAimToggleRef and SilentAimToggleRef.Set then
+            SilentAimToggleRef.Set(false, true)
         end
     end
 end)

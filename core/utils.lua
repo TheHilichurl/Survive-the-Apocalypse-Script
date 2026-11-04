@@ -569,15 +569,18 @@ end
 
 function Utils.IsTreeOrGrass(inst)
     if not inst then return false end
+    if inst:IsA("Terrain") then return false end
     local cur = inst
     while cur and cur ~= Workspace do
         local n = cur.Name:lower()
-        if n:find("tree") or n:find("grass") or n:find("trunk") or n:find("foliage")
-            or n:find("branch") or n:find("bush") or n:find("shrub") or n:find("flora")
-            or n:find("leaves") or n:find("wood") then
-            return true
+        if n:find("tree") or n:find("trunk") or n:find("foliage")
+            or n:find("branch") or n:find("bush") or n:find("shrub")
+            or n:find("leaves") then
+            if not cur:IsA("Tool") and not cur:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
+                return true
+            end
         end
-        if cur:HasTag("Tree") or cur:HasTag("Grass") or cur:HasTag("Foliage") or cur:HasTag("HideableDecoration") then
+        if cur:HasTag("Tree") or cur:HasTag("Foliage") then
             return true
         end
         cur = cur.Parent
