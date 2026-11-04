@@ -235,6 +235,7 @@ local Config = {
     Fly = false,
     FlySpeed = 25,                     -- Safe fly glide speed (< 28.5 studs/s)
     VoidFallSpeed = 2.0,               -- Safe void fall speed (studs/tick, ~120 studs/s)
+    KeybindTeleportHome = true,        -- Bấm phím L để kích hoạt rơi void về Base 1 lần duy nhất mỗi khi bấm
     SafeGroundHover = true,            -- Floor-check hover mode to preserve anti-cheat trust score
     AutoRevealMap = false,
     AutoReturnAtNight = false,

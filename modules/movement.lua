@@ -78,6 +78,19 @@ Hub.AddConnection(UserInputService.JumpRequest:Connect(function()
     end
 end))
 
+-- Keybind L: Tự động kích hoạt cơ chế dịch chuyển về nhà bằng cách rơi void 1 lần duy nhất mỗi khi bấm
+Hub.AddConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if UserInputService:GetFocusedTextBox() then return end
+    if (Config.KeybindTeleportHome == nil or Config.KeybindTeleportHome == true) then
+        if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.L then
+            if Movement and Movement.TeleportHomeVoid then
+                Movement.TeleportHomeVoid()
+            end
+        end
+    end
+end))
+
 Hub.AddConnection(ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, plr)
     if Config.InstantInteract and plr == LocalPlayer then
         Utils.InstantCompletePrompt(prompt)
@@ -191,53 +204,57 @@ local function TeleportHomeVoid(callback)
     Utils.NotifyGame("Bắt đầu rơi khỏi map từ từ về Base (Bypass Anti-Cheat)...", Color3.fromRGB(56, 189, 248))
 
     task.spawn(function()
-        local startPos = root.Position
-        local targetDepth = -160 -- Rơi xuống độ sâu void để game kích hoạt respawn về Base
+        local success, _ = pcall(function()
+            local startPos = root.Position
+            local targetDepth = -160 -- Rơi xuống độ sâu void để game kích hoạt respawn về Base
 
-        -- 1. Tắt va chạm tạm thời để nhân vật có thể rơi xuyên qua mặt sàn/địa hình
-        local originalCanCollide = {}
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                originalCanCollide[part] = part.CanCollide
-                part.CanCollide = false
-            end
-        end
-
-        -- 2. Hạ độ cao từ từ (mặc định 2.0 studs/tick) - tốc độ rơi mượt tự nhiên, không bao giờ bị Anti-Cheat gắn cờ Teleport Distance
-        local curY = startPos.Y
-        local step = (Config and Config.VoidFallSpeed) or 2.0
-
-        while curY > targetDepth do
-            if not char or not char.Parent or not root or not root.Parent then break end
-            curY = curY - step
-            root.CFrame = CFrame.new(startPos.X, curY, startPos.Z)
-            root.AssemblyLinearVelocity = Vector3.new(0, -18, 0)
-            RunService.Heartbeat:Wait()
-        end
-
-        -- 3. Đợi game nhận diện rơi vào void và kéo về Base
-        local timeout = os.clock() + 3.5
-        while os.clock() < timeout do
-            task.wait(0.2)
-            local currentRoot = Utils.GetRootPart(Utils.GetCharacter())
-            if currentRoot and currentRoot.Position.Y > -20 then
-                break
-            end
-        end
-
-        -- 4. Khôi phục va chạm ban đầu
-        local liveChar = Utils.GetCharacter()
-        if liveChar then
-            for part, coll in pairs(originalCanCollide) do
-                if part and part.Parent and part:IsA("BasePart") then
-                    pcall(function() part.CanCollide = coll end)
+            -- 1. Tắt va chạm tạm thời để nhân vật có thể rơi xuyên qua mặt sàn/địa hình
+            local originalCanCollide = {}
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    originalCanCollide[part] = part.CanCollide
+                    part.CanCollide = false
                 end
             end
-        end
+
+            -- 2. Hạ độ cao từ từ (mặc định 2.0 studs/tick) - tốc độ rơi mượt tự nhiên, không bao giờ bị Anti-Cheat gắn cờ Teleport Distance
+            local curY = startPos.Y
+            local step = (Config and Config.VoidFallSpeed) or 2.0
+
+            while curY > targetDepth do
+                if not char or not char.Parent or not root or not root.Parent or not hum or hum.Health <= 0 then break end
+                curY = curY - step
+                root.CFrame = CFrame.new(startPos.X, curY, startPos.Z)
+                root.AssemblyLinearVelocity = Vector3.new(0, -18, 0)
+                RunService.Heartbeat:Wait()
+            end
+
+            -- 3. Đợi game nhận diện rơi vào void và kéo về Base
+            local timeout = os.clock() + 3.5
+            while os.clock() < timeout do
+                task.wait(0.2)
+                local currentRoot = Utils.GetRootPart(Utils.GetCharacter())
+                if currentRoot and currentRoot.Position.Y > -20 then
+                    break
+                end
+            end
+
+            -- 4. Khôi phục va chạm ban đầu
+            local liveChar = Utils.GetCharacter()
+            if liveChar then
+                for part, coll in pairs(originalCanCollide) do
+                    if part and part.Parent and part:IsA("BasePart") then
+                        pcall(function() part.CanCollide = coll end)
+                    end
+                end
+            end
+        end)
 
         IsTeleportingVoid = false
-        Utils.NotifyGame("Đã trở về Base an toàn!", Color3.fromRGB(74, 222, 128))
-        if callback then pcall(callback) end
+        if success then
+            Utils.NotifyGame("Đã trở về Base an toàn!", Color3.fromRGB(74, 222, 128))
+            if callback then pcall(callback) end
+        end
     end)
 end
 

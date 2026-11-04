@@ -469,17 +469,18 @@ TabMovement:AddSection("Infinite Jump")
 TabMovement:AddToggle("Infinite Jump (Nhảy vô hạn)", "InfiniteJump")
 
 TabMovement:AddSection("Teleport to Base (Void Fall Anti-Cheat Bypass)")
-TabMovement:AddButton("Teleport to Base (Tự rơi khỏi map từ từ)", function()
+TabMovement:AddButton("Teleport to Base (Tự rơi khỏi map từ từ) [Phím L]", function()
     if Movement and Movement.TeleportHomeVoid then
         Movement.TeleportHomeVoid()
     else
         Utils.NotifyGame("Hệ thống TeleportHomeVoid chưa sẵn sàng!", Color3.fromRGB(248, 113, 113), "Error")
     end
 end)
+TabMovement:AddToggle("Kích hoạt phím tắt L về Base (Keybind L)", "KeybindTeleportHome")
 TabMovement:AddSlider("Tốc độ rơi xuống Void (Studs/Tick)", "VoidFallSpeed", 0.5, 3.5, 0.1)
 TabMovement:AddToggle("Tự động về Base khi trời tối / Sương mù độc", "AutoReturnAtNight")
 TabMovement:AddToggle("Tự động về Base khi máu nguy hiểm (< 25% HP)", "AutoEmergencyRecall")
-TabMovement:AddLabel("Cơ chế: Nhân vật tắt va chạm và rơi dần từ từ xuống dưới map để game tự kéo về Base mà không kích hoạt Knightmare Anti-Cheat!")
+TabMovement:AddLabel("Cơ chế: Bấm phím L hoặc nút bấm để tắt va chạm và rơi dần từ từ xuống void để game tự kéo về Base mà không kích hoạt Knightmare Anti-Cheat!")
 
 -- Main Automation Tick Loop
 task.spawn(function()
