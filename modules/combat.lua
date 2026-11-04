@@ -1707,7 +1707,8 @@ local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces
             if c ~= myChar and c ~= startChar and not c:GetAttribute("Dead") and c.Name ~= "Forcefield" then
                 local isHostile, mobHp = IsHostilePvEMob(c)
                 if isHostile and mobHp > 0 and not Players:GetPlayerFromCharacter(c) then
-                    local p = c:FindFirstChild("Torso") or c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c:FindFirstChild("MainPart", true) or c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart", true)
+                    -- Can thiệp Ricochet Headshot: Luôn ưu tiên Head trước Torso để 100% nảy đạn vào Đầu
+                    local p = c:FindFirstChild("Head") or c:FindFirstChild("MainPart", true) or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso") or c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart", true)
                     if p and p:IsA("BasePart") then
                         table.insert(candidates, { Model = c, Part = p })
                     end
@@ -1718,7 +1719,7 @@ local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces
 
     for bounce = 1, maxBounces do
         local bestCand = nil
-        local bestDist = maxRadius or 22.0
+        local bestDist = maxRadius or 35.0
 
         for _, cand in ipairs(candidates) do
             if not visited[cand.Model] and not cand.Model:GetAttribute("Dead") then
@@ -1982,21 +1983,23 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
                 local charRicochetMax = (myChar and myChar:GetAttribute("RicochetMax")) or (LocalPlayer and LocalPlayer:GetAttribute("RicochetMax")) or (held and held:GetAttribute("RicochetMax")) or 0
                 local isAutomatic = (stats and stats:GetAttribute("Automatic") == true) or (held and held:GetAttribute("Automatic") == true)
 
-                -- Outlaw có nội tại: "Bullets from non-auto guns bounce between enemies on penetration (Max 3)"
+                -- Outlaw / Ricochet Buff: Nảy đạn tối đa sang quái lân cận, 100% Headshot
                 local ricochetMax = 0
                 if isOutlaw and not isAutomatic then
                     ricochetMax = math.max(charRicochetMax, 3)
                 elseif charRicochetMax > 0 then
                     ricochetMax = charRicochetMax
+                elseif Config.MaxPenetration then
+                    ricochetMax = 3 -- Bật MaxPenetration sẽ kích hoạt nảy đạn 3 lần cho mọi loại súng
                 end
 
                 -- Tạo cấu trúc pelletResults chính xác 100% với server game:
                 -- Mục tiêu chính (Target 1) luôn trúng đích 100% (0% ghost bullets),
-                -- Đồng thời tính toán đầy đủ chuỗi nảy đạn (Ricochet) sang tối đa 3 quái xung quanh theo class Outlaw!
+                -- Đồng thời tính toán đầy đủ chuỗi nảy đạn (Ricochet) sang tối đa quái xung quanh (100% Headshot, cự ly nảy 35 studs)!
                 local pcallOk, pcallErr = pcall(function()
                     local pelletResults = {}
                     for pIdx = 1, pelletsCount do
-                        local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, ricochetMax, 22.0, myChar)
+                        local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, ricochetMax, 35.0, myChar)
 
                         local fullEffectResults = {
                             {
