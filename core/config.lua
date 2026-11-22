@@ -112,6 +112,7 @@ local Config = {
     UnlockScavengerHighlight = false,
 
     -- Looting, Dragging, Backpack & Survival
+    EndlessNightLoot = false,          -- Chế độ Loot sự kiện Endless Night (Balo chỉ chứa đồ ăn, tự nhặt rương/scrap, bỏ qua Gas)
     AutoPickup = true,
     AutoPickupRadius = 15, -- Không kéo quá 15 studs
     AutoPickupMethodRemote = true,
@@ -172,7 +173,7 @@ local Config = {
     SelectedCraftItem = "Map",
     AutoCraftAmmo = false,
     AutoCraftAmmoType = "Smart",       -- Smart (matches held gun), All, Pistol, Medium, Long, Shells
-    AutoCraftAmmoMaxCap = 120,         -- Maximum ammo reserve cap in inventory
+    AutoCraftAmmoMaxCap = 180,         -- Maximum ammo reserve cap in inventory
     AutoCraftAmmoThreshold = 60,       -- Backup threshold
     AutoBuyMerchant = false,
 

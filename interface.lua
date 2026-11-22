@@ -271,6 +271,17 @@ TabAbilities:AddToggle("Scavenger Lv3: Unlock Native Wall Highlight on Nearby It
 -- TAB 4: LOOTING, SACK BACKPACK & SURVIVAL
 -- ============================================================================
 local TabLooting = CreateTab("4. Looting")
+TabLooting:AddSection("Chế độ Sự kiện (Event Mode)")
+TabLooting:AddToggle("Endless Night Loot (Balo chỉ chứa đồ ăn, tự nhặt rương/scrap, bỏ qua Gas)", "EndlessNightLoot")
+TabLooting:AddToggle("Tự động chế đạn qua Remote (Auto Craft Ammo)", "AutoCraftAmmo")
+TabLooting:AddDropdown("Loại đạn chế tạo (Ammo Type)", "AutoCraftAmmoType", { "Smart", "All", "Medium", "Long", "Pistol", "Shells" })
+TabLooting:AddSlider("Số lượng đạn tối đa trong kho (Max Ammo Cap)", "AutoCraftAmmoMaxCap", 30, 500, 10)
+TabLooting:AddButton("Chế Đạn Ngay Qua Remote (Remote Craft Ammo)", function()
+    if Structures and Structures.CraftAmmo then
+        Structures.CraftAmmo()
+    end
+end)
+
 TabLooting:AddSection("Backpack Sack Auto-Loot & Instant Weapon Restore")
 TabLooting:AddToggle("Auto Loot Gas, Scrap, Battery, Hearts into Backpack Sack", "AutoStoreBackpack")
 TabLooting:AddDropdown("Backpack Tier & Slot Capacity", "BackpackTierOverride", {
@@ -359,41 +370,23 @@ TabBase:AddButton("Craft Selected Item via Remote", function()
     end
 end)
 
-TabBase:AddSection("Auto Craft Ammo (Ammo Crate Station) & Merchant")
+TabBase:AddSection("Auto Craft Ammo (Ammo Crate Station / Remote) & Merchant")
 TabBase:AddToggle("Auto Craft Ammo When Low (Auto Craft Ammo)", "AutoCraftAmmo")
 TabBase:AddDropdown("Ammo Craft Type", "AutoCraftAmmoType", { "Smart", "All", "Medium", "Long", "Pistol", "Shells" })
-TabBase:AddInput("Max Ammo Reserve Cap in Inventory", "AutoCraftAmmoMaxCap", "120", function(text)
+TabBase:AddSlider("Max Ammo Reserve Cap in Inventory", "AutoCraftAmmoMaxCap", 30, 500, 10)
+TabBase:AddInput("Custom Max Ammo Cap", "AutoCraftAmmoMaxCap", "180", function(text)
     local n = tonumber(text)
     if n and n > 0 then
         Config.AutoCraftAmmoMaxCap = math.floor(n)
         Utils.NotifyGame("Set Max Ammo Cap: " .. tostring(math.floor(n)), Color3.fromRGB(56, 189, 248))
     else
-        Config.AutoCraftAmmoMaxCap = 120
-        Utils.NotifyGame("Invalid number! Resetting to default: 120.", Color3.fromRGB(248, 113, 113), "Warning")
+        Config.AutoCraftAmmoMaxCap = 180
+        Utils.NotifyGame("Invalid number! Resetting to default: 180.", Color3.fromRGB(248, 113, 113), "Warning")
     end
 end)
-TabBase:AddButton("Craft 1 Batch of Ammo Now at Station", function()
-    local mode = Config.AutoCraftAmmoType
-    local aType = "Medium"
-    if mode == "Smart" then
-        local char = Utils.GetCharacter()
-        local tool = char and char:FindFirstChildWhichIsA("Tool")
-        local stats = tool and tool:FindFirstChild("Stats")
-        aType = (stats and stats:GetAttribute("AmmoType")) or "Medium"
-    elseif mode == "All" then
-        aType = "Medium"
-    else
-        aType = mode
-    end
-    local crates = CollectionService:GetTagged("AmmoCrate")
-    local crate = crates[1] or (Workspace:FindFirstChild("Structures") and Workspace.Structures:FindFirstChild("Ammo Crate"))
-    if crate and crate:FindFirstChild("CraftAmmo") then
-        task.spawn(function()
-            pcall(function() crate.CraftAmmo:InvokeServer(aType) end)
-            Utils.NotifyGame("Crafted 1 batch of " .. tostring(aType) .. " Ammo!")
-        end)
-    else
-        Utils.NotifyGame("No built Ammo Crate station found at Base!", Color3.fromRGB(248, 113, 113), "Error")
+TabBase:AddButton("Craft Ammo Now via Remote (No Station Needed)", function()
+    if Structures and Structures.CraftAmmo then
+        Structures.CraftAmmo()
     end
 end)
 TabBase:AddButton("Drop Minimum Stack of Selected Ammo", function()

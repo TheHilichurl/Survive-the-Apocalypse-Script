@@ -160,6 +160,18 @@ local function ShouldPickupItem(item)
         return false
     end
     local cat = Utils.ClassifyItem(item)
+
+    -- Chế độ Endless Night Loot: Tuyệt đối không nhặt Gas Can (Fuel)
+    if Config.EndlessNightLoot then
+        if cat == "Fuel" then
+            return false
+        end
+        local name = item.Name:lower()
+        if name:find("fuel") or name:find("gas can") or name:find("gas_can") or name:find("gasoline") or (name:find("gas") and not name:find("gas mask") and not name:find("tear gas")) then
+            return false
+        end
+    end
+
     if Config.AutoPickupCategories[cat] == false then
         return false
     end
@@ -289,6 +301,11 @@ local function HandleDroppedItemInstantly(item)
     -- Tuyệt đối không tự ý kéo hoặc dịch chuyển các vật phẩm đang nằm sẵn trên mặt đất
     local isFromBackpack = IsHandlingBackpackEquip or IsDroppingBackpack or ((now - LastBackpackDropTime) <= 4.0)
     if not isFromBackpack then
+        return
+    end
+
+    -- Trong chế độ Endless Night, balo dùng làm kho chứa đồ ăn di động để tự ăn khi đói, không tự động xả ở Base
+    if Config.EndlessNightLoot then
         return
     end
 
@@ -516,6 +533,18 @@ local function IsBackpackSackItem(item)
     if Utils.IsThrowableOrConsumable and Utils.IsThrowableOrConsumable(item) then
         return false
     end
+
+    -- CHẾ ĐỘ SỰ KIỆN: Endless Night Loot
+    -- Khi bật: Balo trên tay (Backpack Sack) CHỈ DÙNG ĐỂ CHỨA ĐỒ ĂN!
+    -- Hoàn toàn bỏ qua Gas Can. Toàn bộ Scrap, Heart, Battery, Screws, Súng, Đạn,... sẽ trả về false để nhặt thẳng vào kho đồ cá nhân Roblox!
+    if Config.EndlessNightLoot then
+        local cat = Utils.ClassifyItem(item)
+        if cat == "Food" then
+            return true
+        end
+        return false
+    end
+
     local cat = Utils.ClassifyItem(item)
     if cat == "Consumable" or cat == "Medical" or cat == "Gun" or cat == "Melee" or cat == "Ammo" or cat == "Armor" or cat == "Blueprint" then
         return false
@@ -674,6 +703,8 @@ end
 -- Tự động xả toàn bộ vật phẩm trong Backpack sack và túi cá nhân khi về đến Base
 local function UnloadBackpackAtBase(genPart, shredPart, root)
     if IsDroppingBackpack or IsHandlingBackpackEquip then return false end
+    -- Trong chế độ Endless Night, balo giữ lại đồ ăn di động để người chơi tự ăn khi đói, không tự xả ở Base
+    if Config.EndlessNightLoot then return false end
     local now = os.clock()
     if (now - LastUnloadTime) < 1.0 then return false end
 
@@ -1028,7 +1059,7 @@ local function ProcessNewlySpawnedLoot()
 
                 -- 1. Nếu là Food VÀ đủ điều kiện tự động ăn (Đói < threshold) -> Ăn ngay (ÁP DỤNG CẢ TRONG BASE LẪN NGOÀI MAP!)
                 -- Rate limit 2.0s để server kịp đồng bộ Hunger, CHỈ ĂN TỐI ĐA 1 MÓN mỗi nhịp!
-                if cat == "Food" and Config.AutoEat and hungerPct < hungerThreshold then
+                if cat == "Food" and (Config.AutoEat or Config.EndlessNightLoot) and hungerPct < hungerThreshold then
                     local now = os.clock()
                     local maxEatRange = isAtBase and 35 or pickupRadius
                     if dist <= maxEatRange and (now - LastAutoEatActionTime) >= 2.0 then
@@ -1334,10 +1365,10 @@ local function RunLootingAndSurvivalStep()
     end
 
     -- 1. Tự động ăn đồ ăn thông minh (Áp dụng cả ngoài map LẪN trong Base khi đói):
-    -- CHỈ ĂN KHI: AutoEat được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
+    -- CHỈ ĂN KHI: (AutoEat hoặc EndlessNightLoot) được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
     -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên sàn giữ nguyên cho base.
     -- BẢO VỆ CHỐNG ĂN SẠCH ĐỒ ĂN: Chỉ ăn đúng 1 món mỗi lần, sau đó chờ ít nhất 2.0s để server đồng bộ Hunger!
-    if Config.AutoEat and hungerPct < hungerThreshold then
+    if (Config.AutoEat or Config.EndlessNightLoot) and hungerPct < hungerThreshold then
         local now = os.clock()
         if (now - LastAutoEatActionTime) >= 2.0 then
             local ateSomething = false
@@ -1360,6 +1391,8 @@ local function RunLootingAndSurvivalStep()
                 local prevTool = char:FindFirstChildOfClass("Tool")
                 if prevTool and (prevTool.Name == "Backpack" or prevTool:GetAttribute("ToolType") == "Backpack" or Utils.ClassifyItem(prevTool) == "Food") then
                     prevTool = LastDesiredEquippedTool
+                elseif prevTool then
+                    LastDesiredEquippedTool = prevTool
                 end
                 pcall(function()
                     if tool.Parent ~= char then
@@ -1370,9 +1403,10 @@ local function RunLootingAndSurvivalStep()
                         PickUpItemRemote:FireServer(tool)
                     end
                 end)
-                if prevTool and prevTool.Parent == bp and prevTool ~= tool then
+                local toolToRestore = prevTool or LastDesiredEquippedTool
+                if toolToRestore and toolToRestore.Parent == bp and toolToRestore ~= tool then
                     task.defer(function()
-                        pcall(function() hum:EquipTool(prevTool) end)
+                        pcall(function() hum:EquipTool(toolToRestore) end)
                     end)
                 end
                 LastAutoEatActionTime = now
@@ -1405,6 +1439,70 @@ local function RunLootingAndSurvivalStep()
                         Utils.SafeTriggerPrompt(prompt)
                     end
                     LastAutoEatActionTime = now
+                    ateSomething = true
+                end
+            end
+
+            -- 1.3 Endless Night Auto Eat: Nếu trong kho đồ và trên sàn không có thức ăn, nhưng trong Backpack Sack có đồ:
+            -- Trang bị Balo, drop 1 món đồ ăn ra sàn (vì trong balo 100% chỉ có thức ăn), nhặt/ăn ngay tức thì và hoàn trả lại vũ khí trước đó!
+            if not ateSomething and GetBackpackItemCount() > 0 and AdjustBackpackRemote and not IsDroppingBackpack and not IsHandlingBackpackEquip then
+                local bpTool = GetBackpackTool()
+                if bpTool then
+                    IsHandlingBackpackEquip = true
+                    LastAutoEatActionTime = now
+                    ateSomething = true
+
+                    local prevTool = char:FindFirstChildOfClass("Tool")
+                    if prevTool and (prevTool.Name == "Backpack" or prevTool:GetAttribute("ToolType") == "Backpack" or Utils.ClassifyItem(prevTool) == "Food") then
+                        prevTool = LastDesiredEquippedTool
+                    elseif prevTool then
+                        LastDesiredEquippedTool = prevTool
+                    end
+
+                    task.spawn(function()
+                        if bpTool.Parent ~= char then
+                            hum:EquipTool(bpTool)
+                            task.wait(0.06)
+                        end
+
+                        local dropPos = root.CFrame * CFrame.new(0, 0.4, -2)
+                        pcall(function()
+                            AdjustBackpackRemote:FireServer(nil, dropPos)
+                        end)
+                        task.wait(0.08)
+
+                        -- Quét tìm món đồ ăn vừa rơi ra để ăn ngay lập tức
+                        if droppedFolder then
+                            local droppedFood = nil
+                            local closestDist = 9999
+                            for _, it in ipairs(droppedFolder:GetChildren()) do
+                                if Utils.ClassifyItem(it) == "Food" and not it:GetAttribute("OnShelf") and not ActiveFlyingItems[it] then
+                                    local dist = (it:GetPivot().Position - root.Position).Magnitude
+                                    if dist <= 8 and dist < closestDist then
+                                        droppedFood = it
+                                        closestDist = dist
+                                    end
+                                end
+                            end
+                            if droppedFood then
+                                RecordItemPickupAttempt(droppedFood)
+                                if PickUpItemRemote then
+                                    pcall(function() PickUpItemRemote:FireServer(droppedFood) end)
+                                end
+                                local prompt = droppedFood:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if prompt and prompt.Enabled then
+                                    Utils.SafeTriggerPrompt(prompt)
+                                end
+                            end
+                        end
+
+                        task.wait(0.05)
+                        local toolToRestore = prevTool or LastDesiredEquippedTool
+                        if toolToRestore and toolToRestore.Parent == bp and Utils.IsCharacterAlive(char) then
+                            pcall(function() hum:EquipTool(toolToRestore) end)
+                        end
+                        IsHandlingBackpackEquip = false
+                    end)
                 end
             end
         end
