@@ -977,10 +977,18 @@ local function GetEffectiveExtraHitsQuota(held, stats, options, myChar)
 
     local totalPenetration = math.max(0, math.floor(basePen + upgradePen + heavyGunnerPen + perkPen))
 
-    -- 3. Config.MaxPenetration: Ép xung tối đa nếu người chơi kích hoạt trong menu
+    -- 3. Config.MaxPenetration: Ép xung tối đa nếu người chơi kích hoạt trong menu (hoặc mặc định)
     if Config.MaxPenetration then
         totalPenetration = math.max(totalPenetration, 3)
         ricochetCount = math.max(ricochetCount, 3)
+        if myChar then
+            if not myChar:GetAttribute("RicochetMax") or myChar:GetAttribute("RicochetMax") < 5 then
+                pcall(function()
+                    myChar:SetAttribute("RicochetChance", 1)
+                    myChar:SetAttribute("RicochetMax", 5)
+                end)
+            end
+        end
     end
 
     -- Hạn mức mục tiêu phụ bổ sung (Effective Extra Hits):
@@ -1129,7 +1137,7 @@ local function EnsureBulletModuleHook()
                     local charsFolder = Workspace:FindFirstChild("Characters")
                     while #hits <= maxBounces and charsFolder do
                         local bestNextMob, bestNextPart = nil, nil
-                        local bestDist = 38 -- generous bounce radius (game default is 20)
+                        local bestDist = (Config.RicochetRadius or 55) -- Mở rộng tầm nảy đạn (chuẩn game gốc chỉ 20 studs)
 
                         for _, mob in ipairs(charsFolder:GetChildren()) do
                             if not visited[mob] and mob:IsA("Model") and mob ~= myChar then
@@ -2252,6 +2260,15 @@ Combat.Cleanup = function()
     table.clear(AmmoListeners)
     table.clear(ActiveReloadLoops)
     table.clear(IsReloadingWeapon)
+end
+
+-- Tự động kích hoạt Weapon Mods và Ricochet ngay khi khởi động hoặc đổi nhân vật
+pcall(ApplyAllWeaponMods)
+if LocalPlayer then
+    Hub.AddConnection(LocalPlayer.CharacterAdded:Connect(function(newChar)
+        task.wait(0.5)
+        pcall(ApplyAllWeaponMods)
+    end))
 end
 
 Hub.Combat = Combat
