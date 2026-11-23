@@ -502,6 +502,7 @@ function Abilities.RunAutoHealStep()
 
     if hpPct > threshold then return end
     if char:GetAttribute("UsingMedical") == true then return end
+    if LocalPlayer:GetAttribute("BackpackLocked") == true or (char:FindFirstChildOfClass("Tool") and char:FindFirstChildOfClass("Tool").Name == "Quickdraw") then return end
 
     local now = os.clock()
     if now - LastAutoHealAttempt < 0.8 then return end
@@ -564,6 +565,7 @@ function Abilities.RunAutoReviveStep()
     local hum = Utils.GetHumanoid(char)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if not (char and root and hum and bp and hum.Health > 0) then return end
+    if LocalPlayer:GetAttribute("BackpackLocked") == true or (char:FindFirstChildOfClass("Tool") and char:FindFirstChildOfClass("Tool").Name == "Quickdraw") then return end
 
     local now = os.clock()
     if now - LastAutoReviveAttempt < 0.8 then return end

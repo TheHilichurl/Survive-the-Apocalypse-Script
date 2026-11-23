@@ -1015,6 +1015,14 @@ local function EnsureBulletModuleHook()
 
                 local myChar = Utils.GetCharacter()
                 local held = myChar and myChar:FindFirstChildOfClass("Tool")
+
+                -- BẢO VỆ TUYỆT ĐỐI CHO QUICKDRAW:
+                -- Quickdraw vốn có sẵn cơ chế tự ngắm 6 mục tiêu khác nhau (getTarget).
+                -- Nếu đang cầm Quickdraw, tuyệt đối KHÔNG can thiệp Silent Aim hay chèn thêm Ricochet, nhượng quyền hoàn toàn cho game gốc!
+                if held and held.Name == "Quickdraw" then
+                    return OriginalBulletHitscan(origin, targetPos, options)
+                end
+
                 local stats = held and held:FindFirstChild("Stats")
                 local effectiveExtraHits, totalPen, ricCount = GetEffectiveExtraHitsQuota(held, stats, options, myChar)
 

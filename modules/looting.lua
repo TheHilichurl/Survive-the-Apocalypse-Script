@@ -1402,6 +1402,13 @@ local function RunLootingAndSurvivalStep()
     end
 
     -- 1. Tự động ăn đồ ăn thông minh (Áp dụng cả ngoài map LẪN trong Base khi đói):
+    -- BẢO VỆ TUYỆT ĐỐI: Không tự ý swap đồ ăn khi đang cast Quickdraw hoặc balo đang bị khóa!
+    local currentHeldTool = char:FindFirstChildOfClass("Tool")
+    if LocalPlayer:GetAttribute("BackpackLocked") == true
+        or (currentHeldTool and currentHeldTool.Name == "Quickdraw") then
+        return
+    end
+
     -- CHỈ ĂN KHI: (AutoEat hoặc EndlessNightLoot) được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
     -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên sàn giữ nguyên cho base.
     -- BẢO VỆ CHỐNG ĂN SẠCH ĐỒ ĂN: Chỉ ăn đúng 1 món mỗi lần, sau đó chờ ít nhất 2.0s để server đồng bộ Hunger!
