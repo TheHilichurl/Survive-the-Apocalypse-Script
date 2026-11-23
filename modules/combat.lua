@@ -1172,6 +1172,23 @@ local function EnsureBulletModuleHook()
                     })
                 end
 
+                -- ============================================================================
+                -- CRITICAL FIX FOR QUICKDRAW / GAME ENGINE CRASH BUG:
+                -- QuickdrawLocal (line 157-158) iterates through hits:
+                -- `for i3, v in v31 do v28 = not v.HitChar:GetAttribute("Shield") or v28 end`
+                -- If any entry has HitChar == nil or destroyed instance, QuickdrawLocal throws a
+                -- fatal runtime exception (`attempt to index nil with 'GetAttribute'`), aborting
+                -- execution before resetting BackpackLocked and restoring QuickdrawCC.
+                -- We sanitize hits to guarantee every element has a valid, non-destroyed Instance with Parent!
+                -- ============================================================================
+                local sanitizedHits = {}
+                for _, h in ipairs(hits) do
+                    if type(h) == "table" and h.HitChar and typeof(h.HitChar) == "Instance" and h.HitChar.Parent then
+                        table.insert(sanitizedHits, h)
+                    end
+                end
+                hits = sanitizedHits
+
                 return hits, rayRes, isHead, effects
             end
         end

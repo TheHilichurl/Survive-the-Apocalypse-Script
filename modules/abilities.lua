@@ -19,7 +19,95 @@ local AddSuppressorRemote = Hub.Remotes and Hub.Remotes.AddSuppressor
 
 local Abilities = {}
 
+-- ============================================================================
+-- QUICKDRAW & BACKPACK LOCKED WATCHDOG (AUTO-UNSTUCK ENGINE)
+-- Sửa lỗi kiến trúc game code: Game kẹt BackpackLocked & QuickdrawCC khi crash
+-- ============================================================================
+local BackpackLockedStartTime = 0
+local LastUnstuckTriggerTime = 0
+
+local function CheckAndRecoverBackpackLock()
+    if Config.AutoUnstuckBackpack == false then return end
+
+    local char = Utils.GetCharacter()
+    local hum = char and Utils.GetHumanoid(char)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local isLocked = LocalPlayer:GetAttribute("BackpackLocked") == true
+    local now = os.clock()
+
+    if isLocked then
+        if BackpackLockedStartTime == 0 then
+            BackpackLockedStartTime = now
+        end
+
+        local lockDuration = now - BackpackLockedStartTime
+        local heldTool = char and char:FindFirstChildOfClass("Tool")
+        local isQuickdrawHeld = heldTool and heldTool.Name == "Quickdraw"
+
+        -- Nếu bị khóa liên tục quá 1.8 giây (Quickdraw bình thường chỉ bắn 6 viên mất ~0.7s)
+        -- Hoặc đang cầm Quickdraw trên tay mà không có hành động bắn trong > 1.2s:
+        if (lockDuration >= 1.8 or (isQuickdrawHeld and lockDuration >= 1.2)) and (now - LastUnstuckTriggerTime >= 2.0) then
+            LastUnstuckTriggerTime = now
+            BackpackLockedStartTime = 0
+
+            -- 1. Giải phóng khóa BackpackLocked của game
+            pcall(function()
+                LocalPlayer:SetAttribute("BackpackLocked", nil)
+            end)
+
+            -- 2. Khôi phục màn hình hiển thị Lighting (QuickdrawCC)
+            local lighting = Services.Lighting or game:GetService("Lighting")
+            local qdCC = lighting:FindFirstChild("QuickdrawCC")
+            if qdCC and qdCC:IsA("ColorCorrectionEffect") then
+                pcall(function()
+                    qdCC.Saturation = 0
+                    qdCC.Contrast = 0
+                    qdCC.Brightness = 0
+                end)
+            end
+
+            -- 3. Ép unequip Quickdraw nếu đang bị kẹt trên tay
+            if isQuickdrawHeld and hum then
+                pcall(function()
+                    hum:UnequipTools()
+                end)
+                -- Tự động cầm lại Heavy Revolver hoặc vũ khí trước đó nếu có trong balo
+                task.delay(0.1, function()
+                    if bp and hum and hum.Health > 0 then
+                        local rev = bp:FindFirstChild("Heavy Revolver") or bp:FindFirstChildOfClass("Tool")
+                        if rev then
+                            pcall(function() hum:EquipTool(rev) end)
+                        end
+                    end
+                end)
+            end
+
+            -- 4. Thông báo cho người chơi
+            if Utils.Notify then
+                Utils.Notify("Auto-Unstuck", "Đã tự động gỡ kẹt Skill Quickdraw / Mở khóa túi đồ!", 3)
+            end
+        end
+    else
+        BackpackLockedStartTime = 0
+        -- Khôi phục màn hình nếu không cầm Quickdraw nhưng QuickdrawCC vẫn còn bị kẹt đen trắng
+        local heldTool = char and char:FindFirstChildOfClass("Tool")
+        if not (heldTool and heldTool.Name == "Quickdraw") then
+            local lighting = Services.Lighting or game:GetService("Lighting")
+            local qdCC = lighting:FindFirstChild("QuickdrawCC")
+            if qdCC and qdCC:IsA("ColorCorrectionEffect") and qdCC.Saturation < -0.5 then
+                pcall(function()
+                    qdCC.Saturation = 0
+                    qdCC.Contrast = 0
+                    qdCC.Brightness = 0
+                end)
+            end
+        end
+    end
+end
+
 local function RunAbilitiesAndToolsStep()
+    pcall(CheckAndRecoverBackpackLock)
+
     local char = Utils.GetCharacter()
     local root = Utils.GetRootPart(char)
     local hum = Utils.GetHumanoid(char)
@@ -489,6 +577,15 @@ function Abilities.RunAutoReviveStep()
 end
 
 Abilities.RunAbilitiesAndToolsStep = RunAbilitiesAndToolsStep
+Abilities.CheckAndRecoverBackpackLock = CheckAndRecoverBackpackLock
+
+-- Chạy vòng lặp Watchdog độc lập 0.25s để luôn gỡ kẹt tức thì ngay cả khi nhân vật đứng yên
+task.spawn(function()
+    while true do
+        task.wait(0.25)
+        pcall(CheckAndRecoverBackpackLock)
+    end
+end)
 
 Hub.Abilities = Abilities
 return Hub

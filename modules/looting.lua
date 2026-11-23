@@ -40,6 +40,36 @@ local LastAutoEatActionTime = 0
 local TouchAndFlyItemToBase
 local ThrowGasToGenerator
 
+-- ============================================================================
+-- ETERNAL NIGHT (ENDLESS NIGHT EVENT) AUTO-DETECTOR
+-- Tự động nhận diện thuộc tính Workspace.EternalNight để kích hoạt chế độ Event
+-- ============================================================================
+local LastEternalNightStatus = nil
+
+local function CheckAndSyncEternalNight()
+    if Config.AutoDetectEndlessNight == false then return end
+    local isEternal = Workspace:GetAttribute("EternalNight") == true
+    if isEternal ~= LastEternalNightStatus then
+        LastEternalNightStatus = isEternal
+        if isEternal then
+            if not Config.EndlessNightLoot then
+                Config.EndlessNightLoot = true
+                if Utils.Notify then
+                    Utils.Notify("Endless Night Event", "Đã tự động kích hoạt Endless Night Loot theo Event của Server!", 5)
+                end
+            end
+        end
+    end
+end
+
+pcall(function()
+    Workspace:GetAttributeChangedSignal("EternalNight"):Connect(CheckAndSyncEternalNight)
+end)
+task.spawn(function()
+    task.wait(1)
+    CheckAndSyncEternalNight()
+end)
+
 local function IsItemPermanentlyIgnored(item)
     if not item or not item.Parent then return true end
     if PermanentlyIgnoredItems[item] then return true end
@@ -985,7 +1015,7 @@ local function LootItemToBackpackNoEquip(item)
     end
     RecentlyAutoLootedToolNames[item.Name] = os.clock()
 
-    if Config.AutoPickupMethodRemote and PickUpItemRemote then
+    if (Config.AutoPickupMethodRemote or Config.EndlessNightLoot) and PickUpItemRemote then
         pcall(function()
             PickUpItemRemote:FireServer(item)
         end)
@@ -1079,13 +1109,13 @@ local function ProcessNewlySpawnedLoot()
                 elseif not IsItemAlreadyAtBaseOrDelivered(item) and dist <= 15 then
                     -- Nếu là vật phẩm cất vào Backpack Sack (Scrap, Fuel, Battery, Heart, Screws, hoặc Food khi no bụng):
                     -- Chỉ gom vào Backpack sack khi ở ngoài map (not isAtBase)
-                    if IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) then
+                    if IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat or Config.EndlessNightLoot) then
                         if dist <= sackRadius and not IsBackpackFull() then
                             table.insert(sackCandidates, item)
                         end
 
-                    -- Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...)
-                    elseif not IsBackpackSackItem(item) and Config.AutoPickup and ShouldPickupItem(item) then
+                    -- Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...) hoặc trong Endless Night Loot (Tài nguyên nhặt thẳng)
+                    elseif not IsBackpackSackItem(item) and (Config.AutoPickup or Config.EndlessNightLoot) and ShouldPickupItem(item) then
                         if dist <= pickupRadius then
                             table.insert(inventoryCandidates, item)
                         end
@@ -1332,6 +1362,8 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
 end
 
 local function RunLootingAndSurvivalStep()
+    pcall(CheckAndSyncEternalNight)
+
     local char = Utils.GetCharacter()
     local root = Utils.GetRootPart(char)
     local hum = Utils.GetHumanoid(char)
