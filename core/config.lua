@@ -94,7 +94,7 @@ local Config = {
     FreePsychicBindAll = false,
     AutoRemoteArsenalShoot = false,
     AutoQuickdraw = false,
-    AutoUnstuckBackpack = true,         -- Tự động gỡ kẹt BackpackLocked và màn hình trắng đen QuickdrawCC khi game gặp lỗi
+    AutoUnstuckQuickdraw = true,        -- Tự động gỡ kẹt kỹ năng Quickdraw của Outlaw ngay sau khi vừa dùng
     AutoHackerInfiltrate = false,
     AutoHackerOverride = false,
     HackerOverrideMinInfected = 4,
@@ -114,7 +114,7 @@ local Config = {
 
     -- Looting, Dragging, Backpack & Survival
     EndlessNightLoot = false,          -- Chế độ Loot sự kiện Endless Night (Balo chỉ chứa đồ ăn, tự nhặt rương/scrap, bỏ qua Gas)
-    AutoDetectEndlessNight = true,      -- Tự động nhận diện và kích hoạt Endless Night Loot khi Server ở chế độ EternalNight
+    AutoDetectEternalNight = true,     -- Tự động bật Endless Night Loot khi Server bắt đầu sự kiện (workspace:GetAttribute("EternalNight"))
     AutoPickup = true,
     AutoPickupRadius = 15, -- Không kéo quá 15 studs
     AutoPickupMethodRemote = true,

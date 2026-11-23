@@ -20,99 +20,136 @@ local AddSuppressorRemote = Hub.Remotes and Hub.Remotes.AddSuppressor
 local Abilities = {}
 
 -- ============================================================================
--- QUICKDRAW & BACKPACK LOCKED WATCHDOG (AUTO-UNSTUCK ENGINE)
--- Sửa lỗi kiến trúc game code: Game kẹt BackpackLocked & QuickdrawCC khi crash
+-- SURGICAL QUICKDRAW UNSTUCK WATCHDOG (Outlaw Class)
+-- Chỉ áp dụng gỡ kẹt cho Quickdraw ngay sau khi vừa dùng Quickdraw
 -- ============================================================================
-local BackpackLockedStartTime = 0
-local LastUnstuckTriggerTime = 0
+local QuickdrawWatchState = {
+    IsActive = false,
+    TriggerTime = 0,
+    Tool = nil,
+}
 
-local function CheckAndRecoverBackpackLock()
-    if Config.AutoUnstuckBackpack == false then return end
-
-    local char = Utils.GetCharacter()
-    local hum = char and Utils.GetHumanoid(char)
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    local isLocked = LocalPlayer:GetAttribute("BackpackLocked") == true
-    local now = os.clock()
-
-    if isLocked then
-        if BackpackLockedStartTime == 0 then
-            BackpackLockedStartTime = now
-        end
-
-        local lockDuration = now - BackpackLockedStartTime
-        local heldTool = char and char:FindFirstChildOfClass("Tool")
-        local isQuickdrawHeld = heldTool and heldTool.Name == "Quickdraw"
-
-        -- Nếu bị khóa liên tục quá 1.8 giây (Quickdraw bình thường chỉ bắn 6 viên mất ~0.7s)
-        -- Hoặc đang cầm Quickdraw trên tay mà không có hành động bắn trong > 1.2s:
-        if (lockDuration >= 1.8 or (isQuickdrawHeld and lockDuration >= 1.2)) and (now - LastUnstuckTriggerTime >= 2.0) then
-            LastUnstuckTriggerTime = now
-            BackpackLockedStartTime = 0
-
-            -- 1. Giải phóng khóa BackpackLocked của game
-            pcall(function()
-                LocalPlayer:SetAttribute("BackpackLocked", nil)
-            end)
-
-            -- 2. Khôi phục màn hình hiển thị Lighting (QuickdrawCC)
-            local lighting = Services.Lighting or game:GetService("Lighting")
-            local qdCC = lighting:FindFirstChild("QuickdrawCC")
-            if qdCC and qdCC:IsA("ColorCorrectionEffect") then
-                pcall(function()
-                    qdCC.Saturation = 0
-                    qdCC.Contrast = 0
-                    qdCC.Brightness = 0
-                end)
-            end
-
-            -- 3. Ép unequip Quickdraw nếu đang bị kẹt trên tay
-            if isQuickdrawHeld and hum then
-                pcall(function()
-                    hum:UnequipTools()
-                end)
-                -- Tự động cầm lại Heavy Revolver hoặc vũ khí trước đó nếu có trong balo
-                task.delay(0.1, function()
-                    if bp and hum and hum.Health > 0 then
-                        local rev = bp:FindFirstChild("Heavy Revolver") or bp:FindFirstChildOfClass("Tool")
-                        if rev then
-                            pcall(function() hum:EquipTool(rev) end)
-                        end
-                    end
-                end)
-            end
-
-            -- 4. Thông báo cho người chơi
-            if Utils.Notify then
-                Utils.Notify("Auto-Unstuck", "Đã tự động gỡ kẹt Skill Quickdraw / Mở khóa túi đồ!", 3)
-            end
-        end
-    else
-        BackpackLockedStartTime = 0
-        -- Khôi phục màn hình nếu không cầm Quickdraw nhưng QuickdrawCC vẫn còn bị kẹt đen trắng
-        local heldTool = char and char:FindFirstChildOfClass("Tool")
-        if not (heldTool and heldTool.Name == "Quickdraw") then
-            local lighting = Services.Lighting or game:GetService("Lighting")
-            local qdCC = lighting:FindFirstChild("QuickdrawCC")
-            if qdCC and qdCC:IsA("ColorCorrectionEffect") and qdCC.Saturation < -0.5 then
-                pcall(function()
-                    qdCC.Saturation = 0
-                    qdCC.Contrast = 0
-                    qdCC.Brightness = 0
-                end)
-            end
-        end
-    end
+local function TriggerQuickdrawWatchdog(tool)
+    if Config.AutoUnstuckQuickdraw == false then return end
+    QuickdrawWatchState.IsActive = true
+    QuickdrawWatchState.TriggerTime = os.clock()
+    QuickdrawWatchState.Tool = tool
 end
 
-local function RunAbilitiesAndToolsStep()
-    pcall(CheckAndRecoverBackpackLock)
+local function SetupQuickdrawWatcher(tool)
+    if not tool or tool.Name ~= "Quickdraw" or not tool:IsA("Tool") then return end
+    if tool:GetAttribute("__STA_WatcherAttached") then return end
+    tool:SetAttribute("__STA_WatcherAttached", true)
 
+    Hub.AddConnection(tool.Activated:Connect(function()
+        TriggerQuickdrawWatchdog(tool)
+    end))
+
+    Hub.AddConnection(tool.Equipped:Connect(function()
+        task.delay(0.12, function()
+            local char = Utils.GetCharacter()
+            if tool.Parent == char and LocalPlayer:GetAttribute("BackpackLocked") == true then
+                TriggerQuickdrawWatchdog(tool)
+            end
+        end)
+    end))
+end
+
+local function HookQuickdrawInContainer(container)
+    if not container then return end
+    for _, item in ipairs(container:GetChildren()) do
+        if item.Name == "Quickdraw" then
+            SetupQuickdrawWatcher(item)
+        end
+    end
+    Hub.AddConnection(container.ChildAdded:Connect(function(child)
+        if child.Name == "Quickdraw" then
+            SetupQuickdrawWatcher(child)
+        end
+    end))
+end
+
+-- Khởi tạo lắng nghe Quickdraw trong Backpack và Character
+local initialBp = LocalPlayer:FindFirstChild("Backpack")
+if initialBp then HookQuickdrawInContainer(initialBp) end
+Hub.AddConnection(LocalPlayer.ChildAdded:Connect(function(c)
+    if c.Name == "Backpack" then HookQuickdrawInContainer(c) end
+end))
+if LocalPlayer.Character then HookQuickdrawInContainer(LocalPlayer.Character) end
+Hub.AddConnection(LocalPlayer.CharacterAdded:Connect(function(newChar)
+    HookQuickdrawInContainer(newChar)
+end))
+
+-- Lắng nghe cả khi BackpackLocked bật lên trong khi đang cầm Quickdraw
+Hub.AddConnection(LocalPlayer:GetAttributeChangedSignal("BackpackLocked"):Connect(function()
+    if LocalPlayer:GetAttribute("BackpackLocked") == true then
+        local char = Utils.GetCharacter()
+        local heldTool = char and char:FindFirstChildOfClass("Tool")
+        if heldTool and heldTool.Name == "Quickdraw" then
+            TriggerQuickdrawWatchdog(heldTool)
+        end
+    end
+end))
+
+local function RunAbilitiesAndToolsStep()
     local char = Utils.GetCharacter()
     local root = Utils.GetRootPart(char)
     local hum = Utils.GetHumanoid(char)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if not (char and root and hum and bp and Utils.IsCharacterAlive(char)) then return end
+
+    -- Giám sát gỡ kẹt Quickdraw: CHỈ áp dụng ngay sau khi vừa dùng Quickdraw
+    if QuickdrawWatchState.IsActive and (Config.AutoUnstuckQuickdraw ~= false) then
+        local elapsed = os.clock() - QuickdrawWatchState.TriggerTime
+        -- Vòng lặp bắn 6 viên của Quickdraw tốn 6 * 0.1s = 0.6s. Đợi 1.2s để game hoàn thành bình thường.
+        if elapsed >= 1.2 then
+            local isHoldingQd = char:FindFirstChild("Quickdraw") ~= nil
+            local isLocked = LocalPlayer:GetAttribute("BackpackLocked") == true
+            local lightingCC = game:GetService("Lighting"):FindFirstChild("QuickdrawCC")
+            local isGrayscale = lightingCC and (lightingCC.Saturation < -0.3)
+
+            -- CHỈ can thiệp khi sau 1.2s mà Quickdraw vẫn chưa thoát kẹt sạch sẽ
+            if isLocked or isHoldingQd or isGrayscale then
+                -- 1. Giải phóng BackpackLocked để phục hồi hotbar và phá vỡ deadlock của AbilityKeybindHandler
+                if LocalPlayer:GetAttribute("BackpackLocked") then
+                    LocalPlayer:SetAttribute("BackpackLocked", nil)
+                end
+
+                -- 2. Khôi phục màu sắc màn hình (Lighting.QuickdrawCC)
+                if lightingCC then
+                    pcall(function()
+                        lightingCC.Saturation = 0
+                        lightingCC.Contrast = 0
+                        lightingCC.Brightness = 0
+                    end)
+                end
+
+                -- 3. Gỡ tool Quickdraw bị kẹt trên tay và tự động trang bị lại vũ khí chính
+                if isHoldingQd and hum then
+                    pcall(function()
+                        local qdTool = char:FindFirstChild("Quickdraw")
+                        if qdTool then
+                            qdTool.Parent = bp
+                        end
+                        local revolver = (bp and bp:FindFirstChild("Heavy Revolver"))
+                            or (bp and bp:FindFirstChildWhichIsA("Tool"))
+                        if revolver then
+                            hum:EquipTool(revolver)
+                        end
+                    end)
+                end
+
+                if Utils.Notify then
+                    Utils.Notify("Outlaw Quickdraw", "Đã tự động gỡ kẹt kỹ năng Quickdraw thành công!", 3)
+                end
+            end
+
+            -- Hoàn thành phiên giám sát - Đưa về false để KHÔNG can thiệp bất cứ lúc nào khác!
+            QuickdrawWatchState.IsActive = false
+            QuickdrawWatchState.TriggerTime = 0
+            QuickdrawWatchState.Tool = nil
+        end
+    end
 
     -- Universal Class Ability Keybinds (X & C)
     if Config.AutoUseAbility1 or Config.AutoUseAbility2 then
@@ -225,6 +262,7 @@ local function RunAbilitiesAndToolsStep()
             local targetModel, targetPart = Combat.GetBestCombatTarget(200, false)
             if actRem and shootRem and targetModel and targetPart then
                 pcall(function()
+                    TriggerQuickdrawWatchdog(qd)
                     actRem:FireServer()
                     local headPart = targetModel:FindFirstChild("Head") or targetPart
                     local bulletMod = (Hub.GameModules and Hub.GameModules.Bullet) or (Combat and Combat.BulletModule)
@@ -577,15 +615,6 @@ function Abilities.RunAutoReviveStep()
 end
 
 Abilities.RunAbilitiesAndToolsStep = RunAbilitiesAndToolsStep
-Abilities.CheckAndRecoverBackpackLock = CheckAndRecoverBackpackLock
-
--- Chạy vòng lặp Watchdog độc lập 0.25s để luôn gỡ kẹt tức thì ngay cả khi nhân vật đứng yên
-task.spawn(function()
-    while true do
-        task.wait(0.25)
-        pcall(CheckAndRecoverBackpackLock)
-    end
-end)
 
 Hub.Abilities = Abilities
 return Hub

@@ -37,38 +37,45 @@ local IsDroppingBackpack = false
 local LastUnloadTime = 0
 local LastAutoEatActionTime = 0
 
-local TouchAndFlyItemToBase
-local ThrowGasToGenerator
-
 -- ============================================================================
--- ETERNAL NIGHT (ENDLESS NIGHT EVENT) AUTO-DETECTOR
--- Tự động nhận diện thuộc tính Workspace.EternalNight để kích hoạt chế độ Event
+-- ENDLESS NIGHT LOOT & ETERNAL NIGHT AUTO-DETECTION
 -- ============================================================================
-local LastEternalNightStatus = nil
+local function IsEndlessNightLootMode()
+    if Config.EndlessNightLoot then
+        return true
+    end
+    if Config.AutoDetectEternalNight ~= false and Workspace:GetAttribute("EternalNight") == true then
+        return true
+    end
+    return false
+end
 
 local function CheckAndSyncEternalNight()
-    if Config.AutoDetectEndlessNight == false then return end
+    if Config.AutoDetectEternalNight == false then return end
     local isEternal = Workspace:GetAttribute("EternalNight") == true
-    if isEternal ~= LastEternalNightStatus then
-        LastEternalNightStatus = isEternal
-        if isEternal then
-            if not Config.EndlessNightLoot then
-                Config.EndlessNightLoot = true
-                if Utils.Notify then
-                    Utils.Notify("Endless Night Event", "Đã tự động kích hoạt Endless Night Loot theo Event của Server!", 5)
-                end
-            end
+    if isEternal and not Config.EndlessNightLoot then
+        Config.EndlessNightLoot = true
+        Config.__STA_AutoEnabledEndlessNight = true
+        if Utils.Notify then
+            Utils.Notify("Endless Night Event", "Phát hiện sự kiện Đêm Bất Tận (Eternal Night)! Tự động bật Endless Night Loot.", 4)
+        end
+    elseif not isEternal and Config.EndlessNightLoot and Config.__STA_AutoEnabledEndlessNight then
+        Config.EndlessNightLoot = false
+        Config.__STA_AutoEnabledEndlessNight = nil
+        if Utils.Notify then
+            Utils.Notify("Endless Night Event", "Sự kiện Đêm Bất Tận đã kết thúc! Tắt Endless Night Loot.", 3)
         end
     end
 end
 
-pcall(function()
-    Workspace:GetAttributeChangedSignal("EternalNight"):Connect(CheckAndSyncEternalNight)
-end)
-task.spawn(function()
-    task.wait(1)
+-- Lắng nghe sự kiện thay đổi thuộc tính EternalNight từ Workspace
+CheckAndSyncEternalNight()
+Hub.AddConnection(Workspace:GetAttributeChangedSignal("EternalNight"):Connect(function()
     CheckAndSyncEternalNight()
-end)
+end))
+
+local TouchAndFlyItemToBase
+local ThrowGasToGenerator
 
 local function IsItemPermanentlyIgnored(item)
     if not item or not item.Parent then return true end
@@ -192,7 +199,7 @@ local function ShouldPickupItem(item)
     local cat = Utils.ClassifyItem(item)
 
     -- Chế độ Endless Night Loot: Tuyệt đối không nhặt Gas Can (Fuel)
-    if Config.EndlessNightLoot then
+    if IsEndlessNightLootMode() then
         if cat == "Fuel" then
             return false
         end
@@ -335,7 +342,7 @@ local function HandleDroppedItemInstantly(item)
     end
 
     -- Trong chế độ Endless Night, balo dùng làm kho chứa đồ ăn di động để tự ăn khi đói, không tự động xả ở Base
-    if Config.EndlessNightLoot then
+    if IsEndlessNightLootMode() then
         return
     end
 
@@ -567,7 +574,7 @@ local function IsBackpackSackItem(item)
     -- CHẾ ĐỘ SỰ KIỆN: Endless Night Loot
     -- Khi bật: Balo trên tay (Backpack Sack) CHỈ DÙNG ĐỂ CHỨA ĐỒ ĂN!
     -- Hoàn toàn bỏ qua Gas Can. Toàn bộ Scrap, Heart, Battery, Screws, Súng, Đạn,... sẽ trả về false để nhặt thẳng vào kho đồ cá nhân Roblox!
-    if Config.EndlessNightLoot then
+    if IsEndlessNightLootMode() then
         local cat = Utils.ClassifyItem(item)
         if cat == "Food" then
             return true
@@ -734,7 +741,7 @@ end
 local function UnloadBackpackAtBase(genPart, shredPart, root)
     if IsDroppingBackpack or IsHandlingBackpackEquip then return false end
     -- Trong chế độ Endless Night, balo giữ lại đồ ăn di động để người chơi tự ăn khi đói, không tự xả ở Base
-    if Config.EndlessNightLoot then return false end
+    if IsEndlessNightLootMode() then return false end
     local now = os.clock()
     if (now - LastUnloadTime) < 1.0 then return false end
 
@@ -1015,7 +1022,7 @@ local function LootItemToBackpackNoEquip(item)
     end
     RecentlyAutoLootedToolNames[item.Name] = os.clock()
 
-    if (Config.AutoPickupMethodRemote or Config.EndlessNightLoot) and PickUpItemRemote then
+    if Config.AutoPickupMethodRemote and PickUpItemRemote then
         pcall(function()
             PickUpItemRemote:FireServer(item)
         end)
@@ -1089,7 +1096,7 @@ local function ProcessNewlySpawnedLoot()
 
                 -- 1. Nếu là Food VÀ đủ điều kiện tự động ăn (Đói < threshold) -> Ăn ngay (ÁP DỤNG CẢ TRONG BASE LẪN NGOÀI MAP!)
                 -- Rate limit 2.0s để server kịp đồng bộ Hunger, CHỈ ĂN TỐI ĐA 1 MÓN mỗi nhịp!
-                if cat == "Food" and (Config.AutoEat or Config.EndlessNightLoot) and hungerPct < hungerThreshold then
+                if cat == "Food" and (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
                     local now = os.clock()
                     local maxEatRange = isAtBase and 35 or pickupRadius
                     if dist <= maxEatRange and (now - LastAutoEatActionTime) >= 2.0 then
@@ -1109,13 +1116,13 @@ local function ProcessNewlySpawnedLoot()
                 elseif not IsItemAlreadyAtBaseOrDelivered(item) and dist <= 15 then
                     -- Nếu là vật phẩm cất vào Backpack Sack (Scrap, Fuel, Battery, Heart, Screws, hoặc Food khi no bụng):
                     -- Chỉ gom vào Backpack sack khi ở ngoài map (not isAtBase)
-                    if IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat or Config.EndlessNightLoot) then
+                    if IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) then
                         if dist <= sackRadius and not IsBackpackFull() then
                             table.insert(sackCandidates, item)
                         end
 
-                    -- Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...) hoặc trong Endless Night Loot (Tài nguyên nhặt thẳng)
-                    elseif not IsBackpackSackItem(item) and (Config.AutoPickup or Config.EndlessNightLoot) and ShouldPickupItem(item) then
+                    -- Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...)
+                    elseif not IsBackpackSackItem(item) and Config.AutoPickup and ShouldPickupItem(item) then
                         if dist <= pickupRadius then
                             table.insert(inventoryCandidates, item)
                         end
@@ -1362,8 +1369,6 @@ local function AutoCompleteObjectivesAndStations(root, genPart, shredPart)
 end
 
 local function RunLootingAndSurvivalStep()
-    pcall(CheckAndSyncEternalNight)
-
     local char = Utils.GetCharacter()
     local root = Utils.GetRootPart(char)
     local hum = Utils.GetHumanoid(char)
@@ -1400,7 +1405,7 @@ local function RunLootingAndSurvivalStep()
     -- CHỈ ĂN KHI: (AutoEat hoặc EndlessNightLoot) được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
     -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên sàn giữ nguyên cho base.
     -- BẢO VỆ CHỐNG ĂN SẠCH ĐỒ ĂN: Chỉ ăn đúng 1 món mỗi lần, sau đó chờ ít nhất 2.0s để server đồng bộ Hunger!
-    if (Config.AutoEat or Config.EndlessNightLoot) and hungerPct < hungerThreshold then
+    if (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
         local now = os.clock()
         if (now - LastAutoEatActionTime) >= 2.0 then
             local ateSomething = false
