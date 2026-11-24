@@ -33,6 +33,7 @@ local PickUpItemRemote = Hub.Remotes and Hub.Remotes.PickUpItem
 
 local Combat = {}
 
+local OriginalWeaponStats = setmetatable({}, { __mode = "k" })
 local CurrentLockedTarget = nil
 local ObstacleCache = {} -- [mob] = expireTimestamp
 local LastTargetSearchTime = 0
@@ -947,7 +948,7 @@ local function GetEffectiveExtraHitsQuota(held, stats, options, myChar)
 
     -- 2. Penetration (Xuyên thấu THẬT trên Server — tuyệt đối không thổi phồng số ảo):
     -- 2.1 Điểm xuyên gốc từ stats / thuộc tính vũ khí (luôn giữ nguyên bản, không bị script ghi đè)
-    local basePen = (OriginalWeaponStats[held] and OriginalWeaponStats[held].Penetration)
+    local basePen = (held and OriginalWeaponStats[held] and OriginalWeaponStats[held].Penetration)
         or (stats and (stats:GetAttribute("Penetration") or stats:GetAttribute("BasePenetration")))
         or (held and (held:GetAttribute("Penetration") or held:GetAttribute("BasePenetration")))
         or (options and options.Penetration) or 0
@@ -1275,7 +1276,7 @@ end
 -- Cơ chế Auto Reload: Kích hoạt ngay lập tức khi vừa hết đạn, sau đó cứ 0.5s
 -- kích hoạt 1 lần bằng nút reload (PC: phím R | Mobile: nút Reload trong TouchButtons)
 -- ============================================================================
-local OriginalWeaponStats = setmetatable({}, { __mode = "k" })
+-- (OriginalWeaponStats đã được khai báo ở đầu file để GetEffectiveExtraHitsQuota truy cập hợp lệ)
 local IsReloadingWeapon = setmetatable({}, { __mode = "k" })
 local ShotsFiredSinceReload = setmetatable({}, { __mode = "k" })
 local GunSequentialShotCount = setmetatable({}, { __mode = "k" })
