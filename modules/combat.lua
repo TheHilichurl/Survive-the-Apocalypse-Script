@@ -1011,209 +1011,222 @@ local function EnsureBulletModuleHook()
                     return OriginalBulletHitscan(origin, targetPos, options)
                 end
 
-                local stats = held and held:FindFirstChild("Stats")
-                local effectiveExtraHits, totalPen, ricCount, isRealOutlaw = GetEffectiveExtraHitsQuota(held, stats, options, myChar)
+                -- Bọc toàn bộ xử lý hook trong pcall: tuyệt đối không để lỗi runtime làm sập GunClient dẫn tới kẹt u10 = true (kẹt đạn)
+                local okHook, outHits, outRayRes, outIsHead, outEffects = pcall(function()
+                    local stats = held and held:FindFirstChild("Stats")
+                    local effectiveExtraHits, totalPen, ricCount, isRealOutlaw = GetEffectiveExtraHitsQuota(held, stats, options, myChar)
 
-                -- Chỉ cấu hình Ricochet trên options nếu đúng là Class Outlaw thật (tuyệt đối không giả lập cờ Ricochet)
-                if isRealOutlaw and ricCount > 0 then
-                    options.RicochetMax = math.max(options.RicochetMax or 0, ricCount)
-                    options.RicochetChance = math.max(options.RicochetChance or 0, 1)
-                elseif not isRealOutlaw then
-                    options.RicochetMax = nil
-                    options.RicochetChance = nil
-                end
-                if totalPen > 0 then
-                    options.Penetration = math.max(options.Penetration or 0, totalPen)
-                end
-
-                local aimTargetPos = targetPos
-                local lockedModel, lockedPart = nil, nil
-                if Config.SilentAim or Config.AutoShoot or Config.Aimbot then
-                    if CurrentLockedTarget and CurrentLockedTarget.Parent and GetActualMobHP(CurrentLockedTarget) > 0 then
-                        lockedModel = CurrentLockedTarget
-                        lockedPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head")
-                            or CurrentLockedTarget:FindFirstChild("Head")
-                            or CurrentLockedTarget:FindFirstChild("HumanoidRootPart")
-                            or CurrentLockedTarget.PrimaryPart
-                            or CurrentLockedTarget:FindFirstChild("MainPart", true)
-                            or CurrentLockedTarget:FindFirstChildWhichIsA("BasePart", true)
+                    -- Chỉ cấu hình Ricochet trên options nếu đúng là Class Outlaw thật (tuyệt đối không giả lập cờ Ricochet)
+                    if isRealOutlaw and ricCount > 0 then
+                        options.RicochetMax = math.max(options.RicochetMax or 0, ricCount)
+                        options.RicochetChance = math.max(options.RicochetChance or 0, 1)
+                    elseif not isRealOutlaw then
+                        options.RicochetMax = nil
+                        options.RicochetChance = nil
                     end
-                    if not (lockedModel and lockedPart) then
-                        lockedModel, lockedPart = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
+                    if totalPen > 0 then
+                        options.Penetration = math.max(options.Penetration or 0, totalPen)
                     end
-                    if lockedModel and lockedPart then
-                        local headPart = lockedModel:FindFirstChild("Head") or lockedPart
-                        local candidateAimPos = headPart.Position
 
-                        -- Kiểm tra vật cản (Cây Tree, Cỏ Grass, Tường)
-                        if Config.AimWallCheck ~= false then
-                            local isClear, hitPos = CheckRayUnobstructed(origin, candidateAimPos, lockedModel)
-                            if not isClear then
-                                -- BỊ CHẶN BỞI CÂY, CỎ HOẶC TƯỜNG -> TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
-                                lockedModel = nil
-                                lockedPart = nil
-                                aimTargetPos = targetPos
-                                UpdateVirtualBulletVisual(origin, hitPos or targetPos, false)
+                    local aimTargetPos = targetPos
+                    local lockedModel, lockedPart = nil, nil
+                    if Config.SilentAim or Config.AutoShoot or Config.Aimbot then
+                        if CurrentLockedTarget and CurrentLockedTarget.Parent and GetActualMobHP(CurrentLockedTarget) > 0 then
+                            lockedModel = CurrentLockedTarget
+                            lockedPart = CurrentLockedTarget:FindFirstChild(Config.AimPart or "Head")
+                                or CurrentLockedTarget:FindFirstChild("Head")
+                                or CurrentLockedTarget:FindFirstChild("HumanoidRootPart")
+                                or CurrentLockedTarget.PrimaryPart
+                                or CurrentLockedTarget:FindFirstChild("MainPart", true)
+                                or CurrentLockedTarget:FindFirstChildWhichIsA("BasePart", true)
+                        end
+                        if not (lockedModel and lockedPart) then
+                            lockedModel, lockedPart = GetBestCombatTarget(Config.AimMaxRange, false, Config.AimWallCheck)
+                        end
+                        if lockedModel and lockedPart then
+                            local headPart = lockedModel:FindFirstChild("Head") or lockedPart
+                            local candidateAimPos = headPart.Position
+
+                            -- Kiểm tra vật cản (Cây Tree, Cỏ Grass, Tường)
+                            if Config.AimWallCheck ~= false then
+                                local isClear, hitPos = CheckRayUnobstructed(origin, candidateAimPos, lockedModel)
+                                if not isClear then
+                                    -- BỊ CHẶN BỞI CÂY, CỎ HOẶC TƯỜNG -> TUYỆT ĐỐI KHÔNG BẮN XUYÊN!
+                                    lockedModel = nil
+                                    lockedPart = nil
+                                    aimTargetPos = targetPos
+                                    UpdateVirtualBulletVisual(origin, hitPos or targetPos, false)
+                                else
+                                    aimTargetPos = candidateAimPos
+                                    UpdateVirtualBulletVisual(origin, aimTargetPos, true)
+                                end
                             else
                                 aimTargetPos = candidateAimPos
                                 UpdateVirtualBulletVisual(origin, aimTargetPos, true)
                             end
+                        end
+                    end
+
+                    BypassHitscanHook = true
+                    local hits, rayRes, isHead, effects = OriginalBulletHitscan(origin, aimTargetPos, options)
+                    BypassHitscanHook = false
+
+                    hits = type(hits) == "table" and hits or {}
+                    effects = type(effects) == "table" and effects or {}
+
+                    if lockedModel and lockedPart then
+                        local headPart = lockedModel:FindFirstChild("Head") or lockedPart
+                        aimTargetPos = headPart.Position
+
+                        -- Đảm bảo Silent Aim định hướng trúng đầu quái vật khi đường đạn thông thoáng
+                        -- Nếu #hits == 0 nhưng đường đạn đã được CheckRayUnobstructed xác nhận thông thoáng,
+                        -- bổ sung hit vào hits để GunClient KHÔNG gửi HitData = {} rỗng gây băng đạn ảo!
+                        if #hits == 0 then
+                            local hitEntry = {
+                                HitChar = lockedModel,
+                                HitPart = headPart,
+                                HitPos = aimTargetPos,
+                            }
+                            if isRealOutlaw and ricCount > 0 then
+                                hitEntry.Ricochet = true
+                            end
+                            table.insert(hits, hitEntry)
+                            isHead = true
                         else
-                            aimTargetPos = candidateAimPos
-                            UpdateVirtualBulletVisual(origin, aimTargetPos, true)
+                            hits[1].HitChar = lockedModel
+                            hits[1].HitPos = aimTargetPos
+                            hits[1].HitPart = headPart
+                            hits[1].Ricochet = (isRealOutlaw and ricCount > 0) and true or nil
+                            isHead = true
+                        end
+
+                        if #effects == 0 then
+                            table.insert(effects, {
+                                Origin = origin,
+                                End = aimTargetPos,
+                            })
                         end
                     end
-                end
 
-                BypassHitscanHook = true
-                local hits, rayRes, isHead, effects = OriginalBulletHitscan(origin, aimTargetPos, options)
-                BypassHitscanHook = false
+                    -- Penetration-Safe Bounce (Cách 1):
+                    -- Tôn trọng đúng hạn mức Xuyên thấu thật trên Server (trừ hao PenResistance của từng quái)
+                    -- và KHÔNG gửi cờ Ricochet = true giả khi không phải Outlaw.
+                    if (Config.MaxPenetration or isRealOutlaw) and #hits > 0 then
+                        local visited = {}
+                        local penRemaining = totalPen
+                        local ricRemaining = isRealOutlaw and ricCount or 0
 
-                hits = type(hits) == "table" and hits or {}
-                effects = type(effects) == "table" and effects or {}
-
-                if lockedModel and lockedPart then
-                    local headPart = lockedModel:FindFirstChild("Head") or lockedPart
-                    aimTargetPos = headPart.Position
-
-                    -- Đảm bảo Silent Aim định hướng trúng đầu quái vật khi đường đạn thông thoáng
-                    -- Nếu #hits == 0 nhưng đường đạn đã được CheckRayUnobstructed xác nhận thông thoáng,
-                    -- bổ sung hit vào hits để GunClient KHÔNG gửi HitData = {} rỗng gây băng đạn ảo!
-                    if #hits == 0 then
-                        local hitEntry = {
-                            HitChar = lockedModel,
-                            HitPart = headPart,
-                            HitPos = aimTargetPos,
-                        }
-                        if isRealOutlaw and ricCount > 0 then
-                            hitEntry.Ricochet = true
-                        end
-                        table.insert(hits, hitEntry)
-                        isHead = true
-                    else
-                        hits[1].HitChar = lockedModel
-                        hits[1].HitPos = aimTargetPos
-                        hits[1].HitPart = headPart
-                        hits[1].Ricochet = (isRealOutlaw and ricCount > 0) and true or nil
-                        isHead = true
-                    end
-
-                    if #effects == 0 then
-                        table.insert(effects, {
-                            Origin = origin,
-                            End = aimTargetPos,
-                            RayResult = { Position = aimTargetPos, Instance = headPart }
-                        })
-                    end
-                end
-
-                -- Penetration-Safe Bounce (Cách 1):
-                -- Tôn trọng đúng hạn mức Xuyên thấu thật trên Server (trừ hao PenResistance của từng quái)
-                -- và KHÔNG gửi cờ Ricochet = true giả khi không phải Outlaw.
-                if (Config.MaxPenetration or isRealOutlaw) and #hits > 0 then
-                    local visited = {}
-                    local penRemaining = totalPen
-                    local ricRemaining = isRealOutlaw and ricCount or 0
-
-                    for _, h in ipairs(hits) do
-                        if h.HitChar then
-                            visited[h.HitChar] = true
-                            if not h.HitChar:GetAttribute("Dead") then
-                                local penRes = h.HitChar:GetAttribute("PenResistance") or 0
-                                penRemaining = penRemaining - (1 + penRes)
+                        for _, h in ipairs(hits) do
+                            if h.HitChar then
+                                visited[h.HitChar] = true
+                                if not h.HitChar:GetAttribute("Dead") then
+                                    local penRes = h.HitChar:GetAttribute("PenResistance") or 0
+                                    penRemaining = penRemaining - (1 + penRes)
+                                end
+                            end
+                            if not isRealOutlaw then
+                                h.Ricochet = nil
+                            elseif ricRemaining > 0 and h.Ricochet then
+                                ricRemaining = ricRemaining - 1
                             end
                         end
-                        if not isRealOutlaw then
-                            h.Ricochet = nil
-                        elseif ricRemaining > 0 and h.Ricochet then
-                            ricRemaining = ricRemaining - 1
+
+                        local canChain = function()
+                            if isRealOutlaw then
+                                return (penRemaining >= 0) or (ricRemaining > 0)
+                            end
+                            return penRemaining >= 0
                         end
-                    end
 
-                    local canChain = function()
-                        if isRealOutlaw then
-                            return (penRemaining >= 0) or (ricRemaining > 0)
-                        end
-                        return penRemaining >= 0
-                    end
+                        local lastHitPos = (hits[#hits] and hits[#hits].HitPos) or aimTargetPos
+                        local charsFolder = Workspace:FindFirstChild("Characters")
+                        local bounceRadius = Config.PenBounceRadius or 16 -- Bán kính tầm gần hợp lệ với Server
 
-                    local lastHitPos = (hits[#hits] and hits[#hits].HitPos) or aimTargetPos
-                    local charsFolder = Workspace:FindFirstChild("Characters")
-                    local bounceRadius = Config.PenBounceRadius or 16 -- Bán kính tầm gần hợp lệ với Server
+                        while canChain() and charsFolder do
+                            local bestNextMob, bestNextPart = nil, nil
+                            local bestDist = bounceRadius
 
-                    while canChain() and charsFolder do
-                        local bestNextMob, bestNextPart = nil, nil
-                        local bestDist = bounceRadius
-
-                        for _, mob in ipairs(charsFolder:GetChildren()) do
-                            if not visited[mob] and mob:IsA("Model") and mob ~= myChar then
-                                local isPvE, mobHp = IsHostilePvEMob(mob)
-                                if isPvE and mobHp > 0 and not mob:GetAttribute("Dead") then
-                                    local p = mob:FindFirstChild("Head") or mob:FindFirstChild("Torso") or mob:FindFirstChild("UpperTorso") or mob:FindFirstChild("HumanoidRootPart")
-                                    if p then
-                                        local d = (p.Position - lastHitPos).Magnitude
-                                        if d <= bestDist then
-                                            bestDist = d
-                                            bestNextMob = mob
-                                            bestNextPart = p
+                            for _, mob in ipairs(charsFolder:GetChildren()) do
+                                if not visited[mob] and mob:IsA("Model") and mob ~= myChar then
+                                    local isPvE, mobHp = IsHostilePvEMob(mob)
+                                    if isPvE and mobHp > 0 and not mob:GetAttribute("Dead") then
+                                        local p = mob:FindFirstChild("Head") or mob:FindFirstChild("Torso") or mob:FindFirstChild("UpperTorso") or mob:FindFirstChild("HumanoidRootPart")
+                                        if p and p:IsA("BasePart") then
+                                            local d = (p.Position - lastHitPos).Magnitude
+                                            if d <= bestDist then
+                                                bestDist = d
+                                                bestNextMob = mob
+                                                bestNextPart = p
+                                            end
                                         end
                                     end
                                 end
                             end
-                        end
 
-                        if bestNextMob and bestNextPart then
-                            visited[bestNextMob] = true
-                            local bouncePos = bestNextPart.Position
-                            local penRes = bestNextMob:GetAttribute("PenResistance") or 0
+                            if bestNextMob and bestNextPart then
+                                visited[bestNextMob] = true
+                                local bouncePos = bestNextPart.Position
+                                local penRes = bestNextMob:GetAttribute("PenResistance") or 0
 
-                            if isRealOutlaw then
-                                hits[#hits].Ricochet = true
-                                if ricRemaining > 0 then
-                                    ricRemaining = ricRemaining - 1
+                                if isRealOutlaw then
+                                    hits[#hits].Ricochet = true
+                                    if ricRemaining > 0 then
+                                        ricRemaining = ricRemaining - 1
+                                    end
                                 end
-                            end
-                            penRemaining = penRemaining - (1 + penRes)
+                                penRemaining = penRemaining - (1 + penRes)
 
-                            table.insert(hits, {
-                                HitChar = bestNextMob,
-                                HitPos = bouncePos,
-                                HitPart = bestNextPart,
-                                Ricochet = (isRealOutlaw and canChain()) or nil
-                            })
-                            -- Truyền RayResult hợp lệ để GunClient vẽ tia đạn nảy chuẩn tới bouncePos
-                            table.insert(effects, {
-                                Origin = lastHitPos,
-                                End = bouncePos,
-                                RayResult = { Position = bouncePos, Instance = bestNextPart }
-                            })
-                            lastHitPos = bouncePos
-                        else
-                            break
+                                table.insert(hits, {
+                                    HitChar = bestNextMob,
+                                    HitPos = bouncePos,
+                                    HitPart = bestNextPart,
+                                    Ricochet = (isRealOutlaw and canChain()) or nil
+                                })
+                                -- Tuyệt đối giữ RayResult = nil trên segment bổ sung để tránh xung đột RaycastResult trong GunClient/BulletEffect
+                                table.insert(effects, {
+                                    Origin = lastHitPos,
+                                    End = bouncePos,
+                                    RayResult = nil
+                                })
+                                lastHitPos = bouncePos
+                            else
+                                break
+                            end
                         end
                     end
-                end
 
-                -- Sanitize hits list: Đảm bảo mọi entry trong hits bắt buộc phải có HitChar và HitPart hợp lệ
-                -- Ngăn chặn triệt để lỗi crash ở QuickdrawLocal dòng 158: `v28 = not v.HitChar:GetAttribute("Shield") or v28`
-                for i = #hits, 1, -1 do
-                    local h = hits[i]
-                    if not (h and h.HitChar and typeof(h.HitChar) == "Instance" and h.HitChar.Parent) then
-                        table.remove(hits, i)
+                    -- Sanitize hits list: Đảm bảo mọi entry trong hits bắt buộc phải có HitChar và HitPart hợp lệ
+                    -- Ngăn chặn triệt để lỗi crash ở QuickdrawLocal dòng 158: `v28 = not v.HitChar:GetAttribute("Shield") or v28`
+                    for i = #hits, 1, -1 do
+                        local h = hits[i]
+                        if not (h and h.HitChar and typeof(h.HitChar) == "Instance" and h.HitChar.Parent and h.HitPart and typeof(h.HitPart) == "Instance") then
+                            table.remove(hits, i)
+                        end
                     end
-                end
 
-                -- Guarantee at least one tracer effect so GunClient draws the bullet trail
-                if #effects == 0 then
-                    local finalEnd = (#hits > 0 and hits[1].HitPos) or aimTargetPos
-                    table.insert(effects, {
-                        Origin = origin,
-                        End = finalEnd,
-                        RayResult = rayRes or { Position = finalEnd }
-                    })
-                end
+                    -- Guarantee at least one tracer effect so GunClient draws the bullet trail (chỉ dùng rayRes gốc nếu có)
+                    if #effects == 0 then
+                        local finalEnd = (#hits > 0 and hits[1].HitPos) or aimTargetPos
+                        table.insert(effects, {
+                            Origin = origin,
+                            End = finalEnd,
+                            RayResult = rayRes
+                        })
+                    end
 
-                return hits, rayRes, isHead, effects
+                    return hits, rayRes, isHead, effects
+                end)
+
+                BypassHitscanHook = false
+                if okHook then
+                    return outHits, outRayRes, outIsHead, outEffects
+                else
+                    warn("[STA Combat] BulletHitscan hook fallback:", outHits)
+                    BypassHitscanHook = true
+                    local h, r, hd, ef = OriginalBulletHitscan(origin, targetPos, options)
+                    BypassHitscanHook = false
+                    return h, r, hd, ef
+                end
             end
         end
     end
@@ -1479,11 +1492,7 @@ local function ApplyWeaponModsToTool(tool)
             stats:SetAttribute("Automatic", base.Automatic)
         end
 
-        local myChar = Utils.GetCharacter()
-        if myChar then
-            -- Không gán FireRate/Ricochet giả lên myChar để tránh xung đột với Server
-            myChar:SetAttribute("ReloadSpeed", 0)
-        end
+        -- Không ghi đè ReloadSpeed/FireRate/Ricochet lên Character để bảo toàn buff của Class/Perk trên Server
 
         if Config.InstantCharge then
             if base.WarmUp then stats:SetAttribute("WarmUp", 0) end

@@ -125,8 +125,11 @@ _G.STA_MasterHub_Cleanup = function()
         if Hub.Combat.Cleanup then
             pcall(Hub.Combat.Cleanup)
         end
-        if Hub.GameModules and Hub.GameModules.Bullet and Hub.Combat.OriginalBulletHitscan then
-            Hub.GameModules.Bullet.BulletHitscan = Hub.Combat.OriginalBulletHitscan
+        if Hub.GameModules and Hub.GameModules.Bullet then
+            if Hub.Combat.OriginalBulletHitscan then
+                Hub.GameModules.Bullet.BulletHitscan = Hub.Combat.OriginalBulletHitscan
+            end
+            Hub.GameModules.Bullet.__HiliHooked = nil
         end
         if Hub.Combat.OriginalGetAutoTarget then
             _G.getCurrentAutoTargetPosition = Hub.Combat.OriginalGetAutoTarget
