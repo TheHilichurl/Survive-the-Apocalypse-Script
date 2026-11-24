@@ -84,7 +84,8 @@ local Config = {
     FastReload = false,           -- Fast reload removed
     ReloadSpeedMultiplier = 1.5,  -- Hệ số tốc độ nạp đạn (1.5x, nhanh hơn 50% chuẩn server)
     InstantCharge = false,
-    MaxPenetration = true,        -- Tự động bật Ricochet nảy đạn & Max Xuyên giáp cho mọi loại súng/mọi class
+    MaxPenetration = true,        -- Penetration-Safe Bounce: chuyển hóa Xuyên thấu thật của súng thành đạn nảy tầm gần chuẩn Server (không gửi cờ Ricochet giả)
+    PenBounceRadius = 16,         -- Bán kính nảy đạn tầm gần chuẩn Server (studs)
     BulletPreserve = false,
     AutoAttachSuppressor = false,
 

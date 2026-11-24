@@ -927,74 +927,54 @@ local function GetEffectiveExtraHitsQuota(held, stats, options, myChar)
         or (held and held:GetAttribute("Automatic") == true)
         or (options and options.Automatic == true)
 
-    -- 1. Ricochet từ Class Outlaw / Perk / Thuộc tính
-    local isOutlaw = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or myChar:GetAttribute("Perk") == "Outlaw"))
+    -- 1. Chỉ nhận diện Ricochet THẬT từ Class Outlaw hoặc thuộc tính Server gốc (tuyệt đối không fake Ricochet trên class khác)
+    local isOutlawClass = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or myChar:GetAttribute("Perk") == "Outlaw"))
         or (LocalPlayer and (LocalPlayer:GetAttribute("Class") == "Outlaw" or LocalPlayer:GetAttribute("Perk") == "Outlaw"))
-    local charRicochet = (myChar and myChar:GetAttribute("RicochetMax"))
+    local isRealOutlaw = isOutlawClass and not isAutomatic
+
+    local serverRicochetMax = (myChar and myChar:GetAttribute("RicochetMax"))
         or (LocalPlayer and LocalPlayer:GetAttribute("RicochetMax"))
         or (held and held:GetAttribute("RicochetMax"))
         or (options and options.RicochetMax) or 0
+    if typeof(serverRicochetMax) ~= "number" then serverRicochetMax = 0 end
 
     local ricochetCount = 0
-    if isOutlaw and not isAutomatic then
-        ricochetCount = math.max(charRicochet, 3)
-    elseif charRicochet > 0 then
-        ricochetCount = charRicochet
+    if isRealOutlaw then
+        ricochetCount = math.max(serverRicochetMax, 3)
+    elseif serverRicochetMax > 0 and isOutlawClass then
+        ricochetCount = serverRicochetMax
     end
 
-    -- 2. Penetration (Xuyên đạn):
-    -- 2.1 Điểm xuyên gốc từ stats / thuộc tính vũ khí
-    local basePen = (stats and (stats:GetAttribute("Penetration") or stats:GetAttribute("BasePenetration")))
+    -- 2. Penetration (Xuyên thấu THẬT trên Server — tuyệt đối không thổi phồng số ảo):
+    -- 2.1 Điểm xuyên gốc từ stats / thuộc tính vũ khí (luôn giữ nguyên bản, không bị script ghi đè)
+    local basePen = (OriginalWeaponStats[held] and OriginalWeaponStats[held].Penetration)
+        or (stats and (stats:GetAttribute("Penetration") or stats:GetAttribute("BasePenetration")))
         or (held and (held:GetAttribute("Penetration") or held:GetAttribute("BasePenetration")))
-        or (OriginalWeaponStats[held] and OriginalWeaponStats[held].Penetration)
         or (options and options.Penetration) or 0
     if typeof(basePen) ~= "number" then basePen = 0 end
 
-    -- 2.2 Nâng cấp vũ khí (Weapon Upgrader / Pack-A-Punch / Nòng súng phụ kiện +2 Xuyên)
+    -- Nếu stats được nâng cấp trực tiếp bởi Server (ví dụ Weapon Upgrader), lấy giá trị thật lớn hơn
+    local liveStatsPen = (stats and stats:GetAttribute("Penetration")) or 0
+    if typeof(liveStatsPen) == "number" and liveStatsPen > basePen and liveStatsPen < 10 then
+        basePen = liveStatsPen
+    end
+
+    -- 2.2 Nâng cấp vũ khí (Weapon Upgrader / Pack-A-Punch / Nòng súng phụ kiện)
     local upgradePen = (held and (held:GetAttribute("BonusPenetration") or held:GetAttribute("UpgradedPenetration") or held:GetAttribute("ExtraPenetration") or held:GetAttribute("UpgradePenetration")))
         or (stats and (stats:GetAttribute("BonusPenetration") or stats:GetAttribute("UpgradedPenetration") or stats:GetAttribute("ExtraPenetration") or stats:GetAttribute("UpgradePenetration")))
         or 0
     if typeof(upgradePen) ~= "number" then upgradePen = 0 end
 
-    -- Kiểm tra nòng súng / phụ kiện nếu có gắn Barrel tăng xuyên
-    local barrel = (held and (held:FindFirstChild("Barrel") or held:GetAttribute("Barrel")))
-    if barrel then
-        local bName = tostring(typeof(barrel) == "Instance" and barrel.Name or barrel):lower()
-        if bName:find("penetrat") or bName:find("extended") or bName:find("heavy") then
-            upgradePen = math.max(upgradePen, 2)
-        end
-    end
+    -- 2.3 GunPenetration từ Server (ClassStats như Heavy Gunner Lv2 +1, Perks...)
+    local serverGunPen = (myChar and (myChar:GetAttribute("GunPenetration") or myChar:GetAttribute("PenetrationBonus") or myChar:GetAttribute("Penetration")))
+        or (LocalPlayer and (LocalPlayer:GetAttribute("GunPenetration") or LocalPlayer:GetAttribute("PenetrationBonus") or LocalPlayer:GetAttribute("Penetration"))) or 0
+    if typeof(serverGunPen) ~= "number" then serverGunPen = 0 end
 
-    -- 2.3 Class Heavy Gunner Level 2 (+1 Penetration cho mọi súng)
-    local isHeavyGunner = (myChar and (myChar:GetAttribute("Class") == "Heavy Gunner" or myChar:GetAttribute("Perk") == "Heavy Gunner"))
-        or (LocalPlayer and (LocalPlayer:GetAttribute("Class") == "Heavy Gunner" or LocalPlayer:GetAttribute("Perk") == "Heavy Gunner"))
-    local heavyGunnerPen = (isHeavyGunner and 1) or 0
+    local totalPenetration = math.max(0, math.floor(basePen + upgradePen + serverGunPen))
 
-    -- 2.4 Các perk xuyên thấu khác từ nhân vật
-    local perkPen = (myChar and (myChar:GetAttribute("PenetrationBonus") or myChar:GetAttribute("Penetration")))
-        or (LocalPlayer and (LocalPlayer:GetAttribute("PenetrationBonus") or LocalPlayer:GetAttribute("Penetration"))) or 0
-    if typeof(perkPen) ~= "number" then perkPen = 0 end
-
-    local totalPenetration = math.max(0, math.floor(basePen + upgradePen + heavyGunnerPen + perkPen))
-
-    -- 3. Config.MaxPenetration: Ép xung tối đa nếu người chơi kích hoạt trong menu (hoặc mặc định)
-    if Config.MaxPenetration then
-        totalPenetration = math.max(totalPenetration, 3)
-        ricochetCount = math.max(ricochetCount, 3)
-        if myChar then
-            if not myChar:GetAttribute("RicochetMax") or myChar:GetAttribute("RicochetMax") < 5 then
-                pcall(function()
-                    myChar:SetAttribute("RicochetChance", 1)
-                    myChar:SetAttribute("RicochetMax", 5)
-                end)
-            end
-        end
-    end
-
-    -- Hạn mức mục tiêu phụ bổ sung (Effective Extra Hits):
-    -- Được tính toán linh hoạt dựa trên cả Penetration và Ricochet
+    -- Hạn mức mục tiêu phụ bổ sung (Effective Extra Hits) khớp 100% với Server:
     local effectiveExtraHits = math.max(ricochetCount, totalPenetration)
-    return effectiveExtraHits, totalPenetration, ricochetCount
+    return effectiveExtraHits, totalPenetration, ricochetCount, isRealOutlaw
 end
 
 -- BulletModule Hook & Dynamic Resolver
@@ -1032,13 +1012,18 @@ local function EnsureBulletModuleHook()
                 end
 
                 local stats = held and held:FindFirstChild("Stats")
-                local effectiveExtraHits, totalPen, ricCount = GetEffectiveExtraHitsQuota(held, stats, options, myChar)
+                local effectiveExtraHits, totalPen, ricCount, isRealOutlaw = GetEffectiveExtraHitsQuota(held, stats, options, myChar)
 
-                -- Tự động điều chỉnh Penetration và RicochetMax trên options để phù hợp với hạn ngạch thực tế
-                if effectiveExtraHits > 0 then
-                    options.RicochetMax = math.max(options.RicochetMax or 0, effectiveExtraHits)
+                -- Chỉ cấu hình Ricochet trên options nếu đúng là Class Outlaw thật (tuyệt đối không giả lập cờ Ricochet)
+                if isRealOutlaw and ricCount > 0 then
+                    options.RicochetMax = math.max(options.RicochetMax or 0, ricCount)
                     options.RicochetChance = math.max(options.RicochetChance or 0, 1)
-                    options.Penetration = math.max(options.Penetration or 0, effectiveExtraHits + totalPen + (Config.MaxPenetration and 10 or 2))
+                elseif not isRealOutlaw then
+                    options.RicochetMax = nil
+                    options.RicochetChance = nil
+                end
+                if totalPen > 0 then
+                    options.Penetration = math.max(options.Penetration or 0, totalPen)
                 end
 
                 local aimTargetPos = targetPos
@@ -1100,7 +1085,7 @@ local function EnsureBulletModuleHook()
                             HitPart = headPart,
                             HitPos = aimTargetPos,
                         }
-                        if options.RicochetMax and options.RicochetMax > 0 then
+                        if isRealOutlaw and ricCount > 0 then
                             hitEntry.Ricochet = true
                         end
                         table.insert(hits, hitEntry)
@@ -1109,9 +1094,7 @@ local function EnsureBulletModuleHook()
                         hits[1].HitChar = lockedModel
                         hits[1].HitPos = aimTargetPos
                         hits[1].HitPart = headPart
-                        if options.RicochetMax and options.RicochetMax > 0 then
-                            hits[1].Ricochet = true
-                        end
+                        hits[1].Ricochet = (isRealOutlaw and ricCount > 0) and true or nil
                         isHead = true
                     end
 
@@ -1119,25 +1102,48 @@ local function EnsureBulletModuleHook()
                         table.insert(effects, {
                             Origin = origin,
                             End = aimTargetPos,
+                            RayResult = { Position = aimTargetPos, Instance = headPart }
                         })
                     end
                 end
 
-                -- Dynamic Penetration & Ricochet Chain Continuation (Chains up to effectiveExtraHits mobs)
-                local maxBounces = options.RicochetMax or effectiveExtraHits or 0
-                if maxBounces > 0 and #hits > 0 then
+                -- Penetration-Safe Bounce (Cách 1):
+                -- Tôn trọng đúng hạn mức Xuyên thấu thật trên Server (trừ hao PenResistance của từng quái)
+                -- và KHÔNG gửi cờ Ricochet = true giả khi không phải Outlaw.
+                if (Config.MaxPenetration or isRealOutlaw) and #hits > 0 then
                     local visited = {}
+                    local penRemaining = totalPen
+                    local ricRemaining = isRealOutlaw and ricCount or 0
+
                     for _, h in ipairs(hits) do
                         if h.HitChar then
                             visited[h.HitChar] = true
+                            if not h.HitChar:GetAttribute("Dead") then
+                                local penRes = h.HitChar:GetAttribute("PenResistance") or 0
+                                penRemaining = penRemaining - (1 + penRes)
+                            end
                         end
+                        if not isRealOutlaw then
+                            h.Ricochet = nil
+                        elseif ricRemaining > 0 and h.Ricochet then
+                            ricRemaining = ricRemaining - 1
+                        end
+                    end
+
+                    local canChain = function()
+                        if isRealOutlaw then
+                            return (penRemaining >= 0) or (ricRemaining > 0)
+                        end
+                        return penRemaining >= 0
                     end
 
                     local lastHitPos = (hits[#hits] and hits[#hits].HitPos) or aimTargetPos
                     local charsFolder = Workspace:FindFirstChild("Characters")
-                    while #hits <= maxBounces and charsFolder do
+                    local bounceRadius = Config.PenBounceRadius or 16 -- Bán kính tầm gần hợp lệ với Server
+
+                    while canChain() and charsFolder do
                         local bestNextMob, bestNextPart = nil, nil
-                        local bestDist = (Config.RicochetRadius or 55) -- Mở rộng tầm nảy đạn (chuẩn game gốc chỉ 20 studs)
+                        local bestDist = bounceRadius
 
                         for _, mob in ipairs(charsFolder:GetChildren()) do
                             if not visited[mob] and mob:IsA("Model") and mob ~= myChar then
@@ -1146,7 +1152,7 @@ local function EnsureBulletModuleHook()
                                     local p = mob:FindFirstChild("Head") or mob:FindFirstChild("Torso") or mob:FindFirstChild("UpperTorso") or mob:FindFirstChild("HumanoidRootPart")
                                     if p then
                                         local d = (p.Position - lastHitPos).Magnitude
-                                        if d < bestDist then
+                                        if d <= bestDist then
                                             bestDist = d
                                             bestNextMob = mob
                                             bestNextPart = p
@@ -1159,17 +1165,27 @@ local function EnsureBulletModuleHook()
                         if bestNextMob and bestNextPart then
                             visited[bestNextMob] = true
                             local bouncePos = bestNextPart.Position
-                            hits[#hits].Ricochet = true
+                            local penRes = bestNextMob:GetAttribute("PenResistance") or 0
+
+                            if isRealOutlaw then
+                                hits[#hits].Ricochet = true
+                                if ricRemaining > 0 then
+                                    ricRemaining = ricRemaining - 1
+                                end
+                            end
+                            penRemaining = penRemaining - (1 + penRes)
+
                             table.insert(hits, {
                                 HitChar = bestNextMob,
                                 HitPos = bouncePos,
                                 HitPart = bestNextPart,
-                                Ricochet = (#hits < maxBounces) or nil
+                                Ricochet = (isRealOutlaw and canChain()) or nil
                             })
+                            -- Truyền RayResult hợp lệ để GunClient vẽ tia đạn nảy chuẩn tới bouncePos
                             table.insert(effects, {
                                 Origin = lastHitPos,
                                 End = bouncePos,
-                                RayResult = nil
+                                RayResult = { Position = bouncePos, Instance = bestNextPart }
                             })
                             lastHitPos = bouncePos
                         else
@@ -1465,12 +1481,8 @@ local function ApplyWeaponModsToTool(tool)
 
         local myChar = Utils.GetCharacter()
         if myChar then
-            -- Không gán FireRate lên myChar để tránh nhân bình phương tốc độ bắn trong GunClient
-            if relMult > 1.0 then
-                myChar:SetAttribute("ReloadSpeed", relMult - 1)
-            else
-                myChar:SetAttribute("ReloadSpeed", 0)
-            end
+            -- Không gán FireRate/Ricochet giả lên myChar để tránh xung đột với Server
+            myChar:SetAttribute("ReloadSpeed", 0)
         end
 
         if Config.InstantCharge then
@@ -1481,9 +1493,8 @@ local function ApplyWeaponModsToTool(tool)
             if base.ChargeTime then stats:SetAttribute("ChargeTime", base.ChargeTime) end
         end
 
-        if Config.MaxPenetration then
-            stats:SetAttribute("Penetration", math.max(base.Penetration or 0, 10))
-        elseif base.Penetration then
+        -- Giữ nguyên Penetration gốc trên Stats của súng để khớp 100% với Server (Cách 1)
+        if base.Penetration ~= nil then
             stats:SetAttribute("Penetration", base.Penetration)
         end
     end
@@ -1501,10 +1512,6 @@ local function ApplyAllWeaponMods()
         end
         if Config.NoSpread then
             char:SetAttribute("Accuracy", 100)
-        end
-        if Config.MaxPenetration then
-            char:SetAttribute("RicochetChance", 1)
-            char:SetAttribute("RicochetMax", 5)
         end
         for _, child in ipairs(char:GetChildren()) do
             if child:IsA("Tool") then
@@ -1853,8 +1860,8 @@ local function RunKillAuraAndBreakAuraStep()
     end)
 end
 
--- Tính toán chuỗi nảy đạn (Ricochet) giữa các mục tiêu theo cơ chế class Outlaw / RicochetPerk
-local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces, maxRadius, myChar)
+-- Tính toán chuỗi Penetration-Safe Bounce (Cách 1: chuẩn xuyên thấu thật trên Server, trừ hao PenResistance)
+local function CalculateRicochetChain(startChar, startPart, startPos, maxPen, maxRadius, myChar, isRealOutlaw)
     local hitDataList = {
         {
             HitChar = startChar,
@@ -1866,7 +1873,13 @@ local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces
     local effectResultsList = {}
     local visited = { [startChar] = true }
 
-    if not maxBounces or maxBounces <= 0 then
+    if not Config.MaxPenetration and not isRealOutlaw then
+        return hitDataList, effectResultsList
+    end
+
+    local penRemaining = (maxPen or 0) - (1 + ((startChar and startChar:GetAttribute("PenResistance")) or 0))
+    local ricRemaining = isRealOutlaw and 3 or 0
+    if (not isRealOutlaw and penRemaining < 0) or (isRealOutlaw and penRemaining < 0 and ricRemaining <= 0) then
         return hitDataList, effectResultsList
     end
 
@@ -1878,7 +1891,6 @@ local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces
             if c ~= myChar and c ~= startChar and not c:GetAttribute("Dead") and c.Name ~= "Forcefield" then
                 local isHostile, mobHp = IsHostilePvEMob(c)
                 if isHostile and mobHp > 0 and not Players:GetPlayerFromCharacter(c) then
-                    -- Can thiệp Ricochet Headshot: Luôn ưu tiên Head trước Torso để 100% nảy đạn vào Đầu
                     local p = c:FindFirstChild("Head") or c:FindFirstChild("MainPart", true) or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso") or c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart", true)
                     if p and p:IsA("BasePart") then
                         table.insert(candidates, { Model = c, Part = p })
@@ -1888,9 +1900,9 @@ local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces
         end
     end
 
-    for bounce = 1, maxBounces do
+    while (penRemaining >= 0) or (isRealOutlaw and ricRemaining > 0) do
         local bestCand = nil
-        local bestDist = maxRadius or 35.0
+        local bestDist = maxRadius or (Config.PenBounceRadius or 16)
 
         for _, cand in ipairs(candidates) do
             if not visited[cand.Model] and not cand.Model:GetAttribute("Dead") then
@@ -1904,15 +1916,21 @@ local function CalculateRicochetChain(startChar, startPart, startPos, maxBounces
 
         if bestCand then
             visited[bestCand.Model] = true
-            -- Đánh dấu mục tiêu trước đó là tia đạn nảy (Ricochet = true) sang mục tiêu tiếp theo
-            hitDataList[#hitDataList].Ricochet = true
+            local penRes = bestCand.Model:GetAttribute("PenResistance") or 0
+            penRemaining = penRemaining - (1 + penRes)
+            if isRealOutlaw then
+                hitDataList[#hitDataList].Ricochet = true
+                if ricRemaining > 0 then
+                    ricRemaining = ricRemaining - 1
+                end
+            end
 
             local nextPos = bestCand.Part.Position
             table.insert(hitDataList, {
                 HitChar = bestCand.Model,
                 HitPart = bestCand.Part,
                 HitPos = nextPos,
-                Ricochet = (bounce < maxBounces) or nil,
+                Ricochet = (isRealOutlaw and ((penRemaining >= 0) or (ricRemaining > 0))) or nil,
             })
             table.insert(effectResultsList, {
                 Origin = currentPos,
@@ -2158,16 +2176,15 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             if shootRem then
                 local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or (held and held:GetAttribute("Bullets")) or 1)
                 local myChar = Utils.GetCharacter()
-                local effectiveExtraHits, totalPen, ricCount = GetEffectiveExtraHitsQuota(held, stats, nil, myChar)
+                local effectiveExtraHits, totalPen, ricCount, isRealOutlaw = GetEffectiveExtraHitsQuota(held, stats, nil, myChar)
 
                 -- Tạo cấu trúc pelletResults chính xác 100% với server game:
                 -- Mục tiêu chính (Target 1) luôn trúng đích 100% (0% ghost bullets),
-                -- Đồng thời tự động điều hướng chuỗi đạn Xuyên thấu & Nảy (Dynamic Penetration/Ricochet Chain)
-                -- sang tối đa các quái lân cận (100% Headshot, cự ly 35 studs)!
+                -- Đồng thời thực thi Penetration-Safe Bounce (Cách 1) theo đúng Penetration thật của súng!
                 local pcallOk, pcallErr = pcall(function()
                     local pelletResults = {}
                     for pIdx = 1, pelletsCount do
-                        local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, effectiveExtraHits, 35.0, myChar)
+                        local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, totalPen, Config.PenBounceRadius or 16, myChar, isRealOutlaw)
 
                         local fullEffectResults = {
                             {
