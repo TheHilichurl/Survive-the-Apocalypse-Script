@@ -589,9 +589,15 @@ local function IsBackpackSackItem(item)
     end
 
     -- ĐỒ ĂN (Food) ở chế độ thường:
-    -- Không chạy AutoEat ở chế độ thường để tránh tự ý ăn / drop đồ từ Backpack khi đang di chuyển;
-    -- luôn cất Food vào Backpack Sack để tự xả tại Base/Generator.
+    -- Nếu bật AutoEat VÀ đang đói (< AutoEatThreshold) -> không nhét vào Balo để tự ăn trực tiếp trên sàn.
+    -- Ngược lại (đã no hoặc tắt AutoEat) -> cất vào Backpack Sack để mang về Base xả ở Generator.
     if cat == "Food" then
+        local char = Utils.GetCharacter()
+        local hungerPct = GetPlayerHungerPercent(char)
+        local hungerThreshold = Config.AutoEatThreshold or 40
+        if Config.AutoEat and hungerPct < hungerThreshold then
+            return false
+        end
         return true
     end
 
@@ -1084,9 +1090,9 @@ local function ProcessNewlySpawnedLoot()
                 local dist = (itemPos - root.Position).Magnitude
                 local cat = Utils.ClassifyItem(item)
 
-                -- 1. Tự động ăn đồ ăn CHỈ áp dụng cho Endless Night (tránh drop nhầm đồ từ Backpack ở chế độ thường)
+                -- 1. Tự động ăn đồ ăn xung quanh khi đói (< threshold): hoạt động ở cả chế độ thường (nếu bật AutoEat) lẫn Endless Night
                 -- Rate limit 2.0s để server kịp đồng bộ Hunger, CHỈ ĂN TỐI ĐA 1 MÓN mỗi nhịp!
-                if cat == "Food" and IsEndlessNightLootMode() and hungerPct < hungerThreshold then
+                if cat == "Food" and (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
                     local now = os.clock()
                     local maxEatRange = isAtBase and 35 or pickupRadius
                     if dist <= maxEatRange and (now - LastAutoEatActionTime) >= 2.0 then
@@ -1399,10 +1405,11 @@ local function RunLootingAndSurvivalStep()
         return
     end
 
-    -- CHỈ ĂN KHI: đang ở Endless Night (IsEndlessNightLootMode) VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
-    -- Tuyệt đối KHÔNG chạy tự động ăn ở chế độ thường để tránh xung đột trang bị Balo và drop đồ khi đang đi!
+    -- CHỈ ĂN KHI: (AutoEat bật ở chế độ thường hoặc đang ở Endless Night) VÀ thực sự bị đói (hungerPct < hungerThreshold).
+    -- Ở chế độ thường: chỉ ăn trong túi Tool (1.1) hoặc đồ ăn quanh người trên sàn (1.2).
+    -- Riêng bước móc/drop từ Backpack Sack (1.3): CHỈ chạy trong Endless Night (IsEndlessNightLootMode).
     -- BẢO VỆ CHỐNG ĂN SẠCH ĐỒ ĂN: Chỉ ăn đúng 1 món mỗi lần, sau đó chờ ít nhất 2.0s để server đồng bộ Hunger!
-    if IsEndlessNightLootMode() and hungerPct < hungerThreshold then
+    if (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
         local now = os.clock()
         if (now - LastAutoEatActionTime) >= 2.0 then
             local ateSomething = false
@@ -1477,9 +1484,10 @@ local function RunLootingAndSurvivalStep()
                 end
             end
 
-            -- 1.3 Endless Night Auto Eat: Nếu trong kho đồ và trên sàn không có thức ăn, nhưng trong Backpack Sack có đồ:
-            -- Trang bị Balo, drop 1 món đồ ăn ra sàn (vì trong balo 100% chỉ có thức ăn), nhặt/ăn ngay tức thì và hoàn trả lại vũ khí trước đó!
-            if not ateSomething and GetBackpackItemCount() > 0 and AdjustBackpackRemote and not IsDroppingBackpack and not IsHandlingBackpackEquip then
+            -- 1.3 Endless Night Auto Eat (CHỈ chạy khi đang ở Endless Night):
+            -- Trong Endless Night balo 100% chỉ chứa đồ ăn -> nếu trên sàn và túi Tool hết đồ ăn, móc 1 món từ Backpack Sack ra ăn ngay!
+            -- Ở chế độ thường TUYỆT ĐỐI KHÔNG chạy bước này để tránh vừa đi vừa drop Scrap/Gas/tài nguyên khỏi Balo.
+            if IsEndlessNightLootMode() and not ateSomething and GetBackpackItemCount() > 0 and AdjustBackpackRemote and not IsDroppingBackpack and not IsHandlingBackpackEquip then
                 local bpTool = GetBackpackTool()
                 if bpTool then
                     IsHandlingBackpackEquip = true
