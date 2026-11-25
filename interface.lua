@@ -266,6 +266,7 @@ TabAbilities:AddDropdown("Combat Drone Targeting Mode", "OperatorDroneTargeting"
 TabAbilities:AddToggle("Commander: Auto Call Airstrike on Zombie Clusters", "AutoCommanderAirstrike")
 TabAbilities:AddToggle("Vanguard: Auto Charge & Stun Enemies", "AutoVanguardCharge")
 TabAbilities:AddToggle("Vanguard: Auto Counter Shield Shockwave", "AutoVanguardCounter")
+TabAbilities:AddToggle("Dullahan: Auto Toss (Ném đầu vào mục tiêu gần nhất trong tầm)", "AutoDullahanToss")
 TabAbilities:AddToggle("Scavenger Lv3: Unlock Native Wall Highlight on Nearby Items", "UnlockScavengerHighlight")
 
 -- ============================================================================

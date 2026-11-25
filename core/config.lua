@@ -111,6 +111,7 @@ local Config = {
     AutoCommanderAirstrike = false,
     AutoVanguardCharge = false,
     AutoVanguardCounter = false,
+    AutoDullahanToss = false,
     UnlockScavengerHighlight = false,
 
     -- Looting, Dragging, Backpack & Survival

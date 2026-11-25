@@ -18,6 +18,7 @@ local Combat = Hub.Combat or {}
 local AddSuppressorRemote = Hub.Remotes and Hub.Remotes.AddSuppressor
 
 local Abilities = {}
+local LastDullahanTossTime = 0
 
 -- ============================================================================
 -- SURGICAL QUICKDRAW UNSTUCK WATCHDOG (Outlaw Class)
@@ -473,6 +474,64 @@ local function RunAbilitiesAndToolsStep()
                 pcall(function()
                     cnt.Use:FireServer()
                 end)
+            end
+        end
+    end
+
+    -- Dullahan: Auto Toss vào mục tiêu gần nhất khi đủ khoảng cách
+    if Config.AutoDullahanToss and not char:GetAttribute("InVehicle") then
+        local toss = char:FindFirstChild("Toss") or bp:FindFirstChild("Toss")
+        local useRem = toss and toss:FindFirstChild("Use")
+        local now = os.clock()
+        if toss and useRem and not toss:GetAttribute("Cooldown") and (now - LastDullahanTossTime) >= 1.2 then
+            local charsFolder = Workspace:FindFirstChild("Characters")
+            if charsFolder then
+                local combatMod = Hub.Combat or Combat
+                local headOrRoot = char:FindFirstChild("Head") or root
+                local originPos = headOrRoot.Position
+                local tStats = toss:FindFirstChild("Stats")
+                local maxRange = (tStats and tStats:GetAttribute("MaxRange")) or 70
+                local throwSpeed = (tStats and tStats:GetAttribute("ThrowSpeed")) or 85
+
+                local bestPart = nil
+                local bestDist = maxRange
+
+                for _, mob in ipairs(charsFolder:GetChildren()) do
+                    if mob ~= char and mob:IsA("Model") and not mob:GetAttribute("Dead") and not mob:GetAttribute("Untargetable") then
+                        local isHostile = true
+                        if combatMod and combatMod.IsHostilePvEMob then
+                            local okMob, mobHp = combatMod.IsHostilePvEMob(mob)
+                            isHostile = okMob and mobHp > 0
+                        end
+                        if isHostile then
+                            local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso") or mob:FindFirstChild("Head") or mob.PrimaryPart
+                            if part and part:IsA("BasePart") then
+                                local dist = (part.Position - originPos).Magnitude
+                                if dist <= bestDist then
+                                    bestDist = dist
+                                    bestPart = part
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if bestPart then
+                    local vel = (bestPart.AssemblyLinearVelocity or Vector3.zero) * Vector3.new(1, 0, 1)
+                    if vel.Magnitude > 60 then
+                        vel = Vector3.zero
+                    end
+                    local travelTime = math.clamp(bestDist / math.max(throwSpeed, 1), 0.25, 1.1)
+                    local throwPos = bestPart.Position + vel * travelTime
+                    local offset = throwPos - originPos
+                    if offset.Magnitude > maxRange and offset.Magnitude > 0 then
+                        throwPos = originPos + offset.Unit * maxRange
+                    end
+                    LastDullahanTossTime = now
+                    pcall(function()
+                        useRem:FireServer(throwPos)
+                    end)
+                end
             end
         end
     end
