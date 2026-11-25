@@ -1492,7 +1492,7 @@ local function ApplyWeaponModsToTool(tool)
         if base.ReloadEndTime then stats:SetAttribute("ReloadEndTime", base.ReloadEndTime) end
         if base.ReloadAnimSpeed then stats:SetAttribute("ReloadAnimSpeed", base.ReloadAnimSpeed) end
 
-        if Config.AlwaysAutomatic or Config.FastShoot then
+        if Config.AlwaysAutomatic then
             stats:SetAttribute("Automatic", true)
         elseif base.Automatic ~= nil then
             stats:SetAttribute("Automatic", base.Automatic)
@@ -1501,7 +1501,8 @@ local function ApplyWeaponModsToTool(tool)
         -- Không ghi đè ReloadSpeed/FireRate/Ricochet lên Character để bảo toàn buff của Class/Perk trên Server
 
         if Config.InstantCharge then
-            if base.WarmUp then stats:SetAttribute("WarmUp", 0) end
+            -- Giữ WarmUp > 0 (0.001) để tránh GunClient chia cho 0 (RotateMotor Transform NaN)
+            if base.WarmUp then stats:SetAttribute("WarmUp", 0.001) end
             if base.ChargeTime then stats:SetAttribute("ChargeTime", 0.01) end
         else
             if base.WarmUp then stats:SetAttribute("WarmUp", base.WarmUp) end
@@ -1519,15 +1520,32 @@ local function ApplyWeaponModsToTool(tool)
     end
 end
 
+local OriginalCharWeaponAttrs = setmetatable({}, { __mode = "k" })
+
 local function ApplyAllWeaponMods()
     local char = Utils.GetCharacter()
     if char then
+        local saved = OriginalCharWeaponAttrs[char]
+        if not saved then
+            saved = {
+                BulletPreserveChance = char:GetAttribute("BulletPreserveChance"),
+                Accuracy = char:GetAttribute("Accuracy"),
+            }
+            OriginalCharWeaponAttrs[char] = saved
+        end
+
         if Config.BulletPreserve then
             char:SetAttribute("BulletPreserveChance", 1)
+        elseif char:GetAttribute("BulletPreserveChance") == 1 and saved.BulletPreserveChance ~= 1 then
+            char:SetAttribute("BulletPreserveChance", saved.BulletPreserveChance)
         end
+
         if Config.NoSpread then
             char:SetAttribute("Accuracy", 100)
+        elseif char:GetAttribute("Accuracy") == 100 and saved.Accuracy ~= 100 then
+            char:SetAttribute("Accuracy", saved.Accuracy)
         end
+
         for _, child in ipairs(char:GetChildren()) do
             if child:IsA("Tool") then
                 ApplyWeaponModsToTool(child)
@@ -2159,8 +2177,8 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
         fireMult = math.clamp(fireMult, 1.0, 3.0)
         local effectiveFireRate = baseFireRate * fireMult
         local cooldown = (effectiveFireRate > 30) and (60 / effectiveFireRate) or (1 / math.max(effectiveFireRate, 0.5))
-        -- Khóa cooldown trong khoảng an toàn tuyệt đối 0.05s (~20 viên/s) đến 0.6s
-        cooldown = math.clamp(cooldown, 0.05, 0.6)
+        -- Khóa cooldown trong khoảng an toàn 0.05s (~20 viên/s) đến 3.0s (giữ nguyên nhịp gốc cho súng chậm khi tắt FastShoot)
+        cooldown = math.clamp(cooldown, 0.05, 3.0)
 
         if (now - LastAutoShootTime) >= cooldown then
             local aliveNow, hpNow = IsHostilePvEMob(targetModel)

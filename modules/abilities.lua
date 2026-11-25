@@ -217,19 +217,27 @@ local function RunAbilitiesAndToolsStep()
         char:SetAttribute("NearbyItemESP", true)
     end
 
-    -- Auto Attach Suppressor
-    if Config.AutoAttachSuppressor and AddSuppressorRemote then
+    -- Auto Attach Suppressor (khớp SupressorUIScript: giữ lại tool cũ và hoàn trả sau khi gắn)
+    if Config.AutoAttachSuppressor and AddSuppressorRemote and not (LocalPlayer:GetAttribute("BackpackLocked") == true) then
         local suppressor = char:FindFirstChild("Suppressor") or bp:FindFirstChild("Suppressor")
         if suppressor then
             for _, tool in ipairs(bp:GetChildren()) do
                 if tool:IsA("Tool") and tool:GetAttribute("ToolType") == "Gun" then
                     local st = tool:FindFirstChild("Stats")
                     if st and not st:GetAttribute("NoSuppressor") and not st:GetAttribute("Suppressed") then
-                        pcall(function()
-                            if suppressor.Parent ~= char then
-                                hum:EquipTool(suppressor)
-                            end
-                            AddSuppressorRemote:FireServer(suppressor, tool)
+                        local prevTool = char:FindFirstChildOfClass("Tool")
+                        task.spawn(function()
+                            pcall(function()
+                                if suppressor.Parent ~= char then
+                                    hum:EquipTool(suppressor)
+                                    task.wait(0.05)
+                                end
+                                AddSuppressorRemote:FireServer(suppressor, tool)
+                                task.wait(0.05)
+                                if prevTool and prevTool ~= suppressor and prevTool.Parent == bp and Utils.IsCharacterAlive(char) then
+                                    hum:EquipTool(prevTool)
+                                end
+                            end)
                         end)
                         break
                     end

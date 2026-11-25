@@ -211,7 +211,7 @@ TabCombat:AddSlider("Max Target Range (Studs)", "AimMaxRange", 50, 1000, 10)
 TabCombat:AddToggle("Ngắm bắn cả Trụ quân sự (Military Turrets)", "TargetMilitaryTurrets")
 
 TabCombat:AddSection("Gun Modifications & Auto Upgrades")
-TabCombat:AddToggle("Fast Fire Rate (Stable High DPS - Up to 13.3 rps)", "FastShoot", Combat.ApplyAllWeaponMods)
+TabCombat:AddToggle("Fast Fire Rate (Stable High DPS - Up to 20 rps)", "FastShoot", Combat.ApplyAllWeaponMods)
 TabCombat:AddSlider("Fire Rate Multiplier", "FireRateMultiplier", 1.0, 3.0, 0.05, Combat.ApplyAllWeaponMods)
 -- Fast Reload removed
 TabCombat:AddToggle("No Recoil", "NoRecoil", Combat.ApplyAllWeaponMods)
@@ -221,7 +221,7 @@ TabCombat:AddToggle("Auto Reload & Auto Fuel Weapons", "AutoReload")
 TabCombat:AddToggle("Force Automatic Fire on All Guns", "AlwaysAutomatic", Combat.ApplyAllWeaponMods)
 TabCombat:AddToggle("Instant Charge & No Minigun WarmUp", "InstantCharge", Combat.ApplyAllWeaponMods)
 TabCombat:AddToggle("Max Penetration & Ricochet Bounce", "MaxPenetration", Combat.ApplyAllWeaponMods)
-TabCombat:AddToggle("Bullet Preserve Helper", "BulletPreserve", Combat.ApplyAllWeaponMods)
+TabCombat:AddToggle("Bullet Preserve (Client-Only - Dễ gây đạn ảo khi hết băng Server)", "BulletPreserve", Combat.ApplyAllWeaponMods)
 TabCombat:AddToggle("Auto Attach Suppressors to Guns", "AutoAttachSuppressor")
 
 -- ============================================================================
