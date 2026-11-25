@@ -304,7 +304,7 @@ TabLooting:AddToggle("Auto Feed Shredder/Scraper at Base (Scrap/Battery/Hearts)"
 -- Manual Item Bring removed: Looting is strictly <= 15 studs
 
 TabLooting:AddSection("Smart Food, Auto Heal, Revive, Crates & Safe Interacting")
-TabLooting:AddToggle("Smart Food: Eat if Hunger < Threshold, Collect/Carry if >=", "AutoEat")
+TabLooting:AddToggle("Smart Food (Chỉ áp dụng Endless Night): Tự ăn khi đói < ngưỡng", "AutoEat")
 TabLooting:AddSlider("Smart Food Eat Threshold (%)", "AutoEatThreshold", 15, 95, 5)
 TabLooting:AddToggle("Auto Heal (Bandage / Medkit / Compound R)", "AutoHeal")
 TabLooting:AddSlider("Auto Heal Health Threshold (% HP)", "AutoHealThreshold", 15, 90, 5)

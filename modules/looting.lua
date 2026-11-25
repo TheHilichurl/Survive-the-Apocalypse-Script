@@ -41,13 +41,10 @@ local LastAutoEatActionTime = 0
 -- ENDLESS NIGHT LOOT & ETERNAL NIGHT AUTO-DETECTION
 -- ============================================================================
 local function IsEndlessNightLootMode()
-    if Config.EndlessNightLoot then
-        return true
+    if Config.AutoDetectEternalNight ~= false then
+        return Workspace:GetAttribute("EternalNight") == true
     end
-    if Config.AutoDetectEternalNight ~= false and Workspace:GetAttribute("EternalNight") == true then
-        return true
-    end
-    return false
+    return Config.EndlessNightLoot == true
 end
 
 local function CheckAndSyncEternalNight()
@@ -59,11 +56,11 @@ local function CheckAndSyncEternalNight()
         if Utils.Notify then
             Utils.Notify("Endless Night Event", "Phát hiện sự kiện Đêm Bất Tận (Eternal Night)! Tự động bật Endless Night Loot.", 4)
         end
-    elseif not isEternal and Config.EndlessNightLoot and Config.__STA_AutoEnabledEndlessNight then
+    elseif not isEternal and Config.EndlessNightLoot then
         Config.EndlessNightLoot = false
         Config.__STA_AutoEnabledEndlessNight = nil
         if Utils.Notify then
-            Utils.Notify("Endless Night Event", "Sự kiện Đêm Bất Tận đã kết thúc! Tắt Endless Night Loot.", 3)
+            Utils.Notify("Endless Night Event", "Đang ở chế độ thường! Tắt Endless Night Loot.", 3)
         end
     end
 end
@@ -591,18 +588,11 @@ local function IsBackpackSackItem(item)
         return false
     end
 
-    -- ĐỒ ĂN (Food):
-    -- Nếu đủ điều kiện tự động ăn (AutoEat bật VÀ người chơi bị đói < AutoEatThreshold) -> Ăn trực tiếp (không nhét sack)
-    -- Ngược lại (No bụng / chưa đủ đói / AutoEat tắt) -> CẤT VÀO BACKPACK TRÊN TAY (Backpack Sack)
+    -- ĐỒ ĂN (Food) ở chế độ thường:
+    -- Không chạy AutoEat ở chế độ thường để tránh tự ý ăn / drop đồ từ Backpack khi đang di chuyển;
+    -- luôn cất Food vào Backpack Sack để tự xả tại Base/Generator.
     if cat == "Food" then
-        local char = Utils.GetCharacter()
-        local hungerPct = GetPlayerHungerPercent(char)
-        local hungerThreshold = Config.AutoEatThreshold or 40
-        if Config.AutoEat and hungerPct < hungerThreshold then
-            return false -- Đủ điều kiện tự động ăn -> nhặt/ăn trực tiếp
-        else
-            return true  -- Đầy độ đói hoặc không cần ăn -> Cất vào backpack sack trên tay!
-        end
+        return true
     end
 
     if cat == "Fuel" or cat == "Resource" then
@@ -1094,9 +1084,9 @@ local function ProcessNewlySpawnedLoot()
                 local dist = (itemPos - root.Position).Magnitude
                 local cat = Utils.ClassifyItem(item)
 
-                -- 1. Nếu là Food VÀ đủ điều kiện tự động ăn (Đói < threshold) -> Ăn ngay (ÁP DỤNG CẢ TRONG BASE LẪN NGOÀI MAP!)
+                -- 1. Tự động ăn đồ ăn CHỈ áp dụng cho Endless Night (tránh drop nhầm đồ từ Backpack ở chế độ thường)
                 -- Rate limit 2.0s để server kịp đồng bộ Hunger, CHỈ ĂN TỐI ĐA 1 MÓN mỗi nhịp!
-                if cat == "Food" and (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
+                if cat == "Food" and IsEndlessNightLootMode() and hungerPct < hungerThreshold then
                     local now = os.clock()
                     local maxEatRange = isAtBase and 35 or pickupRadius
                     if dist <= maxEatRange and (now - LastAutoEatActionTime) >= 2.0 then
@@ -1409,10 +1399,10 @@ local function RunLootingAndSurvivalStep()
         return
     end
 
-    -- CHỈ ĂN KHI: (AutoEat hoặc EndlessNightLoot) được bật VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
-    -- Nếu đầy độ đói (hungerPct >= hungerThreshold): TUYỆT ĐỐI KHÔNG ĂN! Đồ ăn trên sàn giữ nguyên cho base.
+    -- CHỈ ĂN KHI: đang ở Endless Night (IsEndlessNightLootMode) VÀ người chơi thực sự bị đói (hungerPct < hungerThreshold).
+    -- Tuyệt đối KHÔNG chạy tự động ăn ở chế độ thường để tránh xung đột trang bị Balo và drop đồ khi đang đi!
     -- BẢO VỆ CHỐNG ĂN SẠCH ĐỒ ĂN: Chỉ ăn đúng 1 món mỗi lần, sau đó chờ ít nhất 2.0s để server đồng bộ Hunger!
-    if (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
+    if IsEndlessNightLootMode() and hungerPct < hungerThreshold then
         local now = os.clock()
         if (now - LastAutoEatActionTime) >= 2.0 then
             local ateSomething = false
