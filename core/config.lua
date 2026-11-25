@@ -108,6 +108,7 @@ local Config = {
     AutoDetonatePotions = false,
     AutoOperatorDroneManage = false,
     OperatorDroneTargeting = "Closest", -- Closest, Strongest, Weakest, Fastest
+    AutoOperatorDroneDance = false,     -- Tự động lái Combat Drone đến zombie gần nhất (<= 200 studs), chỉ đổi mục tiêu khi con đó chết & quay về khi hết quái/tắt
     AutoCommanderAirstrike = false,
     AutoVanguardCharge = false,
     AutoVanguardCounter = false,

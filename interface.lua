@@ -263,6 +263,11 @@ TabAbilities:AddDropdown("Alchemist Potion Selection", "AlchemistPotionName", {
 TabAbilities:AddToggle("Alchemist: Instant Detonate Thrown Potions/Molotovs", "AutoDetonatePotions")
 TabAbilities:AddToggle("Operator: Auto Manage Combat Drone Targeting", "AutoOperatorDroneManage")
 TabAbilities:AddDropdown("Combat Drone Targeting Mode", "OperatorDroneTargeting", { "Closest", "Strongest", "Weakest", "Fastest" })
+TabAbilities:AddToggle("Operator: Auto Múa Combat Drone (Săn từng con <= 200 studs)", "AutoOperatorDroneDance", function(val)
+    if not val and Abilities and Abilities.RecallCombatDrone then
+        pcall(Abilities.RecallCombatDrone)
+    end
+end)
 TabAbilities:AddToggle("Commander: Auto Call Airstrike on Zombie Clusters", "AutoCommanderAirstrike")
 TabAbilities:AddToggle("Vanguard: Auto Charge & Stun Enemies", "AutoVanguardCharge")
 TabAbilities:AddToggle("Vanguard: Auto Counter Shield Shockwave", "AutoVanguardCounter")

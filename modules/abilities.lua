@@ -19,6 +19,41 @@ local AddSuppressorRemote = Hub.Remotes and Hub.Remotes.AddSuppressor
 
 local Abilities = {}
 local LastDullahanTossTime = 0
+local OperatorDroneLockedTarget = nil
+local OperatorDroneWasActive = false
+local LastOperatorDroneMoveTime = 0
+local LastOperatorDronePos = nil
+
+local function FindOperatorControlPadAndDrone()
+    local char = Utils.GetCharacter()
+    local bp = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+    if not char then return nil, nil end
+
+    local cpad = char:FindFirstChild("Control Pad") or (bp and bp:FindFirstChild("Control Pad"))
+    if not cpad then return nil, nil end
+
+    local myTag = tostring(LocalPlayer.UserId)
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name == "Combat Drone" and obj:HasTag(myTag) then
+            return cpad, obj
+        end
+    end
+    return cpad, nil
+end
+
+local function RecallCombatDrone(cpad, drone)
+    OperatorDroneLockedTarget = nil
+    LastOperatorDronePos = nil
+    if not (cpad and drone) then
+        cpad, drone = FindOperatorControlPadAndDrone()
+    end
+    local setHoverRem = cpad and cpad:FindFirstChild("SetHover")
+    if setHoverRem and drone and drone:GetAttribute("HoverPos") ~= nil then
+        pcall(function()
+            setHoverRem:FireServer(drone, nil)
+        end)
+    end
+end
 
 -- ============================================================================
 -- SURGICAL QUICKDRAW UNSTUCK WATCHDOG (Outlaw Class)
@@ -422,19 +457,81 @@ local function RunAbilitiesAndToolsStep()
         end
     end
 
-    -- Operator: Drone Management
-    if Config.AutoOperatorDroneManage then
-        local cpad = char:FindFirstChild("Control Pad") or bp:FindFirstChild("Control Pad")
-        if cpad and cpad:FindFirstChild("SetTargeting") then
-            for _, obj in ipairs(Workspace:GetChildren()) do
-                if obj.Name == "Combat Drone" and obj:HasTag(tostring(LocalPlayer.UserId)) then
-                    if obj:GetAttribute("Targeting") ~= Config.OperatorDroneTargeting then
-                        pcall(function()
-                            cpad.SetTargeting:FireServer(obj, Config.OperatorDroneTargeting)
-                        end)
+    -- Operator: Drone Management & Auto Combat Drone Dance (200 studs locked-target loop)
+    if Config.AutoOperatorDroneManage or Config.AutoOperatorDroneDance or OperatorDroneWasActive then
+        local cpad, combatDrone = FindOperatorControlPadAndDrone()
+
+        if Config.AutoOperatorDroneManage and cpad and combatDrone and cpad:FindFirstChild("SetTargeting") then
+            if combatDrone:GetAttribute("Targeting") ~= Config.OperatorDroneTargeting then
+                pcall(function()
+                    cpad.SetTargeting:FireServer(combatDrone, Config.OperatorDroneTargeting)
+                end)
+            end
+        end
+
+        if Config.AutoOperatorDroneDance then
+            OperatorDroneWasActive = true
+            local setHoverRem = cpad and cpad:FindFirstChild("SetHover")
+            if setHoverRem and combatDrone then
+                local combatMod = Hub.Combat or Combat
+                local charsFolder = Workspace:FindFirstChild("Characters")
+                local maxRange = 200
+
+                local function getValidMobPart(mob)
+                    if not (mob and mob.Parent and mob ~= char and mob:IsA("Model")) then return nil, nil end
+                    if mob:GetAttribute("Dead") or mob:GetAttribute("Untargetable") then return nil, nil end
+                    if combatMod and combatMod.IsHostilePvEMob then
+                        local okMob, mobHp = combatMod.IsHostilePvEMob(mob)
+                        if not (okMob and mobHp > 0) then return nil, nil end
+                    end
+                    local part = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso") or mob:FindFirstChild("Head") or mob.PrimaryPart
+                    if not (part and part:IsA("BasePart")) then return nil, nil end
+                    local dist = (part.Position - root.Position).Magnitude
+                    if dist > maxRange then return nil, nil end
+                    return part, dist
+                end
+
+                local lockedPart = nil
+                local isNewTarget = false
+                lockedPart = select(1, getValidMobPart(OperatorDroneLockedTarget))
+                if not lockedPart then
+                    OperatorDroneLockedTarget = nil
+                    if charsFolder then
+                        local bestDist = maxRange
+                        for _, mob in ipairs(charsFolder:GetChildren()) do
+                            local part, dist = getValidMobPart(mob)
+                            if part and dist <= bestDist then
+                                bestDist = dist
+                                OperatorDroneLockedTarget = mob
+                                lockedPart = part
+                            end
+                        end
+                    end
+                    if OperatorDroneLockedTarget then
+                        isNewTarget = true
                     end
                 end
+
+                if OperatorDroneLockedTarget and lockedPart then
+                    local hoverPos = lockedPart.Position + Vector3.new(0, 8, 0)
+                    local now = os.clock()
+                    local movedEnough = (not LastOperatorDronePos) or ((hoverPos - LastOperatorDronePos).Magnitude >= 5)
+                    if isNewTarget or (movedEnough and (now - LastOperatorDroneMoveTime) >= 0.4) then
+                        LastOperatorDroneMoveTime = now
+                        LastOperatorDronePos = hoverPos
+                        pcall(function()
+                            setHoverRem:FireServer(combatDrone, hoverPos)
+                        end)
+                    end
+                else
+                    -- Không còn quái nào trong 200 studs -> cho drone quay về chế độ đi theo chủ
+                    RecallCombatDrone(cpad, combatDrone)
+                end
             end
+        elseif OperatorDroneWasActive then
+            -- Vừa tắt tính năng -> gọi drone quay về với chủ
+            OperatorDroneWasActive = false
+            RecallCombatDrone(cpad, combatDrone)
         end
     end
 
@@ -676,6 +773,7 @@ function Abilities.RunAutoReviveStep()
 end
 
 Abilities.RunAbilitiesAndToolsStep = RunAbilitiesAndToolsStep
+Abilities.RecallCombatDrone = RecallCombatDrone
 
 Hub.Abilities = Abilities
 return Hub
