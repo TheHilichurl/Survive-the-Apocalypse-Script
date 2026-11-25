@@ -176,7 +176,7 @@ local function IsGunWeapon(tool)
         return true
     end
     local stats = tool:FindFirstChild("Stats")
-    if stats and (stats:GetAttribute("FireRate") or stats:GetAttribute("Range") or stats:GetAttribute("Ammo") or stats:GetAttribute("Bullets")) then
+    if stats and (stats:GetAttribute("FireRate") or stats:GetAttribute("Range") or stats:GetAttribute("Ammo") or stats:GetAttribute("Pellets") or stats:GetAttribute("Bullets")) then
         return true
     end
     if Utils.KnownGuns and Utils.KnownGuns[tool.Name] then
@@ -924,9 +924,14 @@ local function GetEffectiveExtraHitsQuota(held, stats, options, myChar)
     myChar = myChar or Utils.GetCharacter()
     options = type(options) == "table" and options or {}
 
-    local isAutomatic = (stats and stats:GetAttribute("Automatic") == true)
-        or (held and held:GetAttribute("Automatic") == true)
-        or (options and options.Automatic == true)
+    local isAutomatic
+    if held and OriginalWeaponStats[held] then
+        isAutomatic = (OriginalWeaponStats[held].Automatic == true)
+    else
+        isAutomatic = (stats and stats:GetAttribute("Automatic") == true)
+            or (held and held:GetAttribute("Automatic") == true)
+            or (options and options.Automatic == true)
+    end
 
     -- 1. Chỉ nhận diện Ricochet THẬT từ Class Outlaw hoặc thuộc tính Server gốc (tuyệt đối không fake Ricochet trên class khác)
     local isOutlawClass = (myChar and (myChar:GetAttribute("Class") == "Outlaw" or myChar:GetAttribute("Perk") == "Outlaw"))
@@ -2184,46 +2189,64 @@ Hub.AddConnection(RunService.RenderStepped:Connect(function()
             end
 
             if shootRem then
-                local pelletsCount = math.max(1, (stats and stats:GetAttribute("Bullets")) or (held and held:GetAttribute("Bullets")) or 1)
+                -- Game dùng attribute "Pellets" (Shotgun=10, Double Barrel=12, AA-12=8, Ion Shotgun=8) chứ không phải "Bullets"
+                local pelletsCount = math.max(1,
+                    (held and OriginalWeaponStats[held] and OriginalWeaponStats[held].Pellets)
+                    or (stats and (stats:GetAttribute("Pellets") or stats:GetAttribute("Bullets")))
+                    or (held and (held:GetAttribute("Pellets") or held:GetAttribute("Bullets")))
+                    or 1
+                )
                 local myChar = Utils.GetCharacter()
                 local effectiveExtraHits, totalPen, ricCount, isRealOutlaw = GetEffectiveExtraHitsQuota(held, stats, nil, myChar)
 
                 -- Tạo cấu trúc pelletResults chính xác 100% với server game:
                 -- Mục tiêu chính (Target 1) luôn trúng đích 100% (0% ghost bullets),
-                -- Đồng thời thực thi Penetration-Safe Bounce (Cách 1) theo đúng Penetration thật của súng!
+                -- Đồng thời gửi đủ số Pellets của Shotgun và Penetration-Safe Bounce!
                 local pcallOk, pcallErr = pcall(function()
+                    local baseHitData, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, totalPen, Config.PenBounceRadius or 16, myChar, isRealOutlaw)
                     local pelletResults = {}
                     for pIdx = 1, pelletsCount do
-                        local hitDataList, ricochetEffects = CalculateRicochetChain(targetModel, targetPart, hitPos, totalPen, Config.PenBounceRadius or 16, myChar, isRealOutlaw)
-
-                        local fullEffectResults = {
+                        local hitDataCopy = {}
+                        for idx, h in ipairs(baseHitData) do
+                            hitDataCopy[idx] = {
+                                HitChar = h.HitChar,
+                                HitPart = h.HitPart,
+                                HitPos = h.HitPos,
+                                Ricochet = h.Ricochet,
+                            }
+                        end
+                        local effectCopy = {
                             {
                                 Origin = fireOrigin,
                                 End = hitPos,
                             }
                         }
                         for _, rEff in ipairs(ricochetEffects) do
-                            table.insert(fullEffectResults, rEff)
+                            table.insert(effectCopy, {
+                                Origin = rEff.Origin,
+                                End = rEff.End,
+                            })
                         end
 
                         pelletResults[pIdx] = {
                             Target = hitPos,
-                            HitData = hitDataList,
-                            EffectResults = fullEffectResults,
+                            HitData = hitDataCopy,
+                            EffectResults = effectCopy,
                         }
+                    end
 
-                        -- Hiệu ứng tia đạn nảy trực quan trên client
-                        if BulletModule and BulletModule.BulletEffect then
-                            for _, seg in ipairs(fullEffectResults) do
-                                pcall(function()
-                                    BulletModule.BulletEffect(seg.Origin, seg.End, hitDataList, nil, {
-                                        Color = (stats and stats:GetAttribute("BulletColor")) or (held and held:GetAttribute("BulletColor")) or Color3.fromRGB(255, 179, 57),
-                                        Radius = (stats and stats:GetAttribute("BulletRadius")) or 0.08,
-                                        Range = (stats and stats:GetAttribute("BulletRange")) or (held and held:GetAttribute("BulletRange")) or 1000,
-                                        CustomBullet = (stats and stats:GetAttribute("CustomBullet")) or (held and held:GetAttribute("CustomBullet")),
-                                    })
-                                end)
-                            end
+                    -- Hiệu ứng tia đạn nảy trực quan trên client (vẽ 1 lần mỗi phát bắn để tránh lag khi bắn shotgun nhiều pellets)
+                    if BulletModule and BulletModule.BulletEffect and pelletResults[1] then
+                        for _, seg in ipairs(pelletResults[1].EffectResults) do
+                            pcall(function()
+                                BulletModule.BulletEffect(seg.Origin, seg.End, pelletResults[1].HitData, nil, {
+                                    Color = (stats and stats:GetAttribute("BulletColor")) or (held and held:GetAttribute("BulletColor")) or Color3.fromRGB(255, 179, 57),
+                                    VolumeMult = 3 / (pelletsCount ^ 0.75),
+                                    Radius = (stats and stats:GetAttribute("BulletRadius")) or 0.08,
+                                    Range = (stats and stats:GetAttribute("BulletRange")) or (held and held:GetAttribute("BulletRange")) or 1000,
+                                    CustomBullet = (stats and stats:GetAttribute("CustomBullet")) or (held and held:GetAttribute("CustomBullet")),
+                                })
+                            end)
                         end
                     end
 
