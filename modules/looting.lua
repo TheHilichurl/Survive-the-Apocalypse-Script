@@ -36,6 +36,25 @@ local IsHandlingBackpackEquip = false
 local IsDroppingBackpack = false
 local LastUnloadTime = 0
 local LastAutoEatActionTime = 0
+local DropToEatLockUntil = 0
+local PendingEatItems = setmetatable({}, { __mode = "k" })
+
+local function MarkPendingEatItem(item)
+    if not item then return end
+    local now = os.clock()
+    PendingEatItems[item] = now
+    RecentlyDroppedTime[item] = now
+end
+
+local function IsPendingEatItem(item)
+    if not item then return false end
+    local t = PendingEatItems[item]
+    if t and (os.clock() - t) < 3.5 then
+        return true
+    end
+    PendingEatItems[item] = nil
+    return false
+end
 
 -- ============================================================================
 -- ENDLESS NIGHT LOOT & ETERNAL NIGHT AUTO-DETECTION
@@ -574,6 +593,17 @@ local function IsBackpackSackItem(item)
     if IsEndlessNightLootMode() then
         local cat = Utils.ClassifyItem(item)
         if cat == "Food" then
+            if IsPendingEatItem(item) or os.clock() < DropToEatLockUntil then
+                return false
+            end
+            if Config.AutoEat then
+                local char = Utils.GetCharacter()
+                local hungerPct = GetPlayerHungerPercent(char)
+                local hungerThreshold = Config.AutoEatThreshold or 40
+                if hungerPct < hungerThreshold then
+                    return false -- Đang đói & bật AutoEat -> ăn thẳng, không hút ngược vào Balo
+                end
+            end
             return true
         end
         return false
@@ -592,6 +622,9 @@ local function IsBackpackSackItem(item)
     -- Nếu bật AutoEat VÀ đang đói (< AutoEatThreshold) -> không nhét vào Balo để tự ăn trực tiếp trên sàn.
     -- Ngược lại (đã no hoặc tắt AutoEat) -> cất vào Backpack Sack để mang về Base xả ở Generator.
     if cat == "Food" then
+        if IsPendingEatItem(item) or os.clock() < DropToEatLockUntil then
+            return false
+        end
         local char = Utils.GetCharacter()
         local hungerPct = GetPlayerHungerPercent(char)
         local hungerThreshold = Config.AutoEatThreshold or 40
@@ -656,7 +689,7 @@ local function StoreCandidatesToBackpack(candidates)
     local storedCount = 0
     for _, item in ipairs(candidates) do
         local isValid = item and item.Parent and item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace)
-        if isValid and not IsItemPermanentlyIgnored(item) and not IsItemAlreadyAtBaseOrDelivered(item) then
+        if isValid and not IsPendingEatItem(item) and not IsItemPermanentlyIgnored(item) and not IsItemAlreadyAtBaseOrDelivered(item) then
             -- Tuyệt đối không kéo từ xa quá 15 studs
             local itemDist = (item:GetPivot().Position - root.Position).Magnitude
             if itemDist <= 15 then
@@ -972,7 +1005,10 @@ TouchAndFlyItemToBase = function(item, customTargetCFrame)
 end
 
 local function LootItemToBackpackNoEquip(item)
-    if not item or not item.Parent or IsItemPermanentlyIgnored(item) or IsItemAlreadyAtBaseOrDelivered(item) then return false end
+    if not item or not item.Parent or IsPendingEatItem(item) or IsItemPermanentlyIgnored(item) or IsItemAlreadyAtBaseOrDelivered(item) then return false end
+    if Utils.ClassifyItem(item) == "Food" and (os.clock() < DropToEatLockUntil or IsHandlingBackpackEquip or IsDroppingBackpack) then
+        return false
+    end
     if Config.AutoPickupIgnoreShelf and item:GetAttribute("OnShelf") then return false end
 
     local char = Utils.GetCharacter()
@@ -1085,18 +1121,18 @@ local function ProcessNewlySpawnedLoot()
 
     for _, item in ipairs(queue) do
         if item and item.Parent and item:IsDescendantOf(Workspace:FindFirstChild("DroppedItems") or Workspace) then
-            if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) then
+            if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsPendingEatItem(item) and not IsItemPermanentlyIgnored(item) then
                 local itemPos = item:GetPivot().Position
                 local dist = (itemPos - root.Position).Magnitude
                 local cat = Utils.ClassifyItem(item)
 
-                -- 1. Tự động ăn đồ ăn xung quanh khi đói (< threshold): hoạt động ở cả chế độ thường (nếu bật AutoEat) lẫn Endless Night
+                -- 1. Tự động ăn đồ ăn xung quanh khi bật AutoEat VÀ đói (< threshold)
                 -- Rate limit 2.0s để server kịp đồng bộ Hunger, CHỈ ĂN TỐI ĐA 1 MÓN mỗi nhịp!
-                if cat == "Food" and (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
+                if cat == "Food" and Config.AutoEat and hungerPct < hungerThreshold then
                     local now = os.clock()
-                    local maxEatRange = isAtBase and 35 or pickupRadius
-                    if dist <= maxEatRange and (now - LastAutoEatActionTime) >= 2.0 then
-                        RecordItemPickupAttempt(item)
+                    local maxEatRange = math.min(pickupRadius, 12 + (char:GetAttribute("DragRange") or 0))
+                    if dist <= maxEatRange and (now - LastAutoEatActionTime) >= 2.0 and now >= DropToEatLockUntil then
+                        MarkPendingEatItem(item)
                         if PickUpItemRemote then
                             pcall(function() PickUpItemRemote:FireServer(item) end)
                         end
@@ -1110,15 +1146,18 @@ local function ProcessNewlySpawnedLoot()
 
                 -- 2 & 3. Các vật phẩm khác: Chỉ nhặt khi chưa ở Base
                 elseif not IsItemAlreadyAtBaseOrDelivered(item) and dist <= 15 then
+                    -- Nếu là Food đang trong lúc drop-to-eat -> bỏ qua, tuyệt đối không hút vào Balo
+                    if cat == "Food" and (os.clock() < DropToEatLockUntil or IsHandlingBackpackEquip or IsDroppingBackpack) then
+                        -- skip
                     -- Nếu là vật phẩm cất vào Backpack Sack (Scrap, Fuel, Battery, Heart, Screws, hoặc Food khi no bụng):
                     -- Chỉ gom vào Backpack sack khi ở ngoài map (not isAtBase)
-                    if IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) then
+                    elseif IsBackpackSackItem(item) and not isAtBase and (Config.AutoStoreBackpack or Config.AutoFuelGenerator or Config.AutoShredResources or Config.AutoPickup or Config.AutoEat) then
                         if dist <= sackRadius and not IsBackpackFull() then
                             table.insert(sackCandidates, item)
                         end
 
-                    -- Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...)
-                    elseif not IsBackpackSackItem(item) and Config.AutoPickup and ShouldPickupItem(item) then
+                    -- Nếu là vật phẩm túi đồ cá nhân Roblox (Vũ khí, Đạn, Máu, Bản vẽ...; bỏ qua Food vì đã có Step 1.2 ăn có kiểm soát)
+                    elseif cat ~= "Food" and not IsBackpackSackItem(item) and Config.AutoPickup and ShouldPickupItem(item) then
                         if dist <= pickupRadius then
                             table.insert(inventoryCandidates, item)
                         end
@@ -1168,11 +1207,13 @@ local function SetupDroppedItemsWatcher()
             end
             -- Quét phụ trợ sau 0.12s để phòng trường hợp server nảy đồ vật lý hoặc nạp part chậm từ rương
             task.delay(0.12, function()
-                if child and child.Parent and not IsItemAlreadyAtBaseOrDelivered(child) then
+                if child and child.Parent and not IsPendingEatItem(child) and os.clock() >= DropToEatLockUntil and not IsHandlingBackpackEquip and not IsDroppingBackpack and not IsItemAlreadyAtBaseOrDelivered(child) then
                     local ch = Utils.GetCharacter()
                     local r = Utils.GetRootPart(ch)
                     if r and (child:GetPivot().Position - r.Position).Magnitude <= 15 then
-                        pcall(LootItemToBackpackNoEquip, child)
+                        if (IsBackpackSackItem(child) and (Config.AutoStoreBackpack or Config.AutoPickup)) or (Config.AutoPickup and ShouldPickupItem(child)) then
+                            pcall(LootItemToBackpackNoEquip, child)
+                        end
                     end
                 end
             end)
@@ -1405,13 +1446,13 @@ local function RunLootingAndSurvivalStep()
         return
     end
 
-    -- CHỈ ĂN KHI: (AutoEat bật ở chế độ thường hoặc đang ở Endless Night) VÀ thực sự bị đói (hungerPct < hungerThreshold).
-    -- Ở chế độ thường: chỉ ăn trong túi Tool (1.1) hoặc đồ ăn quanh người trên sàn (1.2).
-    -- Riêng bước móc/drop từ Backpack Sack (1.3): CHỈ chạy trong Endless Night (IsEndlessNightLootMode).
+    -- CHỈ ĂN KHI: Config.AutoEat BẬT VÀ thực sự bị đói (hungerPct < hungerThreshold).
+    -- Ở chế độ thường: chỉ ăn trong túi Tool (1.1) hoặc đồ ăn quanh người trên sàn (1.2); KHÔNG BAO GIỜ drop từ Balo.
+    -- Ở Endless Night (IsEndlessNightLootMode): nếu quanh người/túi không có đồ ăn -> chạy bước 1.3 drop 1 món từ Balo và đợi spawn để ăn!
     -- BẢO VỆ CHỐNG ĂN SẠCH ĐỒ ĂN: Chỉ ăn đúng 1 món mỗi lần, sau đó chờ ít nhất 2.0s để server đồng bộ Hunger!
-    if (Config.AutoEat or IsEndlessNightLootMode()) and hungerPct < hungerThreshold then
+    if Config.AutoEat and hungerPct < hungerThreshold and not IsHandlingBackpackEquip and not IsDroppingBackpack then
         local now = os.clock()
-        if (now - LastAutoEatActionTime) >= 2.0 then
+        if (now - LastAutoEatActionTime) >= 2.0 and now >= DropToEatLockUntil then
             local ateSomething = false
 
             -- 1.1 Ưu tiên ăn đồ ăn dạng Tool đang có trong túi đồ cá nhân hoặc trên tay trước
@@ -1454,16 +1495,16 @@ local function RunLootingAndSurvivalStep()
                 ateSomething = true
             end
 
-            -- 1.2 Nếu túi cá nhân không có, ăn ĐÚNG 1 món đồ ăn gần nhất trên sàn / trong base
+            -- 1.2 Nếu túi cá nhân không có, ăn ĐÚNG 1 món đồ ăn gần nhất trên sàn quanh người (phạm vi hợp lệ của ItemInteractClient: <= 12 + DragRange)
             if not ateSomething and droppedFolder then
                 local bestFood = nil
-                local bestDist = 9999
-                local maxEatRange = isAtBase and 35 or pickupRadius
+                local maxEatRange = math.min(12 + (char:GetAttribute("DragRange") or 0), isAtBase and 24 or pickupRadius)
+                local bestDist = maxEatRange
 
                 for _, item in ipairs(droppedFolder:GetChildren()) do
-                    if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) then
+                    if Utils.ClassifyItem(item) == "Food" and not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsPendingEatItem(item) and not IsItemPermanentlyIgnored(item) then
                         local dist = (item:GetPivot().Position - root.Position).Magnitude
-                        if dist <= maxEatRange and dist < bestDist then
+                        if dist <= bestDist then
                             bestFood = item
                             bestDist = dist
                         end
@@ -1471,7 +1512,11 @@ local function RunLootingAndSurvivalStep()
                 end
 
                 if bestFood then
-                    RecordItemPickupAttempt(bestFood)
+                    MarkPendingEatItem(bestFood)
+                    local heldNow = char:FindFirstChildOfClass("Tool")
+                    if heldNow and (heldNow.Name == "Backpack" or heldNow:GetAttribute("ToolType") == "Backpack") then
+                        pcall(function() hum:UnequipTools() end)
+                    end
                     if PickUpItemRemote then
                         pcall(function() PickUpItemRemote:FireServer(bestFood) end)
                     end
@@ -1485,12 +1530,13 @@ local function RunLootingAndSurvivalStep()
             end
 
             -- 1.3 Endless Night Auto Eat (CHỈ chạy khi đang ở Endless Night):
-            -- Trong Endless Night balo 100% chỉ chứa đồ ăn -> nếu trên sàn và túi Tool hết đồ ăn, móc 1 món từ Backpack Sack ra ăn ngay!
-            -- Ở chế độ thường TUYỆT ĐỐI KHÔNG chạy bước này để tránh vừa đi vừa drop Scrap/Gas/tài nguyên khỏi Balo.
-            if IsEndlessNightLootMode() and not ateSomething and GetBackpackItemCount() > 0 and AdjustBackpackRemote and not IsDroppingBackpack and not IsHandlingBackpackEquip then
+            -- Trong Endless Night balo 100% chỉ chứa đồ ăn -> nếu trên sàn và túi Tool hết đồ ăn:
+            -- Cầm Balo -> Drop 1 món -> Đợi server spawn vào DroppedItems -> Khóa chống hút lại -> Bỏ Balo -> Ăn sạch -> Trả vũ khí!
+            if IsEndlessNightLootMode() and not ateSomething and droppedFolder and GetBackpackItemCount() > 0 and AdjustBackpackRemote and not IsDroppingBackpack and not IsHandlingBackpackEquip then
                 local bpTool = GetBackpackTool()
                 if bpTool then
                     IsHandlingBackpackEquip = true
+                    DropToEatLockUntil = now + 3.0
                     LastAutoEatActionTime = now
                     ateSomething = true
 
@@ -1501,48 +1547,95 @@ local function RunLootingAndSurvivalStep()
                         LastDesiredEquippedTool = prevTool
                     end
 
+                    -- Snapshot các item Food đã có trên sàn trước khi drop để nhận diện đúng món vừa rơi
+                    local existingSnapshot = {}
+                    for _, it in ipairs(droppedFolder:GetChildren()) do
+                        existingSnapshot[it] = true
+                    end
+
                     task.spawn(function()
-                        if bpTool.Parent ~= char then
-                            hum:EquipTool(bpTool)
-                            task.wait(0.06)
-                        end
-
-                        local dropPos = root.CFrame * CFrame.new(0, 0.4, -2)
                         pcall(function()
-                            AdjustBackpackRemote:FireServer(nil, dropPos)
-                        end)
-                        task.wait(0.08)
-
-                        -- Quét tìm món đồ ăn vừa rơi ra để ăn ngay lập tức
-                        if droppedFolder then
-                            local droppedFood = nil
-                            local closestDist = 9999
-                            for _, it in ipairs(droppedFolder:GetChildren()) do
-                                if Utils.ClassifyItem(it) == "Food" and not it:GetAttribute("OnShelf") and not ActiveFlyingItems[it] then
-                                    local dist = (it:GetPivot().Position - root.Position).Magnitude
-                                    if dist <= 8 and dist < closestDist then
-                                        droppedFood = it
-                                        closestDist = dist
-                                    end
+                            if bpTool.Parent ~= char then
+                                hum:EquipTool(bpTool)
+                                local tEq = os.clock()
+                                while bpTool.Parent ~= char and (os.clock() - tEq) < 0.45 and Utils.IsCharacterAlive(char) do
+                                    Services.RunService.Heartbeat:Wait()
                                 end
                             end
-                            if droppedFood then
-                                RecordItemPickupAttempt(droppedFood)
+
+                            if not Utils.IsCharacterAlive(char) or bpTool.Parent ~= char then
+                                return
+                            end
+
+                            local dropPos = root.CFrame * CFrame.new(0, 0, -3)
+                            AdjustBackpackRemote:FireServer(nil, dropPos)
+
+                            -- Đợi linh hoạt tới khi server thật sự spawn món đồ ăn ra DroppedItems (tối đa 1.0s)
+                            local droppedFood = nil
+                            local waitDropEnd = os.clock() + 1.0
+                            while os.clock() < waitDropEnd and Utils.IsCharacterAlive(char) do
+                                local bestNewDist = 12
+                                local bestAnyDist = 10
+                                local fallbackFood = nil
+                                for _, it in ipairs(droppedFolder:GetChildren()) do
+                                    if Utils.ClassifyItem(it) == "Food" and not it:GetAttribute("OnShelf") and not ActiveFlyingItems[it] then
+                                        local dist = (it:GetPivot().Position - root.Position).Magnitude
+                                        if not existingSnapshot[it] and dist <= bestNewDist then
+                                            droppedFood = it
+                                            bestNewDist = dist
+                                        elseif dist <= bestAnyDist then
+                                            fallbackFood = it
+                                            bestAnyDist = dist
+                                        end
+                                    end
+                                end
+                                droppedFood = droppedFood or fallbackFood
+                                if droppedFood then
+                                    MarkPendingEatItem(droppedFood)
+                                    break
+                                end
+                                Services.RunService.Heartbeat:Wait()
+                            end
+
+                            -- Cất Balo trước khi gọi PickUpItem để ăn đúng chuẩn ItemInteractClient
+                            local toolToRestore = prevTool or LastDesiredEquippedTool
+                            if toolToRestore and toolToRestore.Parent == bp and toolToRestore ~= bpTool and Utils.IsCharacterAlive(char) then
+                                hum:EquipTool(toolToRestore)
+                            else
+                                hum:UnequipTools()
+                            end
+                            task.wait(0.04)
+
+                            if droppedFood and droppedFood.Parent and droppedFood:IsDescendantOf(droppedFolder) then
+                                MarkPendingEatItem(droppedFood)
                                 if PickUpItemRemote then
-                                    pcall(function() PickUpItemRemote:FireServer(droppedFood) end)
+                                    PickUpItemRemote:FireServer(droppedFood)
                                 end
                                 local prompt = droppedFood:FindFirstChildWhichIsA("ProximityPrompt", true)
                                 if prompt and prompt.Enabled then
                                     Utils.SafeTriggerPrompt(prompt)
                                 end
-                            end
-                        end
 
-                        task.wait(0.05)
-                        local toolToRestore = prevTool or LastDesiredEquippedTool
-                        if toolToRestore and toolToRestore.Parent == bp and Utils.IsCharacterAlive(char) then
-                            pcall(function() hum:EquipTool(toolToRestore) end)
-                        end
+                                -- Chờ server xác nhận ăn xong (tối đa 0.5s), nếu sau 0.18s vẫn còn trên sàn thì gọi lại thêm 1 lần
+                                local retryFired = false
+                                local eatWaitStart = os.clock()
+                                while (os.clock() - eatWaitStart) < 0.5 and Utils.IsCharacterAlive(char) do
+                                    if not droppedFood.Parent or not droppedFood:IsDescendantOf(droppedFolder) then
+                                        break
+                                    end
+                                    if not retryFired and (os.clock() - eatWaitStart) >= 0.18 then
+                                        retryFired = true
+                                        if PickUpItemRemote then
+                                            PickUpItemRemote:FireServer(droppedFood)
+                                        end
+                                    end
+                                    Services.RunService.Heartbeat:Wait()
+                                end
+                            end
+                        end)
+
+                        LastAutoEatActionTime = os.clock()
+                        DropToEatLockUntil = os.clock() + 0.5
                         IsHandlingBackpackEquip = false
                     end)
                 end
@@ -1586,7 +1679,7 @@ local function RunLootingAndSurvivalStep()
             local maxSlots = GetBackpackMaxCapacity() - GetBackpackItemCount()
 
             for _, item in ipairs(droppedFolder:GetChildren()) do
-                if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsItemPermanentlyIgnored(item) then
+                if not item:GetAttribute("OnShelf") and not ActiveFlyingItems[item] and not IsPendingEatItem(item) and not IsItemPermanentlyIgnored(item) then
                     if IsBackpackSackItem(item) and not IsItemAlreadyAtBaseOrDelivered(item) then
                         local dist = (item:GetPivot().Position - root.Position).Magnitude
                         if dist <= pickupRadius then
@@ -1605,10 +1698,11 @@ local function RunLootingAndSurvivalStep()
         end
     end
 
-    -- 4. Tự động nhặt Bản vẽ thiết kế (Blueprints), Vũ khí (Súng/Melee), Đạn, Tiêu hao (Máu/Đồ ăn) vào Túi Roblox mặc định
+    -- 4. Tự động nhặt Bản vẽ thiết kế (Blueprints), Vũ khí (Súng/Melee), Đạn, Tiêu hao (Máu) vào Túi Roblox mặc định
+    -- (Bỏ qua Food vì bước 1.2 đã xử lý ăn đúng 1 món/2.0s khi đói và bước 3 cất Balo khi no)
     if Config.AutoPickup and droppedFolder then
         for _, item in ipairs(droppedFolder:GetChildren()) do
-            if not ActiveFlyingItems[item] and not IsBackpackSackItem(item) and not IsItemPermanentlyIgnored(item) and ShouldPickupItem(item) and not IsItemAlreadyAtBaseOrDelivered(item) then
+            if not ActiveFlyingItems[item] and not IsPendingEatItem(item) and Utils.ClassifyItem(item) ~= "Food" and not IsBackpackSackItem(item) and not IsItemPermanentlyIgnored(item) and ShouldPickupItem(item) and not IsItemAlreadyAtBaseOrDelivered(item) then
                 local dist = (item:GetPivot().Position - root.Position).Magnitude
                 if dist <= pickupRadius then
                     LootItemToBackpackNoEquip(item)
