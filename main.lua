@@ -21,7 +21,9 @@ end
 _G.STA_MasterHub_Loaded = true
 
 -- 2. Shared Master Hub Context
-local Hub = {}
+local Hub = {
+    Alive = true,
+}
 _G.STA_MasterHub = Hub
 
 local RAW_BASE_URL = "https://raw.githubusercontent.com/TheHilichurl/Survive-the-Apocalypse-Script/main/"
@@ -105,6 +107,7 @@ LoadModule("interface.lua")
 
 -- 4. Global Cleanup Registration
 _G.STA_MasterHub_Cleanup = function()
+    Hub.Alive = false
     _G.STA_MasterHub_Loaded = false
 
     if Hub.Connections then
@@ -130,6 +133,14 @@ _G.STA_MasterHub_Cleanup = function()
                 Hub.GameModules.Bullet.BulletHitscan = Hub.Combat.OriginalBulletHitscan
             end
             Hub.GameModules.Bullet.__HiliHooked = nil
+        end
+        if Hub.Combat.ShakeModule then
+            if Hub.Combat.OriginalShake then
+                Hub.Combat.ShakeModule.Shake = Hub.Combat.OriginalShake
+            end
+            if Hub.Combat.OriginalShakeChar then
+                Hub.Combat.ShakeModule.ShakeChar = Hub.Combat.OriginalShakeChar
+            end
         end
         if Hub.Combat.OriginalGetAutoTarget then
             _G.getCurrentAutoTargetPosition = Hub.Combat.OriginalGetAutoTarget

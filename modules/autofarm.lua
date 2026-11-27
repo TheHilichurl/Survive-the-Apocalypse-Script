@@ -55,7 +55,7 @@ end)
 
 -- Auto Vote Yes on Hardcore Poll
 if StartHardModeVoteRemote and StartHardModeVoteRemote:IsA("RemoteEvent") then
-    StartHardModeVoteRemote.OnClientEvent:Connect(function()
+    local hardConn = StartHardModeVoteRemote.OnClientEvent:Connect(function()
         if Config.AutoFarmEnabled and (Config.AutoFarmHardcoreMode or Config.AutoVoteHardModeYes) then
             task.wait(0.5)
             if VoteHardModeRemote then
@@ -67,6 +67,7 @@ if StartHardModeVoteRemote and StartHardModeVoteRemote:IsA("RemoteEvent") then
             end
         end
     end)
+    if Hub.AddConnection then Hub.AddConnection(hardConn) else table.insert(Hub.Connections or {}, hardConn) end
 end
 
 -- Identify Home Base Position

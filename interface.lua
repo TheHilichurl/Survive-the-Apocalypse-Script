@@ -97,7 +97,7 @@ local StatusLabel2 = TabDashboard:AddLabel("Generator: Lv.-- (Fuel: --%) | Base:
 local StatusLabel3 = TabDashboard:AddLabel("Player: Class -- (Lv.--) | Perk: -- | Gems: -- | Skulls: --")
 
 task.spawn(function()
-    while _G.STA_MasterHub_Loaded do
+    while Hub.Alive ~= false and _G.STA_MasterHub_Loaded do
         pcall(function()
             local day = Workspace:GetAttribute("CurrentDay") or 1
             local night = Workspace:GetAttribute("Night") and "Night" or "Day"
@@ -490,7 +490,7 @@ task.spawn(function()
     local lastModTick = 0
     local lastSlowTick = 0
     local lastGCTick = 0
-    while _G.STA_MasterHub_Loaded do
+    while Hub.Alive ~= false and _G.STA_MasterHub_Loaded do
         local now = os.clock()
 
         pcall(Combat.RunKillAuraAndBreakAuraStep)

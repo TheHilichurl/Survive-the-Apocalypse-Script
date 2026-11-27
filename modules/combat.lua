@@ -1262,6 +1262,9 @@ end
 if ShakeModule then
     local origShake = ShakeModule.Shake
     local origShakeChar = ShakeModule.ShakeChar
+    Combat.ShakeModule = ShakeModule
+    Combat.OriginalShake = origShake
+    Combat.OriginalShakeChar = origShakeChar
     if origShake then
         ShakeModule.Shake = function(...)
             if Config.NoCameraShake then return end

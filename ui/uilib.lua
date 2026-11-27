@@ -22,6 +22,17 @@ local LocalPlayer = Players.LocalPlayer
 local UILib = {}
 UILib.__index = UILib
 
+local function TrackConn(conn)
+    if conn and Hub then
+        if type(Hub.AddConnection) == "function" then
+            Hub.AddConnection(conn)
+        elseif type(Hub.Connections) == "table" then
+            table.insert(Hub.Connections, conn)
+        end
+    end
+    return conn
+end
+
 -- Curated Yellow / White & Dark Obsidian Theme
 UILib.Theme = {
     Primary = Color3.fromRGB(250, 204, 21),      -- Radiant Sun Gold / Yellow (#FACC15)
@@ -158,14 +169,14 @@ local function FireAllResponsiveCallbacks()
 end
 
 if Workspace.CurrentCamera then
-    Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(FireAllResponsiveCallbacks)
+    TrackConn(Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(FireAllResponsiveCallbacks))
 end
-Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+TrackConn(Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     if Workspace.CurrentCamera then
-        Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(FireAllResponsiveCallbacks)
+        TrackConn(Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(FireAllResponsiveCallbacks))
         FireAllResponsiveCallbacks()
     end
-end)
+end))
 
 local function GetSafeParent()
     local ok, gethuiFunc = pcall(function() return gethui_fn end)
@@ -229,7 +240,7 @@ local function MakeElementDraggable(dragHandle, targetFrame)
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(inp)
+    TrackConn(UserInputService.InputChanged:Connect(function(inp)
         if dragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
             local vp = GetViewport()
             local delta = inp.Position - dragStart
@@ -242,13 +253,13 @@ local function MakeElementDraggable(dragHandle, targetFrame)
                 startPos.Y.Offset
             )
         end
-    end)
+    end))
 
-    UserInputService.InputEnded:Connect(function(inp)
+    TrackConn(UserInputService.InputEnded:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
-    end)
+    end))
 end
 
 function UILib:CreateWindow(config)
@@ -256,13 +267,19 @@ function UILib:CreateWindow(config)
     local WindowTitle = config.Title or "Hilichurl Hub — Survive the Apocalypse"
     local ToggleKey = config.ToggleKey or Enum.KeyCode.RightShift
 
+    local safeParent = GetSafeParent()
+    if safeParent then
+        local oldGui = safeParent:FindFirstChild("HiliHub_AnimeFantasy")
+        if oldGui then pcall(function() oldGui:Destroy() end) end
+    end
+
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "HiliHub_AnimeFantasy"
     ScreenGui.ResetOnSpawn = false
     ScreenGui.IgnoreGuiInset = true
     ScreenGui.DisplayOrder = 1000
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    ScreenGui.Parent = GetSafeParent()
+    ScreenGui.Parent = safeParent
 
     -- Outer Drop-Shadow / Neon Glow Backdrop Frame
     local GlowBackdrop = Instance.new("Frame")
@@ -449,11 +466,11 @@ function UILib:CreateWindow(config)
 
     MakeElementDraggable(Topbar, MainFrame)
 
-    UserInputService.InputBegan:Connect(function(inp, gpe)
+    TrackConn(UserInputService.InputBegan:Connect(function(inp, gpe)
         if not gpe and inp.KeyCode == ToggleKey then
             SetWindowOpen(not MainFrame.Visible)
         end
-    end)
+    end))
 
     -- Sidebar & Content Holder
     local Sidebar = Instance.new("ScrollingFrame")
@@ -526,7 +543,7 @@ function UILib:CreateWindow(config)
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(inp)
+    TrackConn(UserInputService.InputChanged:Connect(function(inp)
         if resizing and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
             local vp = GetViewport()
             local delta = inp.Position - resizeStartPos
@@ -540,9 +557,9 @@ function UILib:CreateWindow(config)
             end
             FireAllResponsiveCallbacks()
         end
-    end)
+    end))
 
-    UserInputService.InputEnded:Connect(function(inp)
+    TrackConn(UserInputService.InputEnded:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
             if resizing then
                 resizing = false
@@ -552,7 +569,7 @@ function UILib:CreateWindow(config)
                 end
             end
         end
-    end)
+    end))
 
     -- Toast Notifications Holder
     local ToastHolder = Instance.new("Frame")
@@ -1002,16 +1019,16 @@ function UILib:CreateWindow(config)
                     end
                 end
             end)
-            UserInputService.InputEnded:Connect(function(inp)
+            TrackConn(UserInputService.InputEnded:Connect(function(inp)
                 if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
                     sliding = false
                 end
-            end)
-            UserInputService.InputChanged:Connect(function(inp)
+            end))
+            TrackConn(UserInputService.InputChanged:Connect(function(inp)
                 if sliding and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
                     UpdateSlide(inp)
                 end
-            end)
+            end))
 
             return { Set = SetValue, Get = function() return val end }
         end

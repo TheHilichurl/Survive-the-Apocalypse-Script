@@ -39,11 +39,19 @@ end
 Services.LocalPlayer = LocalPlayer
 
 local Camera = Services.Workspace.CurrentCamera
-Services.Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+local Connections = {}
+local function AddConnection(conn)
+    if conn then
+        table.insert(Connections, conn)
+    end
+    return conn
+end
+
+AddConnection(Services.Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     if Services.Workspace.CurrentCamera then
         Services.Camera = Services.Workspace.CurrentCamera
     end
-end)
+end))
 Services.Camera = Camera
 
 -- Executor Compatibility Helpers
@@ -130,14 +138,6 @@ local GameRemotes = {
     ChangeSetting = Remotes and Remotes:FindFirstChild("Settings") and Remotes.Settings:FindFirstChild("ChangeSetting"),
 }
 
--- Active Connections Tracker
-local Connections = {}
-local function AddConnection(conn)
-    if conn then
-        table.insert(Connections, conn)
-    end
-    return conn
-end
 
 -- Knightmare Anti-Cheat Ping Guard
 task.spawn(function()
