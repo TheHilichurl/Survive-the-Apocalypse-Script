@@ -378,21 +378,22 @@ TabBase:AddButton("Craft Selected Item via Remote", function()
     end
 end)
 
-TabBase:AddSection("Auto Craft Ammo (Ammo Crate Station / Remote) & Merchant")
-TabBase:AddToggle("Auto Craft Ammo When Low (Auto Craft Ammo)", "AutoCraftAmmo")
+TabBase:AddSection("Auto Craft Ammo (Near Ammo Crate) & Merchant")
+TabBase:AddToggle("Auto Craft Ammo When Near Crate (Auto Craft Ammo)", "AutoCraftAmmo")
 TabBase:AddDropdown("Ammo Craft Type", "AutoCraftAmmoType", { "Smart", "All", "Medium", "Long", "Pistol", "Shells" })
-TabBase:AddSlider("Max Ammo Reserve Cap in Inventory", "AutoCraftAmmoMaxCap", 30, 500, 10)
-TabBase:AddInput("Custom Max Ammo Cap", "AutoCraftAmmoMaxCap", "180", function(text)
+TabBase:AddSlider("Max Ammo Reserve Cap in Inventory", "AutoCraftAmmoMaxCap", 500, 100000, 500)
+TabBase:AddInput("Custom Max Ammo Cap (1 - 100k)", "AutoCraftAmmoMaxCap", "10000", function(text)
     local n = tonumber(text)
     if n and n > 0 then
-        Config.AutoCraftAmmoMaxCap = math.floor(n)
-        Utils.NotifyGame("Set Max Ammo Cap: " .. tostring(math.floor(n)), Color3.fromRGB(56, 189, 248))
+        local clamped = math.clamp(math.floor(n), 1, 100000)
+        Config.AutoCraftAmmoMaxCap = clamped
+        Utils.NotifyGame("Set Max Ammo Cap: " .. tostring(clamped), Color3.fromRGB(56, 189, 248))
     else
-        Config.AutoCraftAmmoMaxCap = 180
-        Utils.NotifyGame("Invalid number! Resetting to default: 180.", Color3.fromRGB(248, 113, 113), "Warning")
+        Config.AutoCraftAmmoMaxCap = 10000
+        Utils.NotifyGame("Invalid number! Resetting to default: 10000.", Color3.fromRGB(248, 113, 113), "Warning")
     end
 end)
-TabBase:AddButton("Craft Ammo Now via Remote (No Station Needed)", function()
+TabBase:AddButton("Craft Ammo Now (Near Ammo Crate)", function()
     if Structures and Structures.CraftAmmo then
         Structures.CraftAmmo()
     end

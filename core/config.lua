@@ -178,7 +178,7 @@ local Config = {
     SelectedCraftItem = "Map",
     AutoCraftAmmo = false,
     AutoCraftAmmoType = "Smart",       -- Smart (matches held gun), All, Pistol, Medium, Long, Shells
-    AutoCraftAmmoMaxCap = 180,         -- Maximum ammo reserve cap in inventory
+    AutoCraftAmmoMaxCap = 10000,       -- Maximum ammo reserve cap in inventory (10k default, up to 100k)
     AutoCraftAmmoThreshold = 60,       -- Backup threshold
     AutoBuyMerchant = false,
 

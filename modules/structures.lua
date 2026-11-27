@@ -24,42 +24,106 @@ local UpgradableStructuresData = Hub.GameData and Hub.GameData.UpgradableStructu
 
 local Structures = {}
 local LastRepairTime = 0
-local LastAmmoCraftTime = 0
 local MerchantCache = {}
 
-local function GetCraftAmmoRemote()
-    -- 1. Tìm trong tagged AmmoCrate
-    local taggedCrates = CollectionService:GetTagged("AmmoCrate")
-    for _, c in ipairs(taggedCrates) do
-        local r = c and c:FindFirstChild("CraftAmmo")
-        if r then return r end
+local IsCraftingAmmoBurst = false
+local AmmoCraftPaused = false
+local PausedAtScrap = nil
+local PausedStateKey = nil
+local WasNearAmmoCrate = false
+local LastAmmoStatusNotifyTime = 0
+
+local function GetCrateWorldPosition(crate)
+    if not crate then return nil end
+    local prompt = crate:FindFirstChild("AmmoCratePrompt", true)
+    if prompt and prompt.Parent and prompt.Parent:IsA("BasePart") then
+        return prompt.Parent.Position
     end
-    -- 2. Tìm trong Workspace.Structures["Ammo Crate"]
+    if crate:IsA("Model") then
+        local refPart = crate.PrimaryPart or crate:FindFirstChild("DamageHitbox") or crate:FindFirstChild("MainPart")
+        if refPart and refPart:IsA("BasePart") then
+            return refPart.Position
+        end
+        local ok, pivot = pcall(function() return crate:GetPivot() end)
+        if ok and pivot then
+            return pivot.Position
+        end
+    elseif crate:IsA("BasePart") then
+        return crate.Position
+    end
+    return nil
+end
+
+local function FindNearbyAmmoCrate(root)
+    if not root then return nil end
+    local rootPos = root.Position
+    local bestRemote, bestCrate, bestDist = nil, nil, math.huge
+    local seen = {}
+
+    local function inspectCrate(crate)
+        if not crate or seen[crate] or not crate:IsDescendantOf(Workspace) then return end
+        seen[crate] = true
+        local craftRemote = crate:FindFirstChild("CraftAmmo")
+        if not craftRemote then return end
+        local pos = GetCrateWorldPosition(crate)
+        if not pos then return end
+        local prompt = crate:FindFirstChild("AmmoCratePrompt", true)
+        local maxRange = math.max(((prompt and prompt:IsA("ProximityPrompt") and prompt.MaxActivationDistance) or 8) + 4, 12)
+        local dist = (rootPos - pos).Magnitude
+        if dist <= maxRange and dist < bestDist then
+            bestRemote = craftRemote
+            bestCrate = crate
+            bestDist = dist
+        end
+    end
+
+    for _, c in ipairs(CollectionService:GetTagged("AmmoCrate")) do
+        inspectCrate(c)
+    end
     local structs = Workspace:FindFirstChild("Structures")
     if structs then
         for _, st in ipairs(structs:GetChildren()) do
-            if st.Name == "Ammo Crate" and st:FindFirstChild("CraftAmmo") then
-                return st.CraftAmmo
+            if st.Name == "Ammo Crate" then
+                inspectCrate(st)
             end
         end
     end
-    -- 3. Tìm remote trực tiếp từ ReplicatedStorage.Structures["Ammo Crate"] (không cần đặt Crate ra Workspace)
-    local repStructures = Services.ReplicatedStorage:FindFirstChild("Structures")
-    if repStructures then
-        local repCrate = repStructures:FindFirstChild("Ammo Crate")
-        if repCrate and repCrate:FindFirstChild("CraftAmmo") then
-            return repCrate.CraftAmmo
-        end
+
+    return bestRemote, bestCrate, bestDist
+end
+
+local function GetScrapAmount()
+    local wsScrap = Workspace:GetAttribute("Scrap")
+    if typeof(wsScrap) == "number" then
+        return wsScrap
     end
-    -- 4. Tìm trong Remotes chung hoặc con của ReplicatedStorage
-    local repRemotes = Services.ReplicatedStorage:FindFirstChild("Remotes")
-    if repRemotes and repRemotes:FindFirstChild("CraftAmmo") then
-        return repRemotes.CraftAmmo
-    end
-    if Services.ReplicatedStorage:FindFirstChild("CraftAmmo") then
-        return Services.ReplicatedStorage.CraftAmmo
+    local lpScrap = LocalPlayer:GetAttribute("Scrap")
+    if typeof(lpScrap) == "number" then
+        return lpScrap
     end
     return nil
+end
+
+local function GetAmmoCraftCost()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local mainUI = pg and pg:FindFirstChild("MainUI")
+    local ammoCrateUI = mainUI and mainUI:FindFirstChild("AmmoCrate")
+    local subtitle = ammoCrateUI and ammoCrateUI:FindFirstChild("Subtitle")
+    if subtitle and subtitle:IsA("TextLabel") and type(subtitle.Text) == "string" then
+        local num = tonumber(subtitle.Text:match("(%d+)"))
+        if num and num > 0 then
+            return num
+        end
+    end
+    return 5
+end
+
+local function NotifyAmmoCraftStatus(msg, color, kind)
+    local now = os.clock()
+    if (now - LastAmmoStatusNotifyTime) >= 6 then
+        LastAmmoStatusNotifyTime = now
+        Utils.NotifyGame(msg, color, kind)
+    end
 end
 
 local function GetCurrentAmmoAmount(aType)
@@ -106,6 +170,149 @@ local function DetectGunAmmoType(tool)
         return "Pistol"
     end
     return nil
+end
+
+local function ResolveTargetAmmoTypes(char, bp, mode)
+    local m = mode or Config.AutoCraftAmmoType or "Smart"
+    local targetTypes = {}
+
+    if m == "Smart" or m:find("Smart") then
+        local equippedTool = char and char:FindFirstChildWhichIsA("Tool")
+        local detected = DetectGunAmmoType(equippedTool)
+        if not detected and bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") then
+                    detected = DetectGunAmmoType(t)
+                    if detected then break end
+                end
+            end
+        end
+        table.insert(targetTypes, detected or "Medium")
+    elseif m == "All" or m:find("All") then
+        targetTypes = { "Medium", "Long", "Pistol", "Shells" }
+    else
+        table.insert(targetTypes, m)
+    end
+
+    return targetTypes
+end
+
+local function GetClampedMaxAmmoCap()
+    local raw = tonumber(Config.AutoCraftAmmoMaxCap) or 10000
+    return math.clamp(math.floor(raw), 1, 100000)
+end
+
+local function ResetAmmoCraftPause(stateKey)
+    AmmoCraftPaused = false
+    PausedAtScrap = nil
+    PausedStateKey = stateKey
+end
+
+local function SetAmmoCraftPaused(scrapAmount, stateKey, msg)
+    AmmoCraftPaused = true
+    PausedAtScrap = scrapAmount
+    PausedStateKey = stateKey
+    if msg then
+        NotifyAmmoCraftStatus(msg, Color3.fromRGB(251, 191, 36), "Warning")
+    end
+end
+
+local function InvokeCraftAmmoOnce(craftRemote, aType)
+    local beforeAmmo = GetCurrentAmmoAmount(aType)
+    local isRemoteFunc = craftRemote:IsA("RemoteFunction")
+    local ok, res = pcall(function()
+        if isRemoteFunc then
+            return craftRemote:InvokeServer(aType)
+        else
+            craftRemote:FireServer(aType)
+            return true
+        end
+    end)
+
+    local afterAmmo = GetCurrentAmmoAmount(aType)
+    if ok and res ~= false and afterAmmo <= beforeAmmo then
+        -- Wait briefly for attribute replication before concluding ammo cannot increase
+        local deadline = os.clock() + (isRemoteFunc and 0.06 or 0.15)
+        while os.clock() < deadline do
+            task.wait(0.02)
+            afterAmmo = GetCurrentAmmoAmount(aType)
+            if afterAmmo > beforeAmmo then
+                break
+            end
+        end
+    end
+
+    return ok, res, beforeAmmo, afterAmmo
+end
+
+local function StartRapidAmmoCraftBurst()
+    if IsCraftingAmmoBurst then return end
+    IsCraftingAmmoBurst = true
+
+    task.spawn(function()
+        local okLoop = pcall(function()
+            while Hub.Alive ~= false and Config.AutoCraftAmmo do
+                local char = Utils.GetCharacter()
+                local root = Utils.GetRootPart(char)
+                local bp = LocalPlayer:FindFirstChild("Backpack")
+                if not (char and root and bp and Utils.IsCharacterAlive(char)) then
+                    break
+                end
+
+                local craftRemote = FindNearbyAmmoCrate(root)
+                if not craftRemote then
+                    break
+                end
+
+                local maxCap = GetClampedMaxAmmoCap()
+                local mode = Config.AutoCraftAmmoType or "Smart"
+                local stateKey = tostring(mode) .. ":" .. tostring(maxCap)
+                local targetTypes = ResolveTargetAmmoTypes(char, bp, mode)
+                local craftCost = GetAmmoCraftCost()
+                local curScrap = GetScrapAmount()
+
+                if curScrap ~= nil and curScrap < craftCost then
+                    SetAmmoCraftPaused(
+                        curScrap,
+                        stateKey,
+                        "Hết Scrap (" .. tostring(curScrap) .. "/" .. tostring(craftCost) .. "), tạm dừng Auto Craft đạn!"
+                    )
+                    break
+                end
+
+                local nextAmmoType = nil
+                for _, aType in ipairs(targetTypes) do
+                    if GetCurrentAmmoAmount(aType) < maxCap then
+                        nextAmmoType = aType
+                        break
+                    end
+                end
+
+                if not nextAmmoType then
+                    break
+                end
+
+                local ok, res, beforeAmmo, afterAmmo = InvokeCraftAmmoOnce(craftRemote, nextAmmoType)
+                if (not ok) or (res == false) or (afterAmmo <= beforeAmmo) then
+                    local postScrap = GetScrapAmount()
+                    local pauseMsg
+                    if postScrap ~= nil and postScrap < craftCost then
+                        pauseMsg = "Hết Scrap (" .. tostring(postScrap) .. "/" .. tostring(craftCost) .. "), đã dừng Auto Craft đạn!"
+                    else
+                        pauseMsg = "Số đạn " .. tostring(nextAmmoType) .. " không tăng thêm (Scrap: " .. tostring(postScrap or "?") .. ") - dừng craft cho tới khi có thêm Scrap / lại gần Ammo Crate!"
+                    end
+                    SetAmmoCraftPaused(postScrap, stateKey, pauseMsg)
+                    break
+                end
+
+                task.wait()
+            end
+        end)
+        IsCraftingAmmoBurst = false
+        if not okLoop then
+            -- Ensure burst lock never sticks on unexpected runtime errors
+        end
+    end)
 end
 
 local function RunStructuresAndCraftingStep()
@@ -176,50 +383,53 @@ local function RunStructuresAndCraftingStep()
         end
     end
 
-    -- Smart Auto Craft Ammo via Remote (Không cần đặt Ammo Crate ra Workspace)
-    if Config.AutoCraftAmmo and (os.clock() - LastAmmoCraftTime) >= 0.4 then
-        local craftRemote = GetCraftAmmoRemote()
-        if craftRemote then
-            local maxCap = tonumber(Config.AutoCraftAmmoMaxCap) or 180
-            local mode = Config.AutoCraftAmmoType or "Smart"
-            local targetTypes = {}
+    -- Auto Craft Ammo gần Ammo Crate: bắn remote liên tục theo burst, kiểm tra tăng đạn & Scrap
+    local nearRemote = FindNearbyAmmoCrate(root)
+    if not nearRemote or not Config.AutoCraftAmmo then
+        WasNearAmmoCrate = false
+        ResetAmmoCraftPause(nil)
+        return
+    end
 
-            if mode == "Smart" or mode:find("Smart") then
-                local equippedTool = char:FindFirstChildWhichIsA("Tool")
-                local detected = DetectGunAmmoType(equippedTool)
-                if not detected and bp then
-                    for _, t in ipairs(bp:GetChildren()) do
-                        if t:IsA("Tool") then
-                            detected = DetectGunAmmoType(t)
-                            if detected then break end
-                        end
-                    end
-                end
-                table.insert(targetTypes, detected or "Medium")
-            elseif mode == "All" or mode:find("All") then
-                targetTypes = { "Medium", "Long", "Pistol", "Shells" }
-            else
-                table.insert(targetTypes, mode)
-            end
+    local maxCap = GetClampedMaxAmmoCap()
+    local mode = Config.AutoCraftAmmoType or "Smart"
+    local curStateKey = tostring(mode) .. ":" .. tostring(maxCap)
+    local curScrap = GetScrapAmount()
+    local craftCost = GetAmmoCraftCost()
 
-            for _, aType in ipairs(targetTypes) do
-                local curAmmo = GetCurrentAmmoAmount(aType)
-                if curAmmo < maxCap then
-                    LastAmmoCraftTime = os.clock()
-                    task.spawn(function()
-                        pcall(function()
-                            if craftRemote:IsA("RemoteFunction") then
-                                craftRemote:InvokeServer(aType)
-                            else
-                                craftRemote:FireServer(aType)
-                            end
-                        end)
-                    end)
-                    break
-                end
-            end
+    if not WasNearAmmoCrate or PausedStateKey ~= curStateKey then
+        ResetAmmoCraftPause(curStateKey)
+    elseif AmmoCraftPaused and curScrap ~= nil and PausedAtScrap ~= nil and curScrap > PausedAtScrap then
+        ResetAmmoCraftPause(curStateKey)
+    end
+    WasNearAmmoCrate = true
+
+    if AmmoCraftPaused or IsCraftingAmmoBurst then
+        return
+    end
+
+    local targetTypes = ResolveTargetAmmoTypes(char, bp, mode)
+    local needsCraft = false
+    for _, aType in ipairs(targetTypes) do
+        if GetCurrentAmmoAmount(aType) < maxCap then
+            needsCraft = true
+            break
         end
     end
+    if not needsCraft then
+        return
+    end
+
+    if curScrap ~= nil and curScrap < craftCost then
+        SetAmmoCraftPaused(
+            curScrap,
+            curStateKey,
+            "Không đủ Scrap (" .. tostring(curScrap) .. "/" .. tostring(craftCost) .. ") để craft đạn!"
+        )
+        return
+    end
+
+    StartRapidAmmoCraftBurst()
 end
 
 -- Merchant Shop Listener
@@ -245,36 +455,31 @@ if UpdateMerchantDataRemote then
 end
 
 local function CraftAmmo(ammoType)
-    local craftRemote = GetCraftAmmoRemote()
+    local char = Utils.GetCharacter()
+    local root = Utils.GetRootPart(char)
+    local craftRemote = FindNearbyAmmoCrate(root)
     if not craftRemote then
-        Utils.NotifyGame("Không tìm thấy Remote CraftAmmo!", Color3.fromRGB(248, 113, 113), "Error")
+        Utils.NotifyGame("Hãy đứng gần Ammo Crate trong base để chế đạn!", Color3.fromRGB(248, 113, 113), "Warning")
         return false
     end
-    local aType = ammoType or Config.AutoCraftAmmoType or "Smart"
-    if aType == "Smart" then
-        local char = Utils.GetCharacter()
-        local bp = LocalPlayer:FindFirstChild("Backpack")
-        local detected = DetectGunAmmoType(char and char:FindFirstChildWhichIsA("Tool"))
-        if not detected and bp then
-            for _, t in ipairs(bp:GetChildren()) do
-                if t:IsA("Tool") then
-                    detected = DetectGunAmmoType(t)
-                    if detected then break end
-                end
-            end
-        end
-        aType = detected or "Medium"
+
+    local curScrap = GetScrapAmount()
+    local craftCost = GetAmmoCraftCost()
+    if curScrap ~= nil and curScrap < craftCost then
+        Utils.NotifyGame("Không đủ Scrap (" .. tostring(curScrap) .. "/" .. tostring(craftCost) .. ")!", Color3.fromRGB(248, 113, 113), "Warning")
+        return false
     end
+
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local targetTypes = ResolveTargetAmmoTypes(char, bp, ammoType or Config.AutoCraftAmmoType or "Smart")
+    local aType = targetTypes[1] or "Medium"
+
     task.spawn(function()
-        local ok = pcall(function()
-            if craftRemote:IsA("RemoteFunction") then
-                craftRemote:InvokeServer(aType)
-            else
-                craftRemote:FireServer(aType)
-            end
-        end)
-        if ok then
-            Utils.NotifyGame("Đã gửi lệnh chế đạn " .. tostring(aType) .. " qua Remote!", Color3.fromRGB(74, 222, 128))
+        local ok, res, beforeAmmo, afterAmmo = InvokeCraftAmmoOnce(craftRemote, aType)
+        if ok and res ~= false and afterAmmo > beforeAmmo then
+            Utils.NotifyGame("Đã chế đạn " .. tostring(aType) .. " (+" .. tostring(afterAmmo - beforeAmmo) .. ")!", Color3.fromRGB(74, 222, 128))
+        else
+            Utils.NotifyGame("Không thể chế thêm đạn " .. tostring(aType) .. " (Scrap: " .. tostring(GetScrapAmount() or "?") .. ")!", Color3.fromRGB(251, 191, 36), "Warning")
         end
     end)
     return true
